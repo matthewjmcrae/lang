@@ -2,7 +2,7 @@
 
 Noria is a small statically typed language and C++ compiler project created by Matthew McRae. The goal is a compact, defensible compiler MVP that demonstrates the core pieces of a real language implementation without overbuilding.
 
-Noria is actively in development with new features set to be added in the examples/future directory
+Noria is actively in development with features next in development in the examples/future directory
 
 ## Current Status
 
