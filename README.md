@@ -1,6 +1,6 @@
-# Matt's Custom Programming Language
+# Noria | Statically Typed Custom Programming Language
 
-Noria is a small statically typed language and C++ compiler project. The goal is a compact, defensible compiler MVP that demonstrates the core pieces of a real language implementation without overbuilding.
+Noria is a small statically typed language and C++ compiler project created by Matthew McRae. The goal is a compact, defensible compiler MVP that demonstrates the core pieces of a real language implementation without overbuilding.
 
 ## Current Status
 
