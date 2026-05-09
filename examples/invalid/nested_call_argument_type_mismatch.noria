@@ -1,0 +1,13 @@
+fn choose(flag: bool, a: i32, b: i32) -> i32 {
+  if flag {
+    return a;
+  } else {
+    return b;
+  }
+}
+
+fn main() -> i32 {
+  let x: i32 = 10;
+  let y: i32 = 20;
+  return choose(x + y, x, y);
+}

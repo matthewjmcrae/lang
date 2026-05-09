@@ -1,0 +1,14 @@
+fn main() -> i32 {
+  let n: i32 = 7;
+  let a: i32 = 0;
+  let b: i32 = 1;
+
+  while n > 0 {
+    let next: i32 = a + b;
+    a = b;
+    b = next;
+    n = n - 1;
+  }
+
+  return a;
+}

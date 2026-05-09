@@ -1,0 +1,19 @@
+fn even(n: i32) -> i32 {
+  if n == 0 {
+    return 1;
+  } else {
+    return odd(n - 1);
+  }
+}
+
+fn odd(n: i32) -> i32 {
+  if n == 0 {
+    return 0;
+  } else {
+    return even(n - 1);
+  }
+}
+
+fn main() -> i32 {
+  return even(6);
+}

@@ -1,0 +1,57 @@
+#pragma once
+
+#include <cstddef>
+#include <string>
+#include <string_view>
+
+namespace noria {
+
+  enum class TokenKind {
+    End,
+    Identifier,
+    Integer,
+    Fn,
+    Return,
+    Arrow,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Semicolon,
+    Let,
+    If,
+    Else,
+    While,
+    True,
+    False,
+    Colon,
+    Comma,
+    Equal,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    EqualEqual,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Unknown,
+  };
+
+  struct SourceLocation {
+    std::size_t line = 1;
+    std::size_t column = 1;
+  };
+
+  struct Token {
+    TokenKind kind = TokenKind::Unknown;
+    std::string text;
+    SourceLocation location;
+  };
+
+  std::string_view tokenKindName(TokenKind kind);
+
+} // namespace noria
+

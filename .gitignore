@@ -1,0 +1,34 @@
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Generated compiler outputs
+*.o
+*.ll
+*.bc
+*.s
+*.out
+/noria
+/tmp/
+/*.dSYM/
+
+# Editor / IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Test / generated artifacts
+test-output/
+*.stderr
+*.stdout
+*.tokens
+*.ast
+
+# Sanitizers / profiling
+*.profraw
+*.profdata

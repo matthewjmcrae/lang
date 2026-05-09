@@ -1,0 +1,19 @@
+// Future example: for loops, break, continue, and modulo are not part of the current MVP.
+
+fn first_multiple_of_seven(limit: i32) -> i32 {
+  for let number: i32 = 1; number < limit; number = number + 1 {
+    if number < 7 {
+      continue;
+    }
+
+    if number % 7 == 0 {
+      return number;
+    }
+  }
+
+  return 0;
+}
+
+fn main() -> i32 {
+  return first_multiple_of_seven(30);
+}

@@ -1,0 +1,13 @@
+// Future example: if expressions are not part of the current MVP.
+
+fn choose(condition: bool) -> i32 {
+  return if condition {
+    1
+  } else {
+    0
+  };
+}
+
+fn main() -> i32 {
+  return choose(true);
+}

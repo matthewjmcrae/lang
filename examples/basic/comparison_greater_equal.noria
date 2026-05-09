@@ -1,0 +1,8 @@
+fn main() -> i32 {
+  let x: i32 = 7;
+  if x >= 7 {
+    return 1;
+  } else {
+    return 0;
+  }
+}

@@ -1,0 +1,13 @@
+// Future example: logical operators are not part of the current MVP.
+
+fn main() -> i32 {
+  let value: i32 = 7;
+  let in_range: bool = value > 0 && value < 10;
+  let is_special: bool = value == 42 || value == 7;
+
+  if in_range && is_special {
+    return 1;
+  } else {
+    return 0;
+  }
+}

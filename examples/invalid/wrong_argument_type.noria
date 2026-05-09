@@ -1,0 +1,11 @@
+fn take_bool(flag: bool) -> i32 {
+  if flag {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+fn main() -> i32 {
+  return take_bool(7);
+}

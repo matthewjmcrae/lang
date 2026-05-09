@@ -1,0 +1,15 @@
+fn less(a: i32, b: i32) -> bool {
+  return a < b;
+}
+
+fn choose(flag: bool) -> i32 {
+  if flag {
+    return 8;
+  } else {
+    return 3;
+  }
+}
+
+fn main() -> i32 {
+  return choose(less(1, 2));
+}

@@ -1,0 +1,9 @@
+// Future example: modules and imports are not part of the current MVP.
+
+import math::{clamp, max};
+
+fn main() -> i32 {
+  let raw_score: i32 = 137;
+  let capped_score: i32 = clamp(raw_score, 0, 100);
+  return max(capped_score, 75);
+}

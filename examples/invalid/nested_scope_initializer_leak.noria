@@ -1,0 +1,11 @@
+fn main() -> i32 {
+  let result: i32 = 0;
+
+  while result < 3 {
+    let inside: i32 = result + 1;
+    result = inside;
+  }
+
+  let copy: i32 = inside;
+  return copy;
+}

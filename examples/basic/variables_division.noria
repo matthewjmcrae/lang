@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let total: i32 = 21;
+  let divisor: i32 = 3;
+  return total / divisor;
+}

@@ -1,0 +1,13 @@
+// Future example: local type inference is not part of the current MVP.
+
+fn main() -> i32 {
+  let base = 21;
+  let doubled = base * 2;
+  let is_answer = doubled == 42;
+
+  if is_answer {
+    return doubled;
+  } else {
+    return 0;
+  }
+}

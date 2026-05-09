@@ -1,0 +1,19 @@
+// Future example: unary operators are not part of the current MVP.
+
+fn abs(value: i32) -> i32 {
+  if value < 0 {
+    return -value;
+  } else {
+    return value;
+  }
+}
+
+fn main() -> i32 {
+  let enabled: bool = !false;
+
+  if enabled {
+    return abs(-12);
+  } else {
+    return 0;
+  }
+}

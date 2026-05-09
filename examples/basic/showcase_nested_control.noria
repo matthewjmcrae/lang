@@ -1,0 +1,23 @@
+fn classify(value: i32) -> i32 {
+  if value < 0 {
+    return 0;
+  } else {
+    if value < 5 {
+      return 1;
+    } else {
+      return 2;
+    }
+  }
+}
+
+fn main() -> i32 {
+  let i: i32 = 0;
+  let score: i32 = 0;
+
+  while i < 7 {
+    score = score + classify(i);
+    i = i + 1;
+  }
+
+  return score;
+}

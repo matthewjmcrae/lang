@@ -1,0 +1,11 @@
+fn answer() -> i32 {
+  return 42;
+}
+
+fn main() -> i32 {
+  if answer() {
+    return 1;
+  } else {
+    return 0;
+  }
+}

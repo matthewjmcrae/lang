@@ -1,0 +1,10 @@
+fn main() -> i32 {
+  let flag: bool = false;
+  flag = 10 > 2;
+
+  if flag {
+    return 5;
+  } else {
+    return 9;
+  }
+}

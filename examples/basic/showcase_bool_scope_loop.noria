@@ -1,0 +1,26 @@
+fn adjust(value: i32) -> i32 {
+  let result: i32 = value;
+  let small: bool = result < 10;
+
+  if small {
+    let bonus: i32 = 5;
+    result = result + bonus;
+  } else {
+    let penalty: i32 = 2;
+    result = result - penalty;
+  }
+
+  return result;
+}
+
+fn main() -> i32 {
+  let i: i32 = 0;
+  let total: i32 = 0;
+
+  while i < 5 {
+    total = total + adjust(i * 3);
+    i = i + 1;
+  }
+
+  return total;
+}

@@ -1,0 +1,11 @@
+fn max(a: i32, b: i32) -> i32 {
+  if a > b {
+    return a;
+  } else {
+    return b;
+  }
+}
+
+fn main() -> i32 {
+  return max(max(3, 9), max(12, 5));
+}

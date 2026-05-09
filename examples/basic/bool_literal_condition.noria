@@ -1,0 +1,7 @@
+fn main() -> i32 {
+  if true {
+    return 7;
+  } else {
+    return 9;
+  }
+}

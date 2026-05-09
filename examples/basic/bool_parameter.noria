@@ -1,0 +1,11 @@
+fn choose(flag: bool, a: i32, b: i32) -> i32 {
+  if flag {
+    return a;
+  } else {
+    return b;
+  }
+}
+
+fn main() -> i32 {
+  return choose(3 < 4, 11, 22);
+}

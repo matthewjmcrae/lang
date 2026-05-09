@@ -1,0 +1,19 @@
+fn main() -> i32 {
+  let x: i32 = 3;
+  let y: i32 = 4;
+  let result: i32 = 0;
+
+  if x * 2 + y >= 10 {
+    result = (x + y) * 2;
+  } else {
+    result = x - y;
+  }
+
+  if result != 14 {
+    result = 99;
+  } else {
+    result = result + 1;
+  }
+
+  return result;
+}
