@@ -141,12 +141,43 @@ grep -q "Let value: i32" "${TEST_OUT_DIR}/ast_smoke.ast"
 grep -q "If" "${TEST_OUT_DIR}/ast_smoke.ast"
 grep -q "Call factorial" "${TEST_OUT_DIR}/ast_smoke.ast"
 
+echo "[noria-tests] type future params examples/basic/type_future_params_smoke.noria"
+grep -q "define i32 @consume_f64(double" "${TEST_OUT_DIR}/type_future_params_smoke.ll"
+grep -q "define i32 @consume_str(ptr" "${TEST_OUT_DIR}/type_future_params_smoke.ll"
+
+echo "[noria-tests] type representation unit tests"
+"${BUILD_DIR}/type_representation_test"
+
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"
 done
 
 grep -q "2:10: typecheck: unknown local variable 'missing'" \
   "${TEST_OUT_DIR}/unknown_variable.stderr"
+
+echo "[noria-tests] future type name() diagnostics"
+grep -q "typecheck: cannot initialize 'x' of type f64 with bool" \
+  "${TEST_OUT_DIR}/f64_bool_mismatch.stderr"
+grep -q "typecheck: cannot assign bool to variable 'x' of type f64" \
+  "${TEST_OUT_DIR}/f64_assignment_mismatch.stderr"
+grep -q "typecheck: return type i32 does not match expected f64" \
+  "${TEST_OUT_DIR}/f64_return_mismatch.stderr"
+grep -q "typecheck: argument 1 of 'take' expects f64, got bool" \
+  "${TEST_OUT_DIR}/f64_argument_mismatch.stderr"
+grep -q "typecheck: cannot initialize 'x' of type f64 with i32" \
+  "${TEST_OUT_DIR}/f64_i32_mismatch.stderr"
+
+grep -q "typecheck: cannot initialize 's' of type str with i32" \
+  "${TEST_OUT_DIR}/str_i32_mismatch.stderr"
+grep -q "typecheck: cannot assign i32 to variable 'text' of type str" \
+  "${TEST_OUT_DIR}/str_assignment_mismatch.stderr"
+grep -q "typecheck: return type i32 does not match expected str" \
+  "${TEST_OUT_DIR}/str_return_mismatch.stderr"
+grep -q "typecheck: argument 1 of 'take' expects str, got i32" \
+  "${TEST_OUT_DIR}/str_argument_mismatch.stderr"
+
+grep -q "typecheck: unknown type 'widget'" \
+  "${TEST_OUT_DIR}/unknown_future_type.stderr"
 
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in

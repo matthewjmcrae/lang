@@ -21,6 +21,17 @@ add_executable(noria
 
 target_include_directories(noria PRIVATE include)
 
+add_executable(type_representation_test
+  tests/type_representation_test.cpp
+  src/TypeChecker.cpp
+)
+
+target_include_directories(type_representation_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(type_representation_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(noria PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -35,3 +46,4 @@ if(NORIA_ENABLE_SANITIZERS)
 endif()
 
 add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
+add_test(NAME type_representation COMMAND type_representation_test)

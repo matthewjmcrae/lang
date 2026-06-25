@@ -10,6 +10,55 @@ namespace noria {
     std::string atLocation(SourceLocation location, const std::string& message);
   } // namespace
 
+  Type Type::array(Type elementType) {
+    Type type(TypeKind::Array);
+    type.element = std::make_shared<Type>(std::move(elementType));
+    return type;
+  }
+
+  Type Type::structType(std::string name) {
+    Type type(TypeKind::Struct);
+    type.structName = std::move(name);
+    return type;
+  }
+
+  bool Type::operator==(const Type& other) const {
+    if (kind != other.kind)
+      return false;
+
+    switch (kind) {
+    case TypeKind::Array:
+      if (!element || !other.element)
+        return element == other.element;
+      return *element == *other.element;
+    case TypeKind::Struct:
+      return structName == other.structName;
+    default:
+      return true;
+    }
+  }
+
+  std::string Type::name() const {
+    switch (kind) {
+    case TypeKind::I32:
+      return "i32";
+    case TypeKind::F64:
+      return "f64";
+    case TypeKind::Bool:
+      return "bool";
+    case TypeKind::Str:
+      return "str";
+    case TypeKind::Array:
+      return "[" + (element ? element->name() : std::string{"?"}) + "]";
+    case TypeKind::Struct:
+      return structName.empty() ? std::string{"<struct>"} : structName;
+    case TypeKind::Void:
+      return "void";
+    }
+
+    return "<unknown>";
+  }
+
   // main flow
   // check() -> checkFunction() + push scope (pop when done)-> checkStatement() -> push scope if
   // needed -> checkStatement() ->.... ->pop scope
@@ -110,7 +159,7 @@ namespace noria {
 
     if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement)) {
       const Type conditionType = checkExpression(*ifStatement->condition);
-      if (conditionType != Type::Bool) {
+      if (conditionType != Type::boolean()) {
         throw CompileError(
             atLocation(ifStatement->condition->location,
                        "typecheck: if condition must be bool, got " + typeName(conditionType)));
@@ -129,7 +178,7 @@ namespace noria {
 
     if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(&statement)) {
       const Type conditionType = checkExpression(*whileStatement->condition);
-      if (conditionType != Type::Bool) {
+      if (conditionType != Type::boolean()) {
         throw CompileError(
             atLocation(whileStatement->condition->location,
                        "typecheck: while condition must be bool, got " + typeName(conditionType)));
@@ -146,10 +195,10 @@ namespace noria {
 
   Type TypeChecker::checkExpression(const ast::Expression& expression) {
     if (dynamic_cast<const ast::IntegerLiteral*>(&expression))
-      return Type::I32;
+      return Type::i32();
 
     if (dynamic_cast<const ast::BoolLiteral*>(&expression))
-      return Type::Bool;
+      return Type::boolean();
 
     if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(&expression))
       return lookupLocal(identifier->name, identifier->location);
@@ -158,7 +207,7 @@ namespace noria {
       const Type left = checkExpression(*binary->left);
       const Type right = checkExpression(*binary->right);
 
-      if (left != Type::I32 || right != Type::I32) {
+      if (left != Type::i32() || right != Type::i32()) {
         throw CompileError(
             atLocation(binary->location, "typecheck: binary operator requires i32 operands, got " +
                                              typeName(left) + " and " + typeName(right)));
@@ -169,14 +218,14 @@ namespace noria {
       case ast::BinaryOperator::Subtract:
       case ast::BinaryOperator::Multiply:
       case ast::BinaryOperator::Divide:
-        return Type::I32;
+        return Type::i32();
       case ast::BinaryOperator::Less:
       case ast::BinaryOperator::LessEqual:
       case ast::BinaryOperator::Greater:
       case ast::BinaryOperator::GreaterEqual:
       case ast::BinaryOperator::Equal:
       case ast::BinaryOperator::NotEqual:
-        return Type::Bool;
+        return Type::boolean();
       }
     }
 
@@ -239,23 +288,22 @@ namespace noria {
 
   Type TypeChecker::parseTypeName(const std::string& typeName, SourceLocation location) const {
     if (typeName == "i32")
-      return Type::I32;
+      return Type::i32();
+
+    if (typeName == "f64")
+      return Type::f64();
 
     if (typeName == "bool")
-      return Type::Bool;
+      return Type::boolean();
+
+    if (typeName == "str")
+      return Type::str();
 
     throw CompileError(atLocation(location, "typecheck: unknown type '" + typeName + "'"));
   }
 
   std::string TypeChecker::typeName(Type type) const {
-    switch (type) {
-    case Type::I32:
-      return "i32";
-    case Type::Bool:
-      return "bool";
-    }
-
-    return "<unknown>";
+    return type.name();
   }
 
   bool TypeChecker::isAssignable(Type expected, Type actual) const {

@@ -2,6 +2,7 @@
 
 #include "noria/Ast.hpp"
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -13,9 +14,37 @@ namespace noria {
     std::string generate(const ast::Module& module) const;
 
   private:
-    enum class IrType {
+    enum class IrTypeKind {
       I32,
+      F64,
       Bool,
+      Str,
+      Array,
+      Struct,
+      Void,
+    };
+
+    // Codegen mirror of TypeChecker's Type: kind plus optional payload so the
+    // emitter knows aggregate layouts (Array element / Struct name) for later
+    // getelementptr work. Scalars only use `kind`.
+    struct IrType {
+      IrTypeKind kind;
+      std::shared_ptr<IrType> element; // Array element type
+      std::string structName;          // Struct name
+
+      IrType() = default;
+      explicit IrType(IrTypeKind kind) : kind(kind) {}
+
+      static IrType i32() { return IrType(IrTypeKind::I32); }
+      static IrType f64() { return IrType(IrTypeKind::F64); }
+      static IrType boolean() { return IrType(IrTypeKind::Bool); }
+      static IrType str() { return IrType(IrTypeKind::Str); }
+      static IrType voidType() { return IrType(IrTypeKind::Void); }
+      static IrType array(IrType elementType);
+      static IrType structType(std::string name);
+
+      bool operator==(const IrType& other) const;
+      bool operator!=(const IrType& other) const { return !(*this == other); }
     };
 
     struct Value {

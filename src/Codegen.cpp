@@ -13,6 +13,34 @@ namespace noria {
     std::string llvmComparisonPredicate(ast::BinaryOperator op);
   } // namespace
 
+  LlvmIrTextGenerator::IrType LlvmIrTextGenerator::IrType::array(IrType elementType) {
+    IrType type(IrTypeKind::Array);
+    type.element = std::make_shared<IrType>(std::move(elementType));
+    return type;
+  }
+
+  LlvmIrTextGenerator::IrType LlvmIrTextGenerator::IrType::structType(std::string name) {
+    IrType type(IrTypeKind::Struct);
+    type.structName = std::move(name);
+    return type;
+  }
+
+  bool LlvmIrTextGenerator::IrType::operator==(const IrType& other) const {
+    if (kind != other.kind)
+      return false;
+
+    switch (kind) {
+    case IrTypeKind::Array:
+      if (!element || !other.element)
+        return element == other.element;
+      return *element == *other.element;
+    case IrTypeKind::Struct:
+      return structName == other.structName;
+    default:
+      return true;
+    }
+  }
+
   // main flow
   // gen() -> genFunction() + push scope (pop when done)-> genStatement() -> push scope if needed ->
   // genStatement() ->.... ->pop scope
@@ -69,8 +97,8 @@ namespace noria {
         generateStatements(function.body, out, nextTemporary, nextLabel, returnType, scopes);
 
     if (!emittedReturn) {
-      out << "  ret " << llvmType(returnType) << " " << (returnType == IrType::Bool ? "false" : "0")
-          << "\n";
+      out << "  ret " << llvmType(returnType) << " "
+          << (returnType == IrType::boolean() ? "false" : "0") << "\n";
     }
 
     out << "}\n";
@@ -217,7 +245,7 @@ namespace noria {
 
     const Value value = generateExpression(expression, out, nextTemporary, scopes);
 
-    if (value.type == IrType::Bool)
+    if (value.type == IrType::boolean())
       return value.text;
 
     const std::string result = "%t" + std::to_string(nextTemporary++);
@@ -231,10 +259,10 @@ namespace noria {
                                           const std::vector<Scope>& scopes) const {
 
     if (const auto* integer = dynamic_cast<const ast::IntegerLiteral*>(&expression))
-      return Value{std::to_string(integer->value), IrType::I32};
+      return Value{std::to_string(integer->value), IrType::i32()};
 
     if (const auto* boolean = dynamic_cast<const ast::BoolLiteral*>(&expression))
-      return Value{boolean->value ? "true" : "false", IrType::Bool};
+      return Value{boolean->value ? "true" : "false", IrType::boolean()};
 
     if (const auto* binary = dynamic_cast<const ast::BinaryExpression*>(&expression))
       return generateBinaryExpression(*binary, out, nextTemporary, scopes);
@@ -287,30 +315,44 @@ namespace noria {
     if (isComparison(binary.op)) {
       out << "  " << result << " = icmp " << llvmComparisonPredicate(binary.op) << " i32 "
           << left.text << ", " << right.text << "\n";
-      return Value{result, IrType::Bool};
+      return Value{result, IrType::boolean()};
     }
 
     out << "  " << result << " = " << llvmArithmeticInstruction(binary.op) << " i32 " << left.text
         << ", " << right.text << "\n";
-    return Value{result, IrType::I32};
+    return Value{result, IrType::i32()};
   }
 
   LlvmIrTextGenerator::IrType LlvmIrTextGenerator::parseIrType(const std::string& typeName) const {
     if (typeName == "i32")
-      return IrType::I32;
+      return IrType::i32();
+
+    if (typeName == "f64")
+      return IrType::f64();
 
     if (typeName == "bool")
-      return IrType::Bool;
+      return IrType::boolean();
+
+    if (typeName == "str")
+      return IrType::str();
 
     throw CompileError("codegen: unknown type '" + typeName + "'");
   }
 
   std::string LlvmIrTextGenerator::llvmType(IrType type) const {
-    switch (type) {
-    case IrType::I32:
+    switch (type.kind) {
+    case IrTypeKind::I32:
       return "i32";
-    case IrType::Bool:
+    case IrTypeKind::F64:
+      return "double";
+    case IrTypeKind::Bool:
       return "i1";
+    case IrTypeKind::Str:
+    case IrTypeKind::Array:
+    case IrTypeKind::Struct:
+      return "ptr";
+    case IrTypeKind::Void:
+      return "void";
     }
 
     return "";

@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  let x: f64 = true;
+  return 0;
+}
