@@ -8,6 +8,7 @@ namespace noria {
 
     // helper function
     std::string_view binaryOperatorName(ast::BinaryOperator op);
+    std::string_view unaryOperatorName(ast::UnaryOperator op);
 
     // private printing functions
     void printIndent(std::ostream& out, int indent);
@@ -63,6 +64,22 @@ namespace noria {
         return "*";
       case ast::BinaryOperator::Divide:
         return "/";
+      case ast::BinaryOperator::Modulo:
+        return "%";
+      case ast::BinaryOperator::And:
+        return "&&";
+      case ast::BinaryOperator::Or:
+        return "||";
+      case ast::BinaryOperator::BitAnd:
+        return "&";
+      case ast::BinaryOperator::BitOr:
+        return "|";
+      case ast::BinaryOperator::BitXor:
+        return "^";
+      case ast::BinaryOperator::Shl:
+        return "<<";
+      case ast::BinaryOperator::Shr:
+        return ">>";
       case ast::BinaryOperator::Less:
         return "<";
       case ast::BinaryOperator::LessEqual:
@@ -75,6 +92,19 @@ namespace noria {
         return "==";
       case ast::BinaryOperator::NotEqual:
         return "!=";
+      }
+
+      return "<unknown>";
+    }
+
+    std::string_view unaryOperatorName(ast::UnaryOperator op) {
+      switch (op) {
+      case ast::UnaryOperator::Negate:
+        return "-";
+      case ast::UnaryOperator::Not:
+        return "!";
+      case ast::UnaryOperator::BitNot:
+        return "~";
       }
 
       return "<unknown>";
@@ -136,6 +166,14 @@ namespace noria {
         return;
       }
 
+      if (const auto* expressionStatement =
+              dynamic_cast<const ast::ExpressionStatement*>(&statement)) {
+        printIndent(out, indent);
+        out << "ExprStmt\n";
+        printExpression(*expressionStatement->expression, out, indent + 1);
+        return;
+      }
+
       if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement)) {
         printIndent(out, indent);
         out << "If\n";
@@ -145,7 +183,8 @@ namespace noria {
         printExpression(*ifStatement->condition, out, indent + 2);
 
         printBlock("Then", ifStatement->thenBranch, out, indent + 1);
-        printBlock("Else", ifStatement->elseBranch, out, indent + 1);
+        if (!ifStatement->elseBranch.empty())
+          printBlock("Else", ifStatement->elseBranch, out, indent + 1);
         return;
       }
 
@@ -172,6 +211,18 @@ namespace noria {
         return;
       }
 
+      if (const auto* floating = dynamic_cast<const ast::FloatLiteral*>(&expression)) {
+        printIndent(out, indent);
+        out << "Float " << floating->value << "\n";
+        return;
+      }
+
+      if (const auto* stringLiteral = dynamic_cast<const ast::StringLiteral*>(&expression)) {
+        printIndent(out, indent);
+        out << "String \"" << stringLiteral->value << "\"\n";
+        return;
+      }
+
       if (const auto* boolean = dynamic_cast<const ast::BoolLiteral*>(&expression)) {
         printIndent(out, indent);
         out << "Bool " << (boolean->value ? "true" : "false") << "\n";
@@ -189,6 +240,20 @@ namespace noria {
         out << "Binary " << binaryOperatorName(binary->op) << "\n";
         printExpression(*binary->left, out, indent + 1);
         printExpression(*binary->right, out, indent + 1);
+        return;
+      }
+
+      if (const auto* unary = dynamic_cast<const ast::UnaryExpression*>(&expression)) {
+        printIndent(out, indent);
+        out << "Unary " << unaryOperatorName(unary->op) << "\n";
+        printExpression(*unary->operand, out, indent + 1);
+        return;
+      }
+
+      if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression)) {
+        printIndent(out, indent);
+        out << "Cast " << castExpression->targetTypeName << "\n";
+        printExpression(*castExpression->expression, out, indent + 1);
         return;
       }
 

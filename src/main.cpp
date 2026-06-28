@@ -192,13 +192,9 @@ namespace {
   void buildNativeExecutable(const std::filesystem::path& outputPath, const std::string& llvmIr) {
     const std::filesystem::path executable = outputPath.empty() ? "a.out" : outputPath;
     const std::filesystem::path llPath = executable.string() + ".ll";
-    const std::filesystem::path objectPath = executable.string() + ".o";
 
     writeOutput(llPath, llvmIr);
-
-    runCommand(shellQuote(llvmToolPath("llc")) + " -filetype=obj " + shellQuote(llPath) + " -o " +
-               shellQuote(objectPath));
-    runCommand("clang " + shellQuote(objectPath) + " -o " + shellQuote(executable));
+    runCommand("clang " + shellQuote(llPath) + " -o " + shellQuote(executable));
   }
 
   std::string escapeTokenText(const std::string& text) {

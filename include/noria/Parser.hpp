@@ -24,9 +24,18 @@ namespace noria {
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();
     std::unique_ptr<ast::Expression> parseExpression();
+    std::unique_ptr<ast::Expression> parseLogicalOr();
+    std::unique_ptr<ast::Expression> parseLogicalAnd();
+    std::unique_ptr<ast::Expression> parseEquality();
     std::unique_ptr<ast::Expression> parseComparison();
+    std::unique_ptr<ast::Expression> parseBitOr();
+    std::unique_ptr<ast::Expression> parseBitXor();
+    std::unique_ptr<ast::Expression> parseBitAnd();
+    std::unique_ptr<ast::Expression> parseShift();
     std::unique_ptr<ast::Expression> parseAddition();
     std::unique_ptr<ast::Expression> parseMultiplication();
+    std::unique_ptr<ast::Expression> parseUnary();
+    std::unique_ptr<ast::Expression> parseCast();
     std::unique_ptr<ast::Expression> parsePrimary();
     std::vector<std::unique_ptr<ast::Expression>> parseCallArguments();
     ast::BinaryOperator binaryOperatorFromToken(TokenKind kind) const;
@@ -36,4 +45,3 @@ namespace noria {
   };
 
 } // namespace noria
-

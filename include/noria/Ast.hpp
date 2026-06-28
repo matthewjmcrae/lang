@@ -23,6 +23,20 @@ namespace noria::ast {
     std::int64_t value;
   };
 
+  struct FloatLiteral final : Expression {
+    FloatLiteral(double value, SourceLocation location)
+        : Expression(location), value(value) {}
+
+    double value;
+  };
+
+  struct StringLiteral final : Expression {
+    StringLiteral(std::string value, SourceLocation location)
+        : Expression(location), value(std::move(value)) {}
+
+    std::string value;
+  };
+
   struct BoolLiteral final : Expression {
     BoolLiteral(bool value, SourceLocation location) : Expression(location), value(value) {}
 
@@ -34,12 +48,44 @@ namespace noria::ast {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
+    And,
+    Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
     Less,
     LessEqual,
     Greater,
     GreaterEqual,
     Equal,
     NotEqual,
+  };
+
+  enum class UnaryOperator {
+    Negate,
+    Not,
+    BitNot,
+  };
+
+  struct UnaryExpression final : Expression {
+    UnaryExpression(UnaryOperator op, std::unique_ptr<Expression> operand, SourceLocation location)
+        : Expression(location), op(op), operand(std::move(operand)) {}
+
+    UnaryOperator op;
+    std::unique_ptr<Expression> operand;
+  };
+
+  struct CastExpression final : Expression {
+    CastExpression(std::unique_ptr<Expression> expression, std::string targetTypeName,
+                   SourceLocation location)
+        : Expression(location), expression(std::move(expression)),
+          targetTypeName(std::move(targetTypeName)) {}
+
+    std::unique_ptr<Expression> expression;
+    std::string targetTypeName;
   };
 
   struct BinaryExpression final : Expression {
@@ -120,6 +166,13 @@ namespace noria::ast {
 
     std::string lhs;
     std::unique_ptr<Expression> rhs;
+  };
+
+  struct ExpressionStatement final : Statement {
+    ExpressionStatement(std::unique_ptr<Expression> expression, SourceLocation location)
+        : Statement(location), expression(std::move(expression)) {}
+
+    std::unique_ptr<Expression> expression;
   };
 
   struct Parameter {

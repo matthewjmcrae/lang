@@ -33,8 +33,14 @@ namespace noria {
         continue;
       }
 
-      if (std::isdigit(static_cast<unsigned char>(current))) {
-        tokens.push_back(lexInteger());
+      if (std::isdigit(static_cast<unsigned char>(current)) ||
+          (current == '.' && std::isdigit(static_cast<unsigned char>(peek(1))))) {
+        tokens.push_back(lexNumber());
+        continue;
+      }
+
+      if (current == '"') {
+        tokens.push_back(lexString());
         continue;
       }
 
@@ -101,6 +107,12 @@ namespace noria {
           tokens.push_back(makeToken(TokenKind::LessEqual, "<=", start));
           break;
         }
+        if (peek(1) == '<') {
+          advance();
+          advance();
+          tokens.push_back(makeToken(TokenKind::Shl, "<<", start));
+          break;
+        }
         tokens.push_back(makeToken(TokenKind::Less, std::string(1, advance()), start));
         break;
       case '>':
@@ -108,6 +120,12 @@ namespace noria {
           advance();
           advance();
           tokens.push_back(makeToken(TokenKind::GreaterEqual, ">=", start));
+          break;
+        }
+        if (peek(1) == '>') {
+          advance();
+          advance();
+          tokens.push_back(makeToken(TokenKind::Shr, ">>", start));
           break;
         }
         tokens.push_back(makeToken(TokenKind::Greater, std::string(1, advance()), start));
@@ -119,7 +137,35 @@ namespace noria {
           tokens.push_back(makeToken(TokenKind::BangEqual, "!=", start));
           break;
         }
-        throwUnexpectedCharacter(start, current);
+        tokens.push_back(makeToken(TokenKind::Bang, std::string(1, advance()), start));
+        break;
+      case '&':
+        if (peek(1) == '&') {
+          advance();
+          advance();
+          tokens.push_back(makeToken(TokenKind::AmpAmp, "&&", start));
+          break;
+        }
+        tokens.push_back(makeToken(TokenKind::Amp, std::string(1, advance()), start));
+        break;
+      case '|':
+        if (peek(1) == '|') {
+          advance();
+          advance();
+          tokens.push_back(makeToken(TokenKind::PipePipe, "||", start));
+          break;
+        }
+        tokens.push_back(makeToken(TokenKind::Pipe, std::string(1, advance()), start));
+        break;
+      case '^':
+        tokens.push_back(makeToken(TokenKind::Caret, std::string(1, advance()), start));
+        break;
+      case '~':
+        tokens.push_back(makeToken(TokenKind::Tilde, std::string(1, advance()), start));
+        break;
+      case '%':
+        tokens.push_back(makeToken(TokenKind::Percent, std::string(1, advance()), start));
+        break;
       default:
         throwUnexpectedCharacter(start, current);
       }
@@ -136,7 +182,7 @@ namespace noria {
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
         {"fn", TokenKind::Fn},     {"return", TokenKind::Return}, {"let", TokenKind::Let},
         {"if", TokenKind::If},     {"else", TokenKind::Else},     {"while", TokenKind::While},
-        {"true", TokenKind::True}, {"false", TokenKind::False},
+        {"as", TokenKind::As},     {"true", TokenKind::True},     {"false", TokenKind::False},
     };
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
@@ -150,15 +196,65 @@ namespace noria {
     return makeToken(TokenKind::Identifier, std::move(text), start);
   }
 
-  Token Lexer::lexInteger() {
+  Token Lexer::lexNumber() {
     const auto start = location_;
     const auto startIndex = index_;
 
     while (std::isdigit(static_cast<unsigned char>(peek())))
       advance();
 
+    if (peek() == '.') {
+      advance();
+      while (std::isdigit(static_cast<unsigned char>(peek())))
+        advance();
+
+      const std::string text(source_.substr(startIndex, index_ - startIndex));
+      return makeToken(TokenKind::Float, text, start);
+    }
+
     return makeToken(TokenKind::Integer,
                      std::string(source_.substr(startIndex, index_ - startIndex)), start);
+  }
+
+  Token Lexer::lexString() {
+    const auto start = location_;
+    advance(); // opening "
+
+    std::string value;
+    while (!isAtEnd() && peek() != '"') {
+      if (peek() == '\\') {
+        advance();
+        if (isAtEnd())
+          throw CompileError(atLocation(location_, "lexer: unterminated string literal"));
+
+        switch (peek()) {
+        case 'n':
+          value.push_back('\n');
+          break;
+        case 't':
+          value.push_back('\t');
+          break;
+        case '"':
+          value.push_back('"');
+          break;
+        case '\\':
+          value.push_back('\\');
+          break;
+        default:
+          throw CompileError(atLocation(location_, "lexer: invalid string escape sequence"));
+        }
+        advance();
+        continue;
+      }
+
+      value.push_back(advance());
+    }
+
+    if (isAtEnd())
+      throw CompileError(atLocation(start, "lexer: unterminated string literal"));
+
+    advance(); // closing "
+    return makeToken(TokenKind::String, std::move(value), start);
   }
 
   // helper functions
@@ -210,6 +306,10 @@ namespace noria {
       return "identifier";
     case TokenKind::Integer:
       return "integer";
+    case TokenKind::Float:
+      return "float";
+    case TokenKind::String:
+      return "string";
     case TokenKind::Fn:
       return "fn";
     case TokenKind::Return:
@@ -264,6 +364,28 @@ namespace noria {
       return ">";
     case TokenKind::GreaterEqual:
       return ">=";
+    case TokenKind::Bang:
+      return "!";
+    case TokenKind::AmpAmp:
+      return "&&";
+    case TokenKind::PipePipe:
+      return "||";
+    case TokenKind::Amp:
+      return "&";
+    case TokenKind::Pipe:
+      return "|";
+    case TokenKind::Caret:
+      return "^";
+    case TokenKind::Tilde:
+      return "~";
+    case TokenKind::Shl:
+      return "<<";
+    case TokenKind::Shr:
+      return ">>";
+    case TokenKind::Percent:
+      return "%";
+    case TokenKind::As:
+      return "as";
     case TokenKind::Unknown:
       return "unknown";
     }

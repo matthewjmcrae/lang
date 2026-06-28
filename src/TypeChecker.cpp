@@ -6,8 +6,12 @@
 
 namespace noria {
   namespace {
-    // string(location)
     std::string atLocation(SourceLocation location, const std::string& message);
+
+    bool isBuiltinName(const std::string& name) {
+      return name == "print" || name == "print_int" || name == "print_float" ||
+             name == "print_char" || name == "println" || name == "sqrt" || name == "pow";
+    }
   } // namespace
 
   Type Type::array(Type elementType) {
@@ -190,12 +194,108 @@ namespace noria {
       return false;
     }
 
+    if (const auto* expressionStatement =
+            dynamic_cast<const ast::ExpressionStatement*>(&statement)) {
+      if (!dynamic_cast<const ast::CallExpression*>(expressionStatement->expression.get())) {
+        throw CompileError(atLocation(expressionStatement->location,
+                                      "typecheck: expression statement must be a function call"));
+      }
+
+      const Type expressionType = checkExpression(*expressionStatement->expression);
+      if (expressionType != Type::voidType()) {
+        throw CompileError(atLocation(expressionStatement->expression->location,
+                                      "typecheck: expression statement must call a void builtin"));
+      }
+
+      return false;
+    }
+
     throw CompileError(atLocation(statement.location, "typecheck: unsupported statement"));
+  }
+
+  Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call) {
+    const std::string& name = call.callee;
+
+    if (name == "print") {
+      if (call.arguments.size() != 1)
+        throw CompileError(atLocation(call.location, "typecheck: print expects 1 argument"));
+      const Type argType = checkExpression(*call.arguments[0]);
+      if (argType != Type::str())
+        throw CompileError(atLocation(call.arguments[0]->location,
+                                      "typecheck: print expects str, got " + typeName(argType)));
+      return Type::voidType();
+    }
+
+    if (name == "print_int") {
+      if (call.arguments.size() != 1)
+        throw CompileError(atLocation(call.location, "typecheck: print_int expects 1 argument"));
+      const Type argType = checkExpression(*call.arguments[0]);
+      if (argType != Type::i32())
+        throw CompileError(atLocation(call.arguments[0]->location,
+                                      "typecheck: print_int expects i32, got " + typeName(argType)));
+      return Type::voidType();
+    }
+
+    if (name == "print_float") {
+      if (call.arguments.size() != 1)
+        throw CompileError(atLocation(call.location, "typecheck: print_float expects 1 argument"));
+      const Type argType = checkExpression(*call.arguments[0]);
+      if (argType != Type::f64())
+        throw CompileError(atLocation(call.arguments[0]->location,
+                                      "typecheck: print_float expects f64, got " + typeName(argType)));
+      return Type::voidType();
+    }
+
+    if (name == "print_char") {
+      if (call.arguments.size() != 1)
+        throw CompileError(atLocation(call.location, "typecheck: print_char expects 1 argument"));
+      const Type argType = checkExpression(*call.arguments[0]);
+      if (argType != Type::i32())
+        throw CompileError(atLocation(call.arguments[0]->location,
+                                      "typecheck: print_char expects i32, got " + typeName(argType)));
+      return Type::voidType();
+    }
+
+    if (name == "println") {
+      if (!call.arguments.empty())
+        throw CompileError(atLocation(call.location, "typecheck: println expects 0 arguments"));
+      return Type::voidType();
+    }
+
+    if (name == "sqrt") {
+      if (call.arguments.size() != 1)
+        throw CompileError(atLocation(call.location, "typecheck: sqrt expects 1 argument"));
+      const Type argType = checkExpression(*call.arguments[0]);
+      if (argType != Type::f64())
+        throw CompileError(atLocation(call.arguments[0]->location,
+                                      "typecheck: sqrt expects f64, got " + typeName(argType)));
+      return Type::f64();
+    }
+
+    if (name == "pow") {
+      if (call.arguments.size() != 2)
+        throw CompileError(atLocation(call.location, "typecheck: pow expects 2 arguments"));
+      const Type baseType = checkExpression(*call.arguments[0]);
+      const Type expType = checkExpression(*call.arguments[1]);
+      if (baseType != Type::f64() || expType != Type::f64())
+        throw CompileError(atLocation(call.location, "typecheck: pow expects f64 arguments, got " +
+                                                          typeName(baseType) + " and " +
+                                                          typeName(expType)));
+      return Type::f64();
+    }
+
+    throw CompileError("internal typecheck error: unknown builtin");
   }
 
   Type TypeChecker::checkExpression(const ast::Expression& expression) {
     if (dynamic_cast<const ast::IntegerLiteral*>(&expression))
       return Type::i32();
+
+    if (dynamic_cast<const ast::FloatLiteral*>(&expression))
+      return Type::f64();
+
+    if (dynamic_cast<const ast::StringLiteral*>(&expression))
+      return Type::str();
 
     if (dynamic_cast<const ast::BoolLiteral*>(&expression))
       return Type::boolean();
@@ -207,17 +307,37 @@ namespace noria {
       const Type left = checkExpression(*binary->left);
       const Type right = checkExpression(*binary->right);
 
-      if (left != Type::i32() || right != Type::i32()) {
-        throw CompileError(
-            atLocation(binary->location, "typecheck: binary operator requires i32 operands, got " +
-                                             typeName(left) + " and " + typeName(right)));
-      }
-
       switch (binary->op) {
+      case ast::BinaryOperator::And:
+      case ast::BinaryOperator::Or:
+        if (left != Type::boolean() || right != Type::boolean()) {
+          throw CompileError(atLocation(
+              binary->location, "typecheck: logical operator requires bool operands, got " +
+                                    typeName(left) + " and " + typeName(right)));
+        }
+        return Type::boolean();
       case ast::BinaryOperator::Add:
       case ast::BinaryOperator::Subtract:
       case ast::BinaryOperator::Multiply:
       case ast::BinaryOperator::Divide:
+        if (left == Type::f64() && right == Type::f64())
+          return Type::f64();
+        if (left == Type::i32() && right == Type::i32())
+          return Type::i32();
+        throw CompileError(atLocation(
+            binary->location, "typecheck: arithmetic operator requires matching numeric operands, got " +
+                                  typeName(left) + " and " + typeName(right)));
+      case ast::BinaryOperator::Modulo:
+      case ast::BinaryOperator::BitAnd:
+      case ast::BinaryOperator::BitOr:
+      case ast::BinaryOperator::BitXor:
+      case ast::BinaryOperator::Shl:
+      case ast::BinaryOperator::Shr:
+        if (left != Type::i32() || right != Type::i32()) {
+          throw CompileError(atLocation(
+              binary->location, "typecheck: integer operator requires i32 operands, got " +
+                                    typeName(left) + " and " + typeName(right)));
+        }
         return Type::i32();
       case ast::BinaryOperator::Less:
       case ast::BinaryOperator::LessEqual:
@@ -225,11 +345,67 @@ namespace noria {
       case ast::BinaryOperator::GreaterEqual:
       case ast::BinaryOperator::Equal:
       case ast::BinaryOperator::NotEqual:
+        if (left == right && (left == Type::i32() || left == Type::f64()))
+          return Type::boolean();
+        throw CompileError(
+            atLocation(binary->location, "typecheck: comparison requires matching numeric operands, got " +
+                                             typeName(left) + " and " + typeName(right)));
+      }
+    }
+
+    if (const auto* unary = dynamic_cast<const ast::UnaryExpression*>(&expression)) {
+      const Type operandType = checkExpression(*unary->operand);
+
+      switch (unary->op) {
+      case ast::UnaryOperator::Negate:
+        if (operandType == Type::i32() || operandType == Type::f64())
+          return operandType;
+        throw CompileError(atLocation(unary->location,
+                                     "typecheck: unary negation requires numeric operand, got " +
+                                         typeName(operandType)));
+      case ast::UnaryOperator::BitNot:
+        if (operandType != Type::i32()) {
+          throw CompileError(atLocation(unary->location,
+                                       "typecheck: unary operator requires i32 operand, got " +
+                                           typeName(operandType)));
+        }
+        return Type::i32();
+      case ast::UnaryOperator::Not:
+        if (operandType != Type::boolean()) {
+          throw CompileError(atLocation(unary->location,
+                                       "typecheck: logical not requires bool operand, got " +
+                                           typeName(operandType)));
+        }
         return Type::boolean();
       }
     }
 
+    if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression)) {
+      const Type sourceType = checkExpression(*castExpression->expression);
+      const Type targetType =
+          parseTypeName(castExpression->targetTypeName, castExpression->location);
+
+      if (sourceType == targetType)
+        return targetType;
+
+      if (sourceType == Type::i32() && targetType == Type::f64())
+        return Type::f64();
+      if (sourceType == Type::f64() && targetType == Type::i32())
+        return Type::i32();
+      if (sourceType == Type::boolean() && targetType == Type::i32())
+        return Type::i32();
+      if (sourceType == Type::i32() && targetType == Type::boolean())
+        return Type::boolean();
+
+      throw CompileError(atLocation(castExpression->location, "typecheck: cannot cast " +
+                                                                    typeName(sourceType) + " to " +
+                                                                    typeName(targetType)));
+    }
+
     if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
+      if (isBuiltinName(call->callee))
+        return checkBuiltinCall(*call);
+
       const auto function = functions_.find(call->callee);
 
       if (function == functions_.end()) {

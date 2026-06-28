@@ -3,6 +3,7 @@
 #include "noria/Ast.hpp"
 
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -72,15 +73,29 @@ namespace noria {
                             std::ostringstream& out, int& nextTemporary, int& nextLabel,
                             IrType expectedReturnType, std::vector<Scope>& scopes) const;
     std::string generateCondition(const ast::Expression& expression, std::ostringstream& out,
-                                  int& nextTemporary, const std::vector<Scope>& scopes) const;
+                                  int& nextTemporary, int& nextLabel,
+                                  const std::vector<Scope>& scopes) const;
     Value generateExpression(const ast::Expression& expression, std::ostringstream& out,
-                             int& nextTemporary, const std::vector<Scope>& scopes) const;
+                             int& nextTemporary, int& nextLabel,
+                             const std::vector<Scope>& scopes) const;
 
     Value generateBinaryExpression(const ast::BinaryExpression& binary, std::ostringstream& out,
-                                   int& nextTemporary, const std::vector<Scope>& scopes) const;
+                                   int& nextTemporary, int& nextLabel,
+                                   const std::vector<Scope>& scopes) const;
+    Value generateStringLiteral(const ast::StringLiteral& literal, std::ostringstream& out,
+                                int& nextTemporary) const;
+    Value generateCastExpression(const ast::CastExpression& cast, std::ostringstream& out,
+                                 int& nextTemporary, int& nextLabel,
+                                 const std::vector<Scope>& scopes) const;
+    std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call,
+                                                std::ostringstream& out, int& nextTemporary,
+                                                int& nextLabel,
+                                                const std::vector<Scope>& scopes) const;
 
     IrType parseIrType(const std::string& typeName) const;
     std::string llvmType(IrType type) const;
+    std::string defaultIrValue(IrType type) const;
+    std::string modulePreamble() const;
     bool declareLocal(std::vector<Scope>& scopes, const std::string& name,
                       LocalBinding binding) const;
     const LocalBinding& lookupLocal(const std::vector<Scope>& scopes,
@@ -88,6 +103,8 @@ namespace noria {
     void collectFunctionBindings(const ast::Module& module) const;
 
     mutable std::unordered_map<std::string, FunctionBinding> functions_;
+    mutable std::ostringstream moduleGlobals_;
+    mutable int nextStringGlobal_ = 0;
   };
 
 } // namespace noria

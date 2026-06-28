@@ -65,6 +65,7 @@ namespace noria {
                          Type expectedReturnType);
     bool checkStatement(const ast::Statement& statement, Type expectedReturnType);
     Type checkExpression(const ast::Expression& expression);
+    Type checkBuiltinCall(const ast::CallExpression& call);
     using Scope = std::unordered_map<std::string, Type>;
     void pushScope();
     void popScope();

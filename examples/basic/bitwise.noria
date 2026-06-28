@@ -1,0 +1,8 @@
+fn main() -> i32 {
+  let a: i32 = 60;
+  let b: i32 = 13;
+  let masked: i32 = a & b;
+  let combined: i32 = masked | (a ^ b);
+  let shifted: i32 = (combined << 1) >> 2;
+  return shifted + (~0 & 7);
+}

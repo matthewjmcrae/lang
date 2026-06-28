@@ -12,6 +12,7 @@ NORIA_PREFIX="${NORIA_PREFIX:-}"
 read -r -a NORIA_PREFIX_ARGS <<<"${NORIA_PREFIX}"
 
 LLVM_BIN="${LLVM_BIN:-}"
+LLC_TRIPLE=""
 if [[ -z "${LLVM_BIN}" ]]; then
   if [[ -x "/opt/homebrew/opt/llvm/bin/llc" ]]; then
     LLVM_BIN="/opt/homebrew/opt/llvm/bin"
@@ -21,6 +22,20 @@ if [[ -z "${LLVM_BIN}" ]]; then
     LLVM_BIN="$(dirname "$(command -v llc)")"
   else
     LLVM_BIN=""
+  fi
+fi
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    LLC_TRIPLE="arm64-apple-macosx"
+  else
+    LLC_TRIPLE="x86_64-apple-macosx"
+  fi
+elif [[ "$(uname -s)" == "Linux" ]]; then
+  if [[ "$(uname -m)" == "aarch64" ]]; then
+    LLC_TRIPLE="aarch64-unknown-linux-gnu"
+  else
+    LLC_TRIPLE="x86_64-unknown-linux-gnu"
   fi
 fi
 
@@ -57,17 +72,15 @@ run_native_exit_test() {
   local name
   name="$(basename "${source}" .noria)"
   local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
-  local object="${TEST_OUT_DIR}/${name}.o"
   local executable="${TEST_OUT_DIR}/${name}"
 
-  if [[ -z "${LLVM_BIN}" ]]; then
-    echo "[noria-tests] skip native ${source#${ROOT_DIR}/}: llc not found"
+  if ! command -v clang >/dev/null 2>&1; then
+    echo "[noria-tests] skip native ${source#${ROOT_DIR}/}: clang not found"
     return
   fi
 
   echo "[noria-tests] native ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  "${LLVM_BIN}/llc" -filetype=obj "${llvm_ir}" -o "${object}"
-  clang "${object}" -o "${executable}"
+  clang "${llvm_ir}" -o "${executable}"
 
   set +e
   "${executable}"
@@ -76,6 +89,30 @@ run_native_exit_test() {
 
   if [[ "${actual_exit}" != "${expected_exit}" ]]; then
     echo "[noria-tests] expected exit ${expected_exit}, got ${actual_exit} for ${source}" >&2
+    exit 1
+  fi
+}
+
+run_native_stdout_test() {
+  local source="$1"
+  local expected_file="$2"
+  local name
+  name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
+  local executable="${TEST_OUT_DIR}/${name}_stdout"
+  local actual_file="${TEST_OUT_DIR}/${name}.stdout"
+
+  if ! command -v clang >/dev/null 2>&1; then
+    echo "[noria-tests] skip stdout ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+
+  echo "[noria-tests] stdout ${source#${ROOT_DIR}/}"
+  clang "${llvm_ir}" -o "${executable}"
+  "${executable}" >"${actual_file}"
+
+  if ! diff -u "${expected_file}" "${actual_file}"; then
+    echo "[noria-tests] stdout mismatch for ${source}" >&2
     exit 1
   fi
 }
@@ -179,6 +216,20 @@ grep -q "typecheck: argument 1 of 'take' expects str, got i32" \
 grep -q "typecheck: unknown type 'widget'" \
   "${TEST_OUT_DIR}/unknown_future_type.stderr"
 
+echo "[noria-tests] phase 1 operator diagnostics"
+grep -q "typecheck: logical operator requires bool operands, got i32 and bool" \
+  "${TEST_OUT_DIR}/logical_non_bool.stderr"
+grep -q "typecheck: integer operator requires i32 operands, got bool and bool" \
+  "${TEST_OUT_DIR}/bitwise_non_integer.stderr"
+grep -q "typecheck: cannot cast bool to f64" \
+  "${TEST_OUT_DIR}/cast_bad_type.stderr"
+
+echo "[noria-tests] phase 2 io and cast diagnostics"
+grep -q "typecheck: print_int expects i32, got str" \
+  "${TEST_OUT_DIR}/print_int_wrong_type.stderr"
+grep -q "typecheck: expression statement must be a function call" \
+  "${TEST_OUT_DIR}/bare_expression_statement.stderr"
+
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in
     invalid_token.noria)
@@ -252,6 +303,25 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/iterative_fibonacci.noria" 13
 run_native_exit_test "${ROOT_DIR}/examples/basic/while_count.noria" 5
 run_native_exit_test "${ROOT_DIR}/examples/basic/while_sum.noria" 15
 run_native_exit_test "${ROOT_DIR}/examples/basic/while_with_if.noria" 14
+run_native_exit_test "${ROOT_DIR}/examples/basic/unary_operators.noria" 12
+run_native_exit_test "${ROOT_DIR}/examples/basic/logical_operators.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/modulo.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/bitwise.noria" 37
+run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_and.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_or.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/else_if.noria" 6
+run_native_exit_test "${ROOT_DIR}/examples/basic/if_without_else.noria" 5
+run_native_exit_test "${ROOT_DIR}/examples/basic/cast_identity.noria" 8
+run_native_exit_test "${ROOT_DIR}/examples/basic/float_math.noria" 4
+run_native_exit_test "${ROOT_DIR}/examples/basic/cast_roundtrip.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/cast_precision_loss.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/math_builtins.noria" 1
+
+echo "[noria-tests] phase 2 stdout acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
+  "${ROOT_DIR}/examples/basic/hello_world.expected"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
+  "${ROOT_DIR}/examples/basic/fizzbuzz.expected"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

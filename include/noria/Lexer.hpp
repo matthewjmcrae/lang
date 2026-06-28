@@ -20,7 +20,8 @@ namespace noria {
     void skipWhitespace();
     Token makeToken(TokenKind kind, std::string text, SourceLocation location) const;
     Token lexIdentifierOrKeyword();
-    Token lexInteger();
+    Token lexNumber();
+    Token lexString();
 
     std::string_view source_;
     std::size_t index_ = 0;

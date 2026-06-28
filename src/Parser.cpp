@@ -104,7 +104,8 @@ namespace noria {
     }
 
     const Token& lhs = peek();
-    if (match(TokenKind::Identifier)) {
+    if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Equal) {
+      advance();
       expect(TokenKind::Equal, "expected '=' before variable assignment");
       auto rhs = parseExpression();
       expect(TokenKind::Semicolon, "expected ';' after assignment");
@@ -115,10 +116,18 @@ namespace noria {
       const Token& ifToken = advance();
       auto condition = parseExpression();
       auto thenBlock = parseBlock();
-      expect(TokenKind::Else, "expected else branch");
-      auto elseBlock = parseBlock();
+
+      std::vector<std::unique_ptr<ast::Statement>> elseBranch;
+      if (match(TokenKind::Else)) {
+        if (peek().kind == TokenKind::If) {
+          elseBranch.push_back(parseStatement());
+        } else {
+          elseBranch = parseBlock();
+        }
+      }
+
       return std::make_unique<ast::IfStatement>(std::move(condition), std::move(thenBlock),
-                                                std::move(elseBlock), ifToken.location);
+                                                std::move(elseBranch), ifToken.location);
     }
 
     if (peek().kind == TokenKind::While) {
@@ -129,22 +138,60 @@ namespace noria {
                                                    whileToken.location);
     }
 
+    if (peek().kind == TokenKind::LeftParen || peek().kind == TokenKind::Minus ||
+        peek().kind == TokenKind::Bang || peek().kind == TokenKind::Tilde ||
+        peek().kind == TokenKind::True || peek().kind == TokenKind::False ||
+        peek().kind == TokenKind::Integer || peek().kind == TokenKind::Float ||
+        peek().kind == TokenKind::String ||
+        (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::LeftParen)) {
+      const Token& start = peek();
+      auto expression = parseExpression();
+      expect(TokenKind::Semicolon, "expected ';' after expression");
+      return std::make_unique<ast::ExpressionStatement>(std::move(expression), start.location);
+    }
+
     throw CompileError(atLocation(peek(), "expected statement"));
   }
 
-  // call order is comparison() -> addition() -> multiplication() -> primary()
+  // parseLogicalOr -> parseLogicalAnd -> parseEquality -> parseComparison ->
+  // parseBitOr -> parseBitXor -> parseBitAnd -> parseShift -> parseAddition ->
+  // parseMultiplication -> parseUnary -> parseCast -> parsePrimary
   std::unique_ptr<ast::Expression> Parser::parseExpression() {
-    return parseComparison();
+    return parseLogicalOr();
   }
 
-  std::unique_ptr<ast::Expression> Parser::parseComparison() {
-    auto left = parseAddition();
-    while (peek().kind == TokenKind::EqualEqual || peek().kind == TokenKind::BangEqual ||
-           peek().kind == TokenKind::Less || peek().kind == TokenKind::LessEqual ||
-           peek().kind == TokenKind::Greater || peek().kind == TokenKind::GreaterEqual) {
-      const Token& opToken = advance();
-      auto right = parseAddition();
+  std::unique_ptr<ast::Expression> Parser::parseLogicalOr() {
+    auto left = parseLogicalAnd();
 
+    while (peek().kind == TokenKind::PipePipe) {
+      const Token& opToken = advance();
+      auto right = parseLogicalAnd();
+      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::Or, std::move(left),
+                                                     std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseLogicalAnd() {
+    auto left = parseEquality();
+
+    while (peek().kind == TokenKind::AmpAmp) {
+      const Token& opToken = advance();
+      auto right = parseEquality();
+      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::And, std::move(left),
+                                                     std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseEquality() {
+    auto left = parseComparison();
+
+    while (peek().kind == TokenKind::EqualEqual || peek().kind == TokenKind::BangEqual) {
+      const Token& opToken = advance();
+      auto right = parseComparison();
       left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
                                                      std::move(left), std::move(right),
                                                      opToken.location);
@@ -152,6 +199,75 @@ namespace noria {
 
     return left;
   }
+
+  std::unique_ptr<ast::Expression> Parser::parseComparison() {
+    auto left = parseBitOr();
+
+    while (peek().kind == TokenKind::Less || peek().kind == TokenKind::LessEqual ||
+           peek().kind == TokenKind::Greater || peek().kind == TokenKind::GreaterEqual) {
+      const Token& opToken = advance();
+      auto right = parseBitOr();
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseBitOr() {
+    auto left = parseBitXor();
+
+    while (peek().kind == TokenKind::Pipe) {
+      const Token& opToken = advance();
+      auto right = parseBitXor();
+      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitOr, std::move(left),
+                                                     std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseBitXor() {
+    auto left = parseBitAnd();
+
+    while (peek().kind == TokenKind::Caret) {
+      const Token& opToken = advance();
+      auto right = parseBitAnd();
+      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitXor, std::move(left),
+                                                     std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseBitAnd() {
+    auto left = parseShift();
+
+    while (peek().kind == TokenKind::Amp) {
+      const Token& opToken = advance();
+      auto right = parseShift();
+      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitAnd, std::move(left),
+                                                     std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseShift() {
+    auto left = parseAddition();
+
+    while (peek().kind == TokenKind::Shl || peek().kind == TokenKind::Shr) {
+      const Token& opToken = advance();
+      auto right = parseAddition();
+      left = std::make_unique<ast::BinaryExpression>(
+          opToken.kind == TokenKind::Shl ? ast::BinaryOperator::Shl : ast::BinaryOperator::Shr,
+          std::move(left), std::move(right), opToken.location);
+    }
+
+    return left;
+  }
+
   std::unique_ptr<ast::Expression> Parser::parseAddition() {
     auto left = parseMultiplication();
 
@@ -169,19 +285,61 @@ namespace noria {
   }
 
   std::unique_ptr<ast::Expression> Parser::parseMultiplication() {
-    auto left = parsePrimary();
+    auto left = parseUnary();
 
-    while (peek().kind == TokenKind::Star || peek().kind == TokenKind::Slash) {
+    while (peek().kind == TokenKind::Star || peek().kind == TokenKind::Slash ||
+           peek().kind == TokenKind::Percent) {
       const Token& opToken = advance();
-      auto right = parsePrimary();
+      auto right = parseUnary();
 
-      left = std::make_unique<ast::BinaryExpression>(
-          opToken.kind == TokenKind::Star ? ast::BinaryOperator::Multiply
-                                          : ast::BinaryOperator::Divide,
-          std::move(left), std::move(right), opToken.location);
+      ast::BinaryOperator op = ast::BinaryOperator::Multiply;
+      if (opToken.kind == TokenKind::Slash)
+        op = ast::BinaryOperator::Divide;
+      else if (opToken.kind == TokenKind::Percent)
+        op = ast::BinaryOperator::Modulo;
+
+      left = std::make_unique<ast::BinaryExpression>(op, std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseUnary() {
+    if (peek().kind == TokenKind::Bang) {
+      const Token& opToken = advance();
+      auto operand = parseUnary();
+      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::Not, std::move(operand),
+                                                    opToken.location);
+    }
+
+    if (peek().kind == TokenKind::Minus) {
+      const Token& opToken = advance();
+      auto operand = parseUnary();
+      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::Negate, std::move(operand),
+                                                    opToken.location);
+    }
+
+    if (peek().kind == TokenKind::Tilde) {
+      const Token& opToken = advance();
+      auto operand = parseUnary();
+      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::BitNot, std::move(operand),
+                                                    opToken.location);
+    }
+
+    return parseCast();
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseCast() {
+    auto expression = parsePrimary();
+
+    while (match(TokenKind::As)) {
+      const Token& typeName = expect(TokenKind::Identifier, "expected cast target type");
+      expression = std::make_unique<ast::CastExpression>(std::move(expression), typeName.text,
+                                                         typeName.location);
+    }
+
+    return expression;
   }
 
   // primaries are the smallest expressions in the language, which have highest prescendence so ()
@@ -218,17 +376,31 @@ namespace noria {
       return std::make_unique<ast::BoolLiteral>(false, token.location);
     }
 
-    // integer is default
-    const Token& integer = expect(TokenKind::Integer, "expected expression");
+    if (peek().kind == TokenKind::Float) {
+      const Token& token = advance();
+      double value = std::stod(token.text);
+      return std::make_unique<ast::FloatLiteral>(value, token.location);
+    }
 
-    std::int64_t value = 0;
-    const auto* begin = integer.text.data();
-    const auto* end = integer.text.data() + integer.text.size();
-    const auto result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc())
-      throw CompileError(atLocation(integer, "invalid integer literal"));
+    if (peek().kind == TokenKind::String) {
+      const Token& token = advance();
+      return std::make_unique<ast::StringLiteral>(token.text, token.location);
+    }
 
-    return std::make_unique<ast::IntegerLiteral>(value, integer.location);
+    if (peek().kind == TokenKind::Integer) {
+      const Token& integer = advance();
+
+      std::int64_t value = 0;
+      const auto* begin = integer.text.data();
+      const auto* end = integer.text.data() + integer.text.size();
+      const auto result = std::from_chars(begin, end, value);
+      if (result.ec != std::errc())
+        throw CompileError(atLocation(integer, "invalid integer literal"));
+
+      return std::make_unique<ast::IntegerLiteral>(value, integer.location);
+    }
+
+    throw CompileError(atLocation(peek(), "expected expression"));
   }
 
   std::vector<std::unique_ptr<ast::Expression>> Parser::parseCallArguments() {
