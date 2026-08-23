@@ -90,7 +90,10 @@ namespace noria {
 
     class PlaceVisitor final : public ast::AstVisitor {
     public:
+      explicit PlaceVisitor(TypeChecker& checker);
+
       const std::string& name() const { return name_; }
+      Type type() const { return type_; }
 
       void visit(const ast::IdentifierExpression& node) override;
 
@@ -113,7 +116,9 @@ namespace noria {
       void visit(const ast::ExpressionStatement& node) override;
 
     private:
+      TypeChecker& checker_;
       std::string name_;
+      Type type_;
     };
 
     class CallExpressionProbe final : public ast::AstVisitor {

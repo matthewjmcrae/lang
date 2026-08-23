@@ -113,7 +113,8 @@ namespace noria {
 
     class PlaceVisitor final : public ast::AstVisitor {
     public:
-      PlaceVisitor(const LlvmIrTextGenerator& generator, const std::vector<Scope>& scopes);
+      PlaceVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
+                   CodegenContext& context, const std::vector<Scope>& scopes);
 
       LocalBinding result() const { return result_; }
 
@@ -139,6 +140,8 @@ namespace noria {
 
     private:
       const LlvmIrTextGenerator& generator_;
+      IrEmitter& emitter_;
+      CodegenContext& context_;
       const std::vector<Scope>& scopes_;
       LocalBinding result_{};
     };
@@ -180,8 +183,10 @@ namespace noria {
                             std::vector<Scope>& scopes) const;
     std::string generateCondition(const ast::Expression& expression, IrEmitter& emitter,
                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
-    LocalBinding generatePlace(const ast::Expression& place,
-                               const std::vector<Scope>& scopes) const;
+    LocalBinding generatePlace(const ast::Expression& place, IrEmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    std::string emitArrayElementPointer(const Value& base, const Value& indexValue,
+                                        const Type& elementType, IrEmitter& emitter) const;
     Value generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
                          CodegenContext& context, const std::vector<Scope>& scopes) const;
 

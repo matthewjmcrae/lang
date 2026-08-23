@@ -385,3 +385,35 @@ No indexed assignment or bounds checks. Heap-allocated literals; no ownership mo
 ### Next unit
 
 Phase 4 indexed place assignment `a[i] = …`.
+
+## Phase 4 — Indexed place assignment a[i] = …
+
+Baseline commit `f83ec2b`.
+
+### Objective and acceptance
+
+Enable indexed place assignment `a[i] = …` for arrays; preserve string index as rvalue-only; preserve preexisting IR/AST; all gates green including sanitizer; close Phase 4.
+
+### Files and behavior changed
+
+TypeChecker: `PlaceVisitor` accepts array `IndexExpression`; string index remains non-place. Codegen: `generatePlace` emits element GEP via shared `emitArrayElementPointer` (no load); store after RHS. Promoted `array_indexed_assignment` to basic + `.expected`. New negatives: `array_indexed_store_type_mismatch`, `array_indexed_non_i32_index`, `string_index_assignment`. Orchestrator ticks Phase 4 plan checkbox.
+
+### Semantic and architectural decisions
+
+Array index is a place; string index stays rvalue-only. Place codegen reuses `emitArrayElementPointer` for GEP without load, then stores the RHS — symmetric to index read but without zext/load.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: `len(a)=3` syntax coverage; `[str]` store coverage.
+
+### Limitations and risks
+
+No bounds checks. String indexed assignment still rejected. Heap array literals; no ownership model.
+
+### Next unit
+
+Phase 5 — structs.

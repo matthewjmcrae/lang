@@ -196,7 +196,8 @@ namespace noria {
 
   void LlvmIrTextGenerator::StatementVisitor::visit(
       const ast::AssignmentStatement& assignmentStatement) {
-    const LocalBinding local = generator_.generatePlace(*assignmentStatement.lhs, scopes_);
+    const LocalBinding local =
+        generator_.generatePlace(*assignmentStatement.lhs, emitter_, context_, scopes_);
 
     Value rvalue = generator_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_);
     emitter_.emitStore(local.type, rvalue.text, local.slot);
@@ -456,8 +457,9 @@ namespace noria {
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ExpressionStatement&) {}
 
   LlvmIrTextGenerator::PlaceVisitor::PlaceVisitor(const LlvmIrTextGenerator& generator,
+                                                  IrEmitter& emitter, CodegenContext& context,
                                                   const std::vector<Scope>& scopes)
-      : generator_(generator), scopes_(scopes) {}
+      : generator_(generator), emitter_(emitter), context_(context), scopes_(scopes) {}
 
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
     result_ = generator_.lookupLocal(scopes_, identifier.name);
@@ -490,8 +492,21 @@ namespace noria {
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression&) {
-    throw CompileError("codegen: invalid assignment target");
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression& index) {
+    const Value base = generator_.generateRvalue(*index.base, emitter_, context_, scopes_);
+    const Value indexValue = generator_.generateRvalue(*index.index, emitter_, context_, scopes_);
+
+    if (base.type.kind != TypeKind::Array) {
+      throw CompileError("codegen: invalid assignment target");
+    }
+    if (!base.type.element) {
+      throw CompileError("codegen: array type missing element type");
+    }
+
+    const Type elementType = *base.type.element;
+    const std::string pointer =
+        generator_.emitArrayElementPointer(base, indexValue, elementType, emitter_);
+    result_ = LocalBinding{pointer, elementType};
   }
 
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
@@ -514,11 +529,24 @@ namespace noria {
   }
 
   LlvmIrTextGenerator::LocalBinding
-  LlvmIrTextGenerator::generatePlace(const ast::Expression& place,
+  LlvmIrTextGenerator::generatePlace(const ast::Expression& place, IrEmitter& emitter,
+                                     CodegenContext& context,
                                      const std::vector<Scope>& scopes) const {
-    PlaceVisitor visitor(*this, scopes);
+    PlaceVisitor visitor(*this, emitter, context, scopes);
     place.accept(visitor);
     return visitor.result();
+  }
+
+  std::string LlvmIrTextGenerator::emitArrayElementPointer(const Value& base,
+                                                           const Value& indexValue,
+                                                           const Type& elementType,
+                                                           IrEmitter& emitter) const {
+    const std::string elems = emitter.freshTemp();
+    emitter.line(elems + " = getelementptr inbounds i8, ptr " + base.text + ", i64 8");
+    const std::string pointer = emitter.freshTemp();
+    emitter.line(pointer + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " + elems +
+                 ", i32 " + indexValue.text);
+    return pointer;
   }
 
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement, IrEmitter& emitter,
@@ -588,11 +616,7 @@ namespace noria {
         throw CompileError("codegen: array type missing element type");
 
       const Type elementType = *base.type.element;
-      const std::string elems = emitter.freshTemp();
-      emitter.line(elems + " = getelementptr inbounds i8, ptr " + base.text + ", i64 8");
-      const std::string pointer = emitter.freshTemp();
-      emitter.line(pointer + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " +
-                   elems + ", i32 " + indexValue.text);
+      const std::string pointer = emitArrayElementPointer(base, indexValue, elementType, emitter);
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = load " + llvmType(elementType) + ", ptr " + pointer);
       return Value{result, elementType};

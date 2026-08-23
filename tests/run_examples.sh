@@ -375,6 +375,8 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/array_index_read.noria" \
 run_native_stdout_test "${ROOT_DIR}/examples/basic/array_str_elements.noria" \
   "${ROOT_DIR}/examples/basic/array_str_elements.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_reassign.noria" 3
+run_native_stdout_test "${ROOT_DIR}/examples/basic/array_indexed_assignment.noria" \
+  "${ROOT_DIR}/examples/basic/array_indexed_assignment.expected"
 grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
@@ -394,8 +396,16 @@ grep -Fq "typecheck: cannot initialize 'a' of type [i32] with [f64]" \
   "${TEST_OUT_DIR}/array_element_type_mismatch.stderr"
 grep -q "typecheck: index requires str or array base, got i32" \
   "${TEST_OUT_DIR}/array_index_non_array_base.stderr"
-grep -q "typecheck: invalid assignment target" \
-  "${TEST_OUT_DIR}/array_indexed_assignment.stderr"
+grep -q "typecheck: cannot assign f64 to variable 'a' of type i32" \
+  "${TEST_OUT_DIR}/array_indexed_store_type_mismatch.stderr"
+grep -q "typecheck: str index is not assignable" \
+  "${TEST_OUT_DIR}/string_index_assignment.stderr"
+grep -q "typecheck: index requires i32 index, got bool" \
+  "${TEST_OUT_DIR}/array_indexed_non_i32_index.stderr"
+grep -q "getelementptr inbounds i32, ptr %t[0-9]*, i32 1" \
+  "${TEST_OUT_DIR}/array_indexed_assignment.ll"
+grep -q "store i32 [^,]*, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
+grep -q "store i32 99, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
 grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/array_len_of_element.stderr"
 

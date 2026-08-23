@@ -446,8 +446,11 @@ namespace noria {
 
   } // namespace
 
+  TypeChecker::PlaceVisitor::PlaceVisitor(TypeChecker& checker) : checker_(checker) {}
+
   void TypeChecker::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
     name_ = identifier.name;
+    type_ = checker_.lookupLocal(identifier.name, identifier.location);
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::IntegerLiteral& node) {
@@ -477,8 +480,41 @@ namespace noria {
   void TypeChecker::PlaceVisitor::visit(const ast::ArrayLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& node) {
-    invalidAssignmentTarget(node.location);
+  void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& index) {
+    const Type baseType = checker_.checkRvalue(*index.base);
+    const Type indexType = checker_.checkRvalue(*index.index);
+
+    if (baseType == Type::str()) {
+      throw CompileError(formatDiagnostic(index.location, DiagnosticStage::TypeCheck,
+                                          "str index is not assignable"));
+    }
+
+    if (baseType.kind == TypeKind::Array) {
+      if (!baseType.element) {
+        throw CompileError(
+            formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
+                             "index requires str or array base, got " + baseType.name()));
+      }
+      if (indexType != Type::i32()) {
+        throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
+                                            "index requires i32 index, got " + indexType.name()));
+      }
+      type_ = *baseType.element;
+
+      const ast::Expression* root = index.base.get();
+      while (const auto* nested = dynamic_cast<const ast::IndexExpression*>(root)) {
+        root = nested->base.get();
+      }
+      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(root)) {
+        name_ = identifier->name;
+        return;
+      }
+      invalidAssignmentTarget(index.location);
+    }
+
+    throw CompileError(
+        formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
+                         "index requires str or array base, got " + baseType.name()));
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {
@@ -501,9 +537,9 @@ namespace noria {
   }
 
   TypeChecker::PlaceInfo TypeChecker::checkPlace(const ast::Expression& place) {
-    PlaceVisitor visitor;
+    PlaceVisitor visitor(*this);
     place.accept(visitor);
-    return PlaceInfo{visitor.name(), lookupLocal(visitor.name(), place.location)};
+    return PlaceInfo{visitor.name(), visitor.type()};
   }
 
   void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {

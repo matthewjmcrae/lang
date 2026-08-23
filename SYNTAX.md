@@ -389,9 +389,9 @@ let values: [i32] = [3, 4, 5, 6];
 let names: [str] = ["alice", "bob"];
 ```
 
-Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). There is no bounds checking; out-of-range indexing is undefined behavior. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). There is no bounds checking; out-of-range indexing is undefined behavior. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
 
-Indexed assignment (`a[i] = expr`) is not supported yet.
+String indexing is read-only; `s[i] = expr` is rejected at type check.
 
 Example:
 
