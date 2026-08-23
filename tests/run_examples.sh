@@ -185,6 +185,7 @@ grep -q "define i32 @consume_str(ptr" "${TEST_OUT_DIR}/type_future_params_smoke.
 echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/type_representation_test"
 "${BUILD_DIR}/builtin_registry_test"
+"${BUILD_DIR}/visitor_smoke_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"

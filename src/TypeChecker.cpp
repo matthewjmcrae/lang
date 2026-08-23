@@ -7,6 +7,366 @@
 
 namespace noria {
 
+  namespace {
+
+    [[noreturn]] void unsupportedExpressionInStatementVisitor() {
+      throw CompileError("typecheck: internal error: expression visited by statement visitor");
+    }
+
+    [[noreturn]] void unsupportedStatementInExpressionVisitor() {
+      throw CompileError("typecheck: internal error: statement visited by expression visitor");
+    }
+
+  } // namespace
+
+  TypeChecker::StatementVisitor::StatementVisitor(TypeChecker& checker, Type expectedReturnType)
+      : checker_(checker), expectedReturnType_(expectedReturnType) {}
+
+  void TypeChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+    checker_.requireKnownType(letStatement.type, letStatement.location);
+    const Type declaredType = letStatement.type;
+    const Type initializerType = checker_.checkExpression(*letStatement.initializer);
+
+    if (!checker_.declareLocal(letStatement.name, declaredType)) {
+      throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
+                                          "duplicate local variable '" + letStatement.name + "'"));
+    }
+
+    if (!checker_.isAssignable(declaredType, initializerType)) {
+      throw CompileError(
+          formatDiagnostic(letStatement.initializer->location, DiagnosticStage::TypeCheck,
+                           "cannot initialize '" + letStatement.name + "' of type " +
+                               declaredType.name() + " with " + initializerType.name()));
+    }
+
+    returned_ = false;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
+    const Type targetType =
+        checker_.lookupLocal(assignmentStatement.lhs, assignmentStatement.location);
+    const Type valueType = checker_.checkExpression(*assignmentStatement.rhs);
+
+    if (!checker_.isAssignable(targetType, valueType)) {
+      throw CompileError(
+          formatDiagnostic(assignmentStatement.rhs->location, DiagnosticStage::TypeCheck,
+                           "cannot assign " + valueType.name() + " to variable '" +
+                               assignmentStatement.lhs + "' of type " + targetType.name()));
+    }
+
+    returned_ = false;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+    const Type returnType = checker_.checkExpression(*returnStatement.expression);
+
+    if (!checker_.isAssignable(expectedReturnType_, returnType)) {
+      throw CompileError(
+          formatDiagnostic(returnStatement.expression->location, DiagnosticStage::TypeCheck,
+                           "return type " + returnType.name() + " does not match expected " +
+                               expectedReturnType_.name()));
+    }
+
+    returned_ = true;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+    const Type conditionType = checker_.checkExpression(*ifStatement.condition);
+    if (conditionType != Type::boolean()) {
+      throw CompileError(
+          formatDiagnostic(ifStatement.condition->location, DiagnosticStage::TypeCheck,
+                           "if condition must be bool, got " + conditionType.name()));
+    }
+
+    checker_.pushScope();
+    const bool thenReturns = checker_.checkStatements(ifStatement.thenBranch, expectedReturnType_);
+    checker_.popScope();
+
+    checker_.pushScope();
+    const bool elseReturns = checker_.checkStatements(ifStatement.elseBranch, expectedReturnType_);
+    checker_.popScope();
+
+    returned_ = thenReturns && elseReturns;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+    const Type conditionType = checker_.checkExpression(*whileStatement.condition);
+    if (conditionType != Type::boolean()) {
+      throw CompileError(
+          formatDiagnostic(whileStatement.condition->location, DiagnosticStage::TypeCheck,
+                           "while condition must be bool, got " + conditionType.name()));
+    }
+
+    checker_.pushScope();
+    checker_.checkStatements(whileStatement.body, expectedReturnType_);
+    checker_.popScope();
+    returned_ = false;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
+    CallExpressionProbe probe;
+    expressionStatement.expression->accept(probe);
+    if (!probe.isCallExpression()) {
+      throw CompileError(formatDiagnostic(expressionStatement.location, DiagnosticStage::TypeCheck,
+                                          "expression statement must be a function call"));
+    }
+
+    const Type expressionType = checker_.checkExpression(*expressionStatement.expression);
+    if (expressionType != Type::voidType()) {
+      throw CompileError(formatDiagnostic(expressionStatement.expression->location,
+                                          DiagnosticStage::TypeCheck,
+                                          "expression statement must call a void builtin"));
+    }
+
+    returned_ = false;
+  }
+
+  void TypeChecker::StatementVisitor::visit(const ast::IntegerLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::FloatLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::StringLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::BoolLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::UnaryExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::CastExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::BinaryExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::IdentifierExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::CallExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+
+  TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker) : checker_(checker) {}
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::IntegerLiteral&) {
+    result_ = Type::i32();
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::FloatLiteral&) {
+    result_ = Type::f64();
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::StringLiteral&) {
+    result_ = Type::str();
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::BoolLiteral&) {
+    result_ = Type::boolean();
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+    result_ = checker_.lookupLocal(identifier.name, identifier.location);
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+    const Type left = checker_.checkExpression(*binary.left);
+    const Type right = checker_.checkExpression(*binary.right);
+
+    switch (binary.op) {
+    case ast::BinaryOperator::And:
+    case ast::BinaryOperator::Or:
+      if (left != Type::boolean() || right != Type::boolean()) {
+        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                            "logical operator requires bool operands, got " +
+                                                left.name() + " and " + right.name()));
+      }
+      result_ = Type::boolean();
+      return;
+    case ast::BinaryOperator::Add:
+    case ast::BinaryOperator::Subtract:
+    case ast::BinaryOperator::Multiply:
+    case ast::BinaryOperator::Divide:
+      if (left == Type::f64() && right == Type::f64()) {
+        result_ = Type::f64();
+        return;
+      }
+      if (left == Type::i32() && right == Type::i32()) {
+        result_ = Type::i32();
+        return;
+      }
+      throw CompileError(
+          formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                           "arithmetic operator requires matching numeric operands, got " +
+                               left.name() + " and " + right.name()));
+    case ast::BinaryOperator::Modulo:
+    case ast::BinaryOperator::BitAnd:
+    case ast::BinaryOperator::BitOr:
+    case ast::BinaryOperator::BitXor:
+    case ast::BinaryOperator::Shl:
+    case ast::BinaryOperator::Shr:
+      if (left != Type::i32() || right != Type::i32()) {
+        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                            "integer operator requires i32 operands, got " +
+                                                left.name() + " and " + right.name()));
+      }
+      result_ = Type::i32();
+      return;
+    case ast::BinaryOperator::Less:
+    case ast::BinaryOperator::LessEqual:
+    case ast::BinaryOperator::Greater:
+    case ast::BinaryOperator::GreaterEqual:
+    case ast::BinaryOperator::Equal:
+    case ast::BinaryOperator::NotEqual:
+      if (left == right && (left == Type::i32() || left == Type::f64())) {
+        result_ = Type::boolean();
+        return;
+      }
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                          "comparison requires matching numeric operands, got " +
+                                              left.name() + " and " + right.name()));
+    }
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+    const Type operandType = checker_.checkExpression(*unary.operand);
+
+    switch (unary.op) {
+    case ast::UnaryOperator::Negate:
+      if (operandType == Type::i32() || operandType == Type::f64()) {
+        result_ = operandType;
+        return;
+      }
+      throw CompileError(
+          formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                           "unary negation requires numeric operand, got " + operandType.name()));
+    case ast::UnaryOperator::BitNot:
+      if (operandType != Type::i32()) {
+        throw CompileError(
+            formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                             "unary operator requires i32 operand, got " + operandType.name()));
+      }
+      result_ = Type::i32();
+      return;
+    case ast::UnaryOperator::Not:
+      if (operandType != Type::boolean()) {
+        throw CompileError(
+            formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                             "logical not requires bool operand, got " + operandType.name()));
+      }
+      result_ = Type::boolean();
+      return;
+    }
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+    const Type sourceType = checker_.checkExpression(*castExpression.expression);
+    checker_.requireKnownType(castExpression.targetType, castExpression.location);
+    const Type targetType = castExpression.targetType;
+
+    if (sourceType == targetType) {
+      result_ = targetType;
+      return;
+    }
+
+    if (sourceType == Type::i32() && targetType == Type::f64()) {
+      result_ = Type::f64();
+      return;
+    }
+    if (sourceType == Type::f64() && targetType == Type::i32()) {
+      result_ = Type::i32();
+      return;
+    }
+    if (sourceType == Type::boolean() && targetType == Type::i32()) {
+      result_ = Type::i32();
+      return;
+    }
+    if (sourceType == Type::i32() && targetType == Type::boolean()) {
+      result_ = Type::boolean();
+      return;
+    }
+
+    throw CompileError(
+        formatDiagnostic(castExpression.location, DiagnosticStage::TypeCheck,
+                         "cannot cast " + sourceType.name() + " to " + targetType.name()));
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::CallExpression& call) {
+    if (const BuiltinSignature* descriptor = lookupBuiltin(call.callee)) {
+      result_ = checker_.checkBuiltinCall(call, *descriptor);
+      return;
+    }
+
+    const auto function = checker_.functions_.find(call.callee);
+
+    if (function == checker_.functions_.end()) {
+      throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                                          "unknown function '" + call.callee + "'"));
+    }
+
+    if (call.arguments.size() != function->second.parameterTypes.size()) {
+      std::ostringstream out;
+      out << "function '" << call.callee << "' expects " << function->second.parameterTypes.size()
+          << " argument(s), got " << call.arguments.size();
+      throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
+    }
+
+    for (std::size_t index{}; index < call.arguments.size(); ++index) {
+      const Type actual = checker_.checkExpression(*call.arguments[index]);
+      const Type expected = function->second.parameterTypes[index];
+      if (!checker_.isAssignable(expected, actual)) {
+        std::ostringstream out;
+        out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
+            << expected.name() << ", got " << actual.name();
+        throw CompileError(formatDiagnostic(call.arguments[index]->location,
+                                            DiagnosticStage::TypeCheck, out.str()));
+      }
+    }
+
+    result_ = function->second.returnType;
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::ReturnStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+  void TypeChecker::ExpressionVisitor::visit(const ast::LetStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+  void TypeChecker::ExpressionVisitor::visit(const ast::IfStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+  void TypeChecker::ExpressionVisitor::visit(const ast::WhileStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+  void TypeChecker::ExpressionVisitor::visit(const ast::AssignmentStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+  void TypeChecker::ExpressionVisitor::visit(const ast::ExpressionStatement&) {
+    unsupportedStatementInExpressionVisitor();
+  }
+
+  void TypeChecker::CallExpressionProbe::visit(const ast::CallExpression&) {
+    isCallExpression_ = true;
+  }
+
+  void TypeChecker::CallExpressionProbe::visit(const ast::IntegerLiteral&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::FloatLiteral&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::StringLiteral&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::BoolLiteral&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::UnaryExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::CastExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::BinaryExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::IdentifierExpression&) {}
+
+  void TypeChecker::CallExpressionProbe::visit(const ast::ReturnStatement&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::LetStatement&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::IfStatement&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::WhileStatement&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::AssignmentStatement&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::ExpressionStatement&) {}
+
   void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
         type == Type::str())
@@ -16,11 +376,6 @@ namespace noria {
                                         "unknown type '" + type.name() + "'"));
   }
 
-  // main flow
-  // check() -> checkFunction() + push scope (pop when done)-> checkStatement() -> push scope if
-  // needed -> checkStatement() ->.... ->pop scope
-  //                                                                            -> checkExpression()
-  //                                                                            -> ....
   void TypeChecker::check(const ast::Module& module) {
     functions_.clear();
     scopes_.clear();
@@ -66,110 +421,9 @@ namespace noria {
   }
 
   bool TypeChecker::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
-
-    if (const auto* letStatement = dynamic_cast<const ast::LetStatement*>(&statement)) {
-      requireKnownType(letStatement->type, letStatement->location);
-      const Type declaredType = letStatement->type;
-      const Type initializerType = checkExpression(*letStatement->initializer);
-
-      if (!declareLocal(letStatement->name, declaredType)) {
-        throw CompileError(
-            formatDiagnostic(letStatement->location, DiagnosticStage::TypeCheck,
-                             "duplicate local variable '" + letStatement->name + "'"));
-      }
-
-      if (!isAssignable(declaredType, initializerType)) {
-        throw CompileError(
-            formatDiagnostic(letStatement->initializer->location, DiagnosticStage::TypeCheck,
-                             "cannot initialize '" + letStatement->name + "' of type " +
-                                 declaredType.name() + " with " + initializerType.name()));
-      }
-
-      return false;
-    }
-
-    if (const auto* assignmentStatement =
-            dynamic_cast<const ast::AssignmentStatement*>(&statement)) {
-
-      const Type targetType = lookupLocal(assignmentStatement->lhs, assignmentStatement->location);
-      const Type valueType = checkExpression(*assignmentStatement->rhs);
-
-      if (!isAssignable(targetType, valueType)) {
-        throw CompileError(
-            formatDiagnostic(assignmentStatement->rhs->location, DiagnosticStage::TypeCheck,
-                             "cannot assign " + valueType.name() + " to variable '" +
-                                 assignmentStatement->lhs + "' of type " + targetType.name()));
-      }
-
-      return false;
-    }
-
-    if (const auto* returnStatement = dynamic_cast<const ast::ReturnStatement*>(&statement)) {
-
-      const Type returnType = checkExpression(*returnStatement->expression);
-
-      if (!isAssignable(expectedReturnType, returnType)) {
-        throw CompileError(
-            formatDiagnostic(returnStatement->expression->location, DiagnosticStage::TypeCheck,
-                             "return type " + returnType.name() + " does not match expected " +
-                                 expectedReturnType.name()));
-      }
-      return true;
-    }
-
-    if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement)) {
-      const Type conditionType = checkExpression(*ifStatement->condition);
-      if (conditionType != Type::boolean()) {
-        throw CompileError(
-            formatDiagnostic(ifStatement->condition->location, DiagnosticStage::TypeCheck,
-                             "if condition must be bool, got " + conditionType.name()));
-      }
-
-      pushScope();
-      const bool thenReturns = checkStatements(ifStatement->thenBranch, expectedReturnType);
-      popScope();
-
-      pushScope();
-      const bool elseReturns = checkStatements(ifStatement->elseBranch, expectedReturnType);
-      popScope();
-
-      return thenReturns && elseReturns;
-    }
-
-    if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(&statement)) {
-      const Type conditionType = checkExpression(*whileStatement->condition);
-      if (conditionType != Type::boolean()) {
-        throw CompileError(
-            formatDiagnostic(whileStatement->condition->location, DiagnosticStage::TypeCheck,
-                             "while condition must be bool, got " + conditionType.name()));
-      }
-
-      pushScope();
-      checkStatements(whileStatement->body, expectedReturnType);
-      popScope();
-      return false;
-    }
-
-    if (const auto* expressionStatement =
-            dynamic_cast<const ast::ExpressionStatement*>(&statement)) {
-      if (!dynamic_cast<const ast::CallExpression*>(expressionStatement->expression.get())) {
-        throw CompileError(formatDiagnostic(expressionStatement->location,
-                                            DiagnosticStage::TypeCheck,
-                                            "expression statement must be a function call"));
-      }
-
-      const Type expressionType = checkExpression(*expressionStatement->expression);
-      if (expressionType != Type::voidType()) {
-        throw CompileError(formatDiagnostic(expressionStatement->expression->location,
-                                            DiagnosticStage::TypeCheck,
-                                            "expression statement must call a void builtin"));
-      }
-
-      return false;
-    }
-
-    throw CompileError(
-        formatDiagnostic(statement.location, DiagnosticStage::TypeCheck, "unsupported statement"));
+    StatementVisitor visitor(*this, expectedReturnType);
+    statement.accept(visitor);
+    return visitor.returned();
   }
 
   Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
@@ -207,160 +461,11 @@ namespace noria {
   }
 
   Type TypeChecker::checkExpression(const ast::Expression& expression) {
-    if (dynamic_cast<const ast::IntegerLiteral*>(&expression))
-      return Type::i32();
-
-    if (dynamic_cast<const ast::FloatLiteral*>(&expression))
-      return Type::f64();
-
-    if (dynamic_cast<const ast::StringLiteral*>(&expression))
-      return Type::str();
-
-    if (dynamic_cast<const ast::BoolLiteral*>(&expression))
-      return Type::boolean();
-
-    if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(&expression))
-      return lookupLocal(identifier->name, identifier->location);
-
-    if (const auto* binary = dynamic_cast<const ast::BinaryExpression*>(&expression)) {
-      const Type left = checkExpression(*binary->left);
-      const Type right = checkExpression(*binary->right);
-
-      switch (binary->op) {
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-        if (left != Type::boolean() || right != Type::boolean()) {
-          throw CompileError(formatDiagnostic(binary->location, DiagnosticStage::TypeCheck,
-                                              "logical operator requires bool operands, got " +
-                                                  left.name() + " and " + right.name()));
-        }
-        return Type::boolean();
-      case ast::BinaryOperator::Add:
-      case ast::BinaryOperator::Subtract:
-      case ast::BinaryOperator::Multiply:
-      case ast::BinaryOperator::Divide:
-        if (left == Type::f64() && right == Type::f64())
-          return Type::f64();
-        if (left == Type::i32() && right == Type::i32())
-          return Type::i32();
-        throw CompileError(
-            formatDiagnostic(binary->location, DiagnosticStage::TypeCheck,
-                             "arithmetic operator requires matching numeric operands, got " +
-                                 left.name() + " and " + right.name()));
-      case ast::BinaryOperator::Modulo:
-      case ast::BinaryOperator::BitAnd:
-      case ast::BinaryOperator::BitOr:
-      case ast::BinaryOperator::BitXor:
-      case ast::BinaryOperator::Shl:
-      case ast::BinaryOperator::Shr:
-        if (left != Type::i32() || right != Type::i32()) {
-          throw CompileError(formatDiagnostic(binary->location, DiagnosticStage::TypeCheck,
-                                              "integer operator requires i32 operands, got " +
-                                                  left.name() + " and " + right.name()));
-        }
-        return Type::i32();
-      case ast::BinaryOperator::Less:
-      case ast::BinaryOperator::LessEqual:
-      case ast::BinaryOperator::Greater:
-      case ast::BinaryOperator::GreaterEqual:
-      case ast::BinaryOperator::Equal:
-      case ast::BinaryOperator::NotEqual:
-        if (left == right && (left == Type::i32() || left == Type::f64()))
-          return Type::boolean();
-        throw CompileError(formatDiagnostic(binary->location, DiagnosticStage::TypeCheck,
-                                            "comparison requires matching numeric operands, got " +
-                                                left.name() + " and " + right.name()));
-      }
-    }
-
-    if (const auto* unary = dynamic_cast<const ast::UnaryExpression*>(&expression)) {
-      const Type operandType = checkExpression(*unary->operand);
-
-      switch (unary->op) {
-      case ast::UnaryOperator::Negate:
-        if (operandType == Type::i32() || operandType == Type::f64())
-          return operandType;
-        throw CompileError(
-            formatDiagnostic(unary->location, DiagnosticStage::TypeCheck,
-                             "unary negation requires numeric operand, got " + operandType.name()));
-      case ast::UnaryOperator::BitNot:
-        if (operandType != Type::i32()) {
-          throw CompileError(
-              formatDiagnostic(unary->location, DiagnosticStage::TypeCheck,
-                               "unary operator requires i32 operand, got " + operandType.name()));
-        }
-        return Type::i32();
-      case ast::UnaryOperator::Not:
-        if (operandType != Type::boolean()) {
-          throw CompileError(
-              formatDiagnostic(unary->location, DiagnosticStage::TypeCheck,
-                               "logical not requires bool operand, got " + operandType.name()));
-        }
-        return Type::boolean();
-      }
-    }
-
-    if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression)) {
-      const Type sourceType = checkExpression(*castExpression->expression);
-      requireKnownType(castExpression->targetType, castExpression->location);
-      const Type targetType = castExpression->targetType;
-
-      if (sourceType == targetType)
-        return targetType;
-
-      if (sourceType == Type::i32() && targetType == Type::f64())
-        return Type::f64();
-      if (sourceType == Type::f64() && targetType == Type::i32())
-        return Type::i32();
-      if (sourceType == Type::boolean() && targetType == Type::i32())
-        return Type::i32();
-      if (sourceType == Type::i32() && targetType == Type::boolean())
-        return Type::boolean();
-
-      throw CompileError(
-          formatDiagnostic(castExpression->location, DiagnosticStage::TypeCheck,
-                           "cannot cast " + sourceType.name() + " to " + targetType.name()));
-    }
-
-    if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
-      if (const BuiltinSignature* descriptor = lookupBuiltin(call->callee))
-        return checkBuiltinCall(*call, *descriptor);
-
-      const auto function = functions_.find(call->callee);
-
-      if (function == functions_.end()) {
-        throw CompileError(formatDiagnostic(call->location, DiagnosticStage::TypeCheck,
-                                            "unknown function '" + call->callee + "'"));
-      }
-
-      if (call->arguments.size() != function->second.parameterTypes.size()) {
-        std::ostringstream out;
-        out << "function '" << call->callee << "' expects "
-            << function->second.parameterTypes.size() << " argument(s), got "
-            << call->arguments.size();
-        throw CompileError(formatDiagnostic(call->location, DiagnosticStage::TypeCheck, out.str()));
-      }
-
-      for (std::size_t index{}; index < call->arguments.size(); ++index) {
-        const Type actual = checkExpression(*call->arguments[index]);
-        const Type expected = function->second.parameterTypes[index];
-        if (!isAssignable(expected, actual)) {
-          std::ostringstream out;
-          out << "argument " << (index + 1) << " of '" << call->callee << "' expects "
-              << expected.name() << ", got " << actual.name();
-          throw CompileError(formatDiagnostic(call->arguments[index]->location,
-                                              DiagnosticStage::TypeCheck, out.str()));
-        }
-      }
-
-      return function->second.returnType;
-    }
-
-    throw CompileError(formatDiagnostic(expression.location, DiagnosticStage::TypeCheck,
-                                        "unsupported expression"));
+    ExpressionVisitor visitor(*this);
+    expression.accept(visitor);
+    return visitor.result();
   }
 
-  // helpers
   bool TypeChecker::declareLocal(const std::string& name, Type type) {
     if (scopes_.empty())
       pushScope();
@@ -411,7 +516,6 @@ namespace noria {
   }
 
   void TypeChecker::pushScope() {
-    // a scope is an unordered_map, call the default constructor
     scopes_.emplace_back();
   }
 

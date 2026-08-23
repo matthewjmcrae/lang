@@ -97,3 +97,35 @@ Still deferred: `dynamic_cast` dispatch chains → checkpoint 4.
 ### Next unit
 
 Phase 2.5, checkpoint 4 — Full Visitor.
+
+## Phase 2.5, checkpoint 4 — Full Visitor
+
+Baseline commit `ac69be9`.
+
+### Objective and acceptance
+
+Introduce a full AST visitor; migrate AstPrinter, TypeChecker, and Codegen off `dynamic_cast` dispatch; smoke-test every node kind; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `include/noria/AstVisitor.hpp`: `visit` overloads for all 15 current stmt/expr nodes; `accept` on `Expression`/`Statement` and each final node in `Ast.hpp`. Migrated AstPrinter, TypeChecker, Codegen to visitor implementations; removed their `dynamic_cast` chains. Nested `StatementVisitor`/`ExpressionVisitor` (and small probe visitors) in TypeChecker and Codegen; `AstPrintVisitor` in `AstPrinter.cpp`. `tests/visitor_smoke_test.cpp`: smoke AST hits every node kind; registered in `CMakeLists.txt`, CTest, `run_examples.sh`.
+
+### Semantic and architectural decisions
+
+Double dispatch via `accept`/`visit` replaces ad-hoc `dynamic_cast` chains in three compiler stages, giving one traversal contract for printing, type checking, and codegen.
+
+### Tests, sanitizer, results
+
+All gates green: warning-clean build; empty IR/AST diffs (base4 vs after4); `--emit-ast` unchanged; `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED with one non-blocking extensibility note: exhaustive visitors add boilerplate for new nodes.
+
+### Limitations and risks
+
+Extensibility cost: adding `IndexExpression` needs ~16 visitor-propagation edits across seven production files.
+
+### Next unit
+
+Phase 2.5, checkpoint 5 — Compiler facade.

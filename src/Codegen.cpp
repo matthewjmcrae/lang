@@ -213,128 +213,298 @@ namespace noria {
     return false;
   }
 
+  LlvmIrTextGenerator::StatementVisitor::StatementVisitor(const LlvmIrTextGenerator& generator,
+                                                          std::ostringstream& out,
+                                                          int& nextTemporary, int& nextLabel,
+                                                          Type expectedReturnType,
+                                                          std::vector<Scope>& scopes)
+      : generator_(generator), out_(out), nextTemporary_(nextTemporary), nextLabel_(nextLabel),
+        expectedReturnType_(expectedReturnType), scopes_(scopes) {}
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+    const Type localType = letStatement.type;
+    const std::string slot = "%" + letStatement.name + ".slot" + std::to_string(nextTemporary_++);
+
+    if (!generator_.declareLocal(scopes_, letStatement.name, LocalBinding{slot, localType})) {
+      throw CompileError("codegen: duplicate local variable '" + letStatement.name + "'");
+    }
+
+    out_ << "  " << slot << " = alloca " << llvmType(localType) << "\n";
+
+    Value initializer = generator_.generateExpression(*letStatement.initializer, out_,
+                                                      nextTemporary_, nextLabel_, scopes_);
+    out_ << "  store " << llvmType(localType) << " " << initializer.text << ", ptr " << slot
+         << "\n";
+    returned_ = false;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+    Value returnValue = generator_.generateExpression(*returnStatement.expression, out_,
+                                                      nextTemporary_, nextLabel_, scopes_);
+    out_ << "  ret " << llvmType(expectedReturnType_) << " " << returnValue.text << "\n";
+    returned_ = true;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(
+      const ast::AssignmentStatement& assignmentStatement) {
+    const LocalBinding& local = generator_.lookupLocal(scopes_, assignmentStatement.lhs);
+
+    Value rvalue = generator_.generateExpression(*assignmentStatement.rhs, out_, nextTemporary_,
+                                                 nextLabel_, scopes_);
+    out_ << "  store " << llvmType(local.type) << " " << rvalue.text << ", ptr " << local.slot
+         << "\n";
+    returned_ = false;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+    const int labelId = nextLabel_++;
+    const std::string thenLabel = "if.then" + std::to_string(labelId);
+    const std::string elseLabel = "if.else" + std::to_string(labelId);
+    const std::string endLabel = "if.end" + std::to_string(labelId);
+
+    const std::string condition = generator_.generateCondition(*ifStatement.condition, out_,
+                                                               nextTemporary_, nextLabel_, scopes_);
+    out_ << "  br i1 " << condition << ", label %" << thenLabel << ", label %" << elseLabel << "\n";
+
+    out_ << thenLabel << ":\n";
+    scopes_.emplace_back();
+    const bool thenReturns = generator_.generateStatements(
+        ifStatement.thenBranch, out_, nextTemporary_, nextLabel_, expectedReturnType_, scopes_);
+    scopes_.pop_back();
+
+    if (!thenReturns)
+      out_ << "  br label %" << endLabel << "\n";
+
+    out_ << elseLabel << ":\n";
+    scopes_.emplace_back();
+    const bool elseReturns = generator_.generateStatements(
+        ifStatement.elseBranch, out_, nextTemporary_, nextLabel_, expectedReturnType_, scopes_);
+    scopes_.pop_back();
+    if (!elseReturns)
+      out_ << "  br label %" << endLabel << "\n";
+
+    if (!thenReturns || !elseReturns) {
+      out_ << endLabel << ":\n";
+      returned_ = false;
+      return;
+    }
+
+    returned_ = true;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+    const int labelId = nextLabel_++;
+    const std::string conditionLabel = "while.cond" + std::to_string(labelId);
+    const std::string bodyLabel = "while.body" + std::to_string(labelId);
+    const std::string endLabel = "while.end" + std::to_string(labelId);
+
+    out_ << "  br label %" << conditionLabel << "\n";
+
+    out_ << conditionLabel << ":\n";
+    const std::string condition = generator_.generateCondition(*whileStatement.condition, out_,
+                                                               nextTemporary_, nextLabel_, scopes_);
+    out_ << "  br i1 " << condition << ", label %" << bodyLabel << ", label %" << endLabel << "\n";
+
+    out_ << bodyLabel << ":\n";
+    scopes_.emplace_back();
+    const bool bodyReturns = generator_.generateStatements(
+        whileStatement.body, out_, nextTemporary_, nextLabel_, expectedReturnType_, scopes_);
+    scopes_.pop_back();
+    if (!bodyReturns)
+      out_ << "  br label %" << conditionLabel << "\n";
+
+    out_ << endLabel << ":\n";
+    returned_ = false;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(
+      const ast::ExpressionStatement& expressionStatement) {
+    generator_.generateExpression(*expressionStatement.expression, out_, nextTemporary_, nextLabel_,
+                                  scopes_);
+    returned_ = false;
+  }
+
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IntegerLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::FloatLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::StringLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::BoolLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::UnaryExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CastExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::BinaryExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IdentifierExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CallExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+
+  LlvmIrTextGenerator::ExpressionVisitor::ExpressionVisitor(const LlvmIrTextGenerator& generator,
+                                                            std::ostringstream& out,
+                                                            int& nextTemporary, int& nextLabel,
+                                                            const std::vector<Scope>& scopes)
+      : generator_(generator), out_(out), nextTemporary_(nextTemporary), nextLabel_(nextLabel),
+        scopes_(scopes) {}
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+    result_ = Value{std::to_string(integer.value), Type::i32()};
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
+    std::ostringstream literal;
+    literal << floating.value;
+    std::string text = literal.str();
+    if (text.find('.') == std::string::npos && text.find('e') == std::string::npos &&
+        text.find('E') == std::string::npos) {
+      text += ".0";
+    }
+    result_ = Value{text, Type::f64()};
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
+    result_ = generator_.generateStringLiteral(stringLiteral, out_, nextTemporary_);
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
+    result_ = Value{boolean.value ? "true" : "false", Type::boolean()};
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+    const Value operand =
+        generator_.generateExpression(*unary.operand, out_, nextTemporary_, nextLabel_, scopes_);
+    const std::string result = "%t" + std::to_string(nextTemporary_++);
+
+    switch (unary.op) {
+    case ast::UnaryOperator::Negate:
+      if (operand.type == Type::f64()) {
+        out_ << "  " << result << " = fneg double " << operand.text << "\n";
+        result_ = Value{result, Type::f64()};
+        return;
+      }
+      out_ << "  " << result << " = sub i32 0, " << operand.text << "\n";
+      result_ = Value{result, Type::i32()};
+      return;
+    case ast::UnaryOperator::Not:
+      out_ << "  " << result << " = xor i1 " << operand.text << ", true\n";
+      result_ = Value{result, Type::boolean()};
+      return;
+    case ast::UnaryOperator::BitNot:
+      out_ << "  " << result << " = xor i32 " << operand.text << ", -1\n";
+      result_ = Value{result, Type::i32()};
+      return;
+    }
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+    result_ = generator_.generateCastExpression(castExpression, out_, nextTemporary_, nextLabel_,
+                                                scopes_);
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+    result_ =
+        generator_.generateBinaryExpression(binary, out_, nextTemporary_, nextLabel_, scopes_);
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+    const LocalBinding& local = generator_.lookupLocal(scopes_, identifier.name);
+
+    const std::string result = "%t" + std::to_string(nextTemporary_++);
+    out_ << "  " << result << " = load " << llvmType(local.type) << ", ptr " << local.slot << "\n";
+    result_ = Value{result, local.type};
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::CallExpression& call) {
+    if (auto builtin =
+            generator_.tryGenerateBuiltinCall(call, out_, nextTemporary_, nextLabel_, scopes_)) {
+      result_ = *builtin;
+      return;
+    }
+
+    const auto function = generator_.functions_.find(call.callee);
+    if (function == generator_.functions_.end())
+      throw CompileError("codegen: unknown function '" + call.callee + "'");
+
+    std::vector<Value> arguments;
+    arguments.reserve(call.arguments.size());
+
+    for (const auto& argument : call.arguments) {
+      arguments.push_back(
+          generator_.generateExpression(*argument, out_, nextTemporary_, nextLabel_, scopes_));
+    }
+
+    const std::string result = "%t" + std::to_string(nextTemporary_++);
+    out_ << "  " << result << " = call " << llvmType(function->second.returnType) << " @"
+         << call.callee << "(";
+    for (std::size_t index{}; index < arguments.size(); ++index) {
+      if (index != 0)
+        out_ << ", ";
+
+      out_ << llvmType(arguments[index].type) << " " << arguments[index].text;
+    }
+    out_ << ")\n";
+    result_ = Value{result, function->second.returnType};
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ReturnStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::LetStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IfStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::WhileStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::AssignmentStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ExpressionStatement&) {
+    throw CompileError("codegen: internal error: statement visited by expression visitor");
+  }
+
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::BinaryExpression& node) {
+    if (isComparison(node.op))
+      comparison_ = &node;
+  }
+
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IntegerLiteral&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::FloatLiteral&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::StringLiteral&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::BoolLiteral&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::UnaryExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CastExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IdentifierExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CallExpression&) {}
+
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ReturnStatement&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::LetStatement&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IfStatement&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::WhileStatement&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::AssignmentStatement&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ExpressionStatement&) {}
+
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement,
                                               std::ostringstream& out, int& nextTemporary,
                                               int& nextLabel, Type expectedReturnType,
                                               std::vector<Scope>& scopes) const {
-
-    if (const auto* letStatement = dynamic_cast<const ast::LetStatement*>(&statement)) {
-      const Type localType = letStatement->type;
-      const std::string slot = "%" + letStatement->name + ".slot" + std::to_string(nextTemporary++);
-
-      if (!declareLocal(scopes, letStatement->name, LocalBinding{slot, localType})) {
-        throw CompileError("codegen: duplicate local variable '" + letStatement->name + "'");
-      }
-
-      out << "  " << slot << " = alloca " << llvmType(localType) << "\n";
-
-      // store new variable on the stack
-      Value initializer =
-          generateExpression(*letStatement->initializer, out, nextTemporary, nextLabel, scopes);
-      out << "  store " << llvmType(localType) << " " << initializer.text << ", ptr " << slot
-          << "\n";
-      return false;
-    }
-
-    if (const auto* returnStatement = dynamic_cast<const ast::ReturnStatement*>(&statement)) {
-      Value returnValue =
-          generateExpression(*returnStatement->expression, out, nextTemporary, nextLabel, scopes);
-      out << "  ret " << llvmType(expectedReturnType) << " " << returnValue.text << "\n";
-      return true;
-    }
-
-    if (const auto* assignmentStatement =
-            dynamic_cast<const ast::AssignmentStatement*>(&statement)) {
-      const LocalBinding& local = lookupLocal(scopes, assignmentStatement->lhs);
-
-      // update local value on the stack
-      Value rvalue =
-          generateExpression(*assignmentStatement->rhs, out, nextTemporary, nextLabel, scopes);
-      out << "  store " << llvmType(local.type) << " " << rvalue.text << ", ptr " << local.slot
-          << "\n";
-      return false;
-    }
-
-    if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement)) {
-      const int labelId = nextLabel++;
-      const std::string thenLabel = "if.then" + std::to_string(labelId);
-      const std::string elseLabel = "if.else" + std::to_string(labelId);
-      const std::string endLabel = "if.end" + std::to_string(labelId);
-
-      const std::string condition =
-          generateCondition(*ifStatement->condition, out, nextTemporary, nextLabel, scopes);
-      out << "  br i1 " << condition << ", label %" << thenLabel << ", label %" << elseLabel
-          << "\n";
-
-      out << thenLabel << ":\n";
-      scopes.emplace_back();
-      const bool thenReturns = generateStatements(ifStatement->thenBranch, out, nextTemporary,
-                                                  nextLabel, expectedReturnType, scopes);
-      scopes.pop_back();
-
-      // if branches dont return, continue into the merged code block
-
-      /*  if cond{
-       *    x=1
-       *  }
-       *  else{
-       *    x=2
-       *  }
-       *  return x; <- merged block
-       */
-
-      if (!thenReturns)
-        out << "  br label %" << endLabel << "\n";
-
-      out << elseLabel << ":\n";
-      scopes.emplace_back();
-      const bool elseReturns = generateStatements(ifStatement->elseBranch, out, nextTemporary,
-                                                  nextLabel, expectedReturnType, scopes);
-      scopes.pop_back();
-      if (!elseReturns)
-        out << "  br label %" << endLabel << "\n";
-
-      // if either branch does not return then we have a merged block after
-      if (!thenReturns || !elseReturns) {
-        out << endLabel << ":\n";
-        return false;
-      }
-
-      return true;
-    }
-
-    if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(&statement)) {
-      const int labelId = nextLabel++;
-      const std::string conditionLabel = "while.cond" + std::to_string(labelId);
-      const std::string bodyLabel = "while.body" + std::to_string(labelId);
-      const std::string endLabel = "while.end" + std::to_string(labelId);
-
-      out << "  br label %" << conditionLabel << "\n";
-
-      out << conditionLabel << ":\n";
-      const std::string condition =
-          generateCondition(*whileStatement->condition, out, nextTemporary, nextLabel, scopes);
-      out << "  br i1 " << condition << ", label %" << bodyLabel << ", label %" << endLabel << "\n";
-
-      out << bodyLabel << ":\n";
-      scopes.emplace_back();
-      const bool bodyReturns = generateStatements(whileStatement->body, out, nextTemporary,
-                                                  nextLabel, expectedReturnType, scopes);
-      scopes.pop_back();
-      if (!bodyReturns)
-        out << "  br label %" << conditionLabel << "\n";
-
-      out << endLabel << ":\n";
-      return false;
-    }
-
-    if (const auto* expressionStatement =
-            dynamic_cast<const ast::ExpressionStatement*>(&statement)) {
-      generateExpression(*expressionStatement->expression, out, nextTemporary, nextLabel, scopes);
-      return false;
-    }
-
-    throw CompileError("codegen: unsupported statement");
+    StatementVisitor visitor(*this, out, nextTemporary, nextLabel, expectedReturnType, scopes);
+    statement.accept(visitor);
+    return visitor.returned();
   }
 
   LlvmIrTextGenerator::Value
@@ -458,9 +628,10 @@ namespace noria {
                                                      int& nextLabel,
                                                      const std::vector<Scope>& scopes) const {
 
-    if (const auto* binary = dynamic_cast<const ast::BinaryExpression*>(&expression))
-      if (isComparison(binary->op))
-        return generateBinaryExpression(*binary, out, nextTemporary, nextLabel, scopes).text;
+    ComparisonProbe probe;
+    expression.accept(probe);
+    if (const ast::BinaryExpression* binary = probe.comparison())
+      return generateBinaryExpression(*binary, out, nextTemporary, nextLabel, scopes).text;
 
     const Value value = generateExpression(expression, out, nextTemporary, nextLabel, scopes);
 
@@ -476,92 +647,9 @@ namespace noria {
   LlvmIrTextGenerator::generateExpression(const ast::Expression& expression,
                                           std::ostringstream& out, int& nextTemporary,
                                           int& nextLabel, const std::vector<Scope>& scopes) const {
-
-    if (const auto* integer = dynamic_cast<const ast::IntegerLiteral*>(&expression))
-      return Value{std::to_string(integer->value), Type::i32()};
-
-    if (const auto* floating = dynamic_cast<const ast::FloatLiteral*>(&expression)) {
-      std::ostringstream literal;
-      literal << floating->value;
-      std::string text = literal.str();
-      if (text.find('.') == std::string::npos && text.find('e') == std::string::npos &&
-          text.find('E') == std::string::npos) {
-        text += ".0";
-      }
-      return Value{text, Type::f64()};
-    }
-
-    if (const auto* stringLiteral = dynamic_cast<const ast::StringLiteral*>(&expression))
-      return generateStringLiteral(*stringLiteral, out, nextTemporary);
-
-    if (const auto* boolean = dynamic_cast<const ast::BoolLiteral*>(&expression))
-      return Value{boolean->value ? "true" : "false", Type::boolean()};
-
-    if (const auto* unary = dynamic_cast<const ast::UnaryExpression*>(&expression)) {
-      const Value operand =
-          generateExpression(*unary->operand, out, nextTemporary, nextLabel, scopes);
-      const std::string result = "%t" + std::to_string(nextTemporary++);
-
-      switch (unary->op) {
-      case ast::UnaryOperator::Negate:
-        if (operand.type == Type::f64()) {
-          out << "  " << result << " = fneg double " << operand.text << "\n";
-          return Value{result, Type::f64()};
-        }
-        out << "  " << result << " = sub i32 0, " << operand.text << "\n";
-        return Value{result, Type::i32()};
-      case ast::UnaryOperator::Not:
-        out << "  " << result << " = xor i1 " << operand.text << ", true\n";
-        return Value{result, Type::boolean()};
-      case ast::UnaryOperator::BitNot:
-        out << "  " << result << " = xor i32 " << operand.text << ", -1\n";
-        return Value{result, Type::i32()};
-      }
-    }
-
-    if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression))
-      return generateCastExpression(*castExpression, out, nextTemporary, nextLabel, scopes);
-
-    if (const auto* binary = dynamic_cast<const ast::BinaryExpression*>(&expression))
-      return generateBinaryExpression(*binary, out, nextTemporary, nextLabel, scopes);
-
-    if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(&expression)) {
-      const LocalBinding& local = lookupLocal(scopes, identifier->name);
-
-      const std::string result = "%t" + std::to_string(nextTemporary++);
-      out << "  " << result << " = load " << llvmType(local.type) << ", ptr " << local.slot << "\n";
-      return Value{result, local.type};
-    }
-
-    if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
-      if (auto builtin = tryGenerateBuiltinCall(*call, out, nextTemporary, nextLabel, scopes))
-        return *builtin;
-
-      const auto function = functions_.find(call->callee);
-      if (function == functions_.end())
-        throw CompileError("codegen: unknown function '" + call->callee + "'");
-
-      std::vector<Value> arguments;
-      arguments.reserve(call->arguments.size());
-
-      for (const auto& argument : call->arguments) {
-        arguments.push_back(generateExpression(*argument, out, nextTemporary, nextLabel, scopes));
-      }
-
-      const std::string result = "%t" + std::to_string(nextTemporary++);
-      out << "  " << result << " = call " << llvmType(function->second.returnType) << " @"
-          << call->callee << "(";
-      for (std::size_t index{}; index < arguments.size(); ++index) {
-        if (index != 0)
-          out << ", ";
-
-        out << llvmType(arguments[index].type) << " " << arguments[index].text;
-      }
-      out << ")\n";
-      return Value{result, function->second.returnType};
-    }
-
-    throw CompileError("codegen: unsupported expression");
+    ExpressionVisitor visitor(*this, out, nextTemporary, nextLabel, scopes);
+    expression.accept(visitor);
+    return visitor.result();
   }
 
   LlvmIrTextGenerator::Value LlvmIrTextGenerator::generateBinaryExpression(
