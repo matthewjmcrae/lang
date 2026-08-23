@@ -27,7 +27,13 @@ namespace noria {
       return specializationRequests_;
     }
 
+    const std::vector<StructSpecializationRequest>& structSpecializationRequests() const {
+      return structSpecializationRequests_;
+    }
+
     void clearSpecializationRequests() { specializationRequests_.clear(); }
+
+    void clearStructSpecializationRequests() { structSpecializationRequests_.clear(); }
 
   private:
     class StatementVisitor final : public ast::AstVisitor {
@@ -185,6 +191,10 @@ namespace noria {
     void collectStructDecls(const ast::Module& module);
     void checkStructAcyclic(const std::string& structName, SourceLocation location) const;
     const StructInfo& lookupStruct(const std::string& name, SourceLocation location) const;
+    StructInfo resolveStructInfo(const Type& structType, SourceLocation location) const;
+    void recordStructSpecialization(const std::string& templateName,
+                                    const std::vector<Type>& typeArgs,
+                                    SourceLocation location) const;
 
     void collectFunctionSignatures(const ast::Module& module);
     void checkFunction(const ast::Function& function);
@@ -202,7 +212,9 @@ namespace noria {
 
     std::unordered_map<std::string, FunctionSignature> functions_;
     std::unordered_map<std::string, const ast::Function*> genericFunctions_;
+    std::unordered_map<std::string, const ast::StructDecl*> genericStructs_;
     std::vector<SpecializationRequest> specializationRequests_;
+    mutable std::vector<StructSpecializationRequest> structSpecializationRequests_;
     std::string currentFunctionName_;
     std::unordered_map<std::string, StructInfo> structs_;
     std::vector<Scope> scopes_;

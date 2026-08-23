@@ -234,7 +234,7 @@ int main() {
   ArrayLiteral arrayLiteral(std::move(arrayElements), loc);
   std::vector<StructLiteralField> structFields;
   structFields.push_back(StructLiteralField{"x", std::make_unique<IntegerLiteral>(1, loc), loc});
-  StructLiteral structLiteral("Point", std::move(structFields), loc);
+  StructLiteral structLiteral("Point", std::vector<Type>{}, std::move(structFields), loc);
   FieldAccessExpression fieldAccessExpression(
       std::make_unique<IdentifierExpression>("p", loc), "x", loc);
 

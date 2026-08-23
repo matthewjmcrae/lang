@@ -154,7 +154,18 @@ namespace noria {
 
       void visit(const ast::StructLiteral& node) override {
         printIndent(out_, indent_);
-        out_ << "StructLiteral " << node.structName << "\n";
+        out_ << "StructLiteral " << node.structName;
+        if (!node.typeArgs.empty()) {
+          out_ << "<";
+          for (std::size_t index{}; index < node.typeArgs.size(); ++index) {
+            if (index != 0) {
+              out_ << ", ";
+            }
+            out_ << node.typeArgs[index].name();
+          }
+          out_ << ">";
+        }
+        out_ << "\n";
         AstPrintVisitor child(out_, indent_ + 1);
         for (const auto& field : node.fields) {
           printIndent(out_, indent_ + 1);
@@ -194,7 +205,18 @@ namespace noria {
 
     for (const auto& structDecl : module.structs) {
       printIndent(out, 1);
-      out << "Struct " << structDecl.name << "\n";
+      out << "Struct " << structDecl.name;
+      if (!structDecl.typeParams.empty()) {
+        out << "<";
+        for (std::size_t index{}; index < structDecl.typeParams.size(); ++index) {
+          if (index != 0) {
+            out << ", ";
+          }
+          out << structDecl.typeParams[index].name;
+        }
+        out << ">";
+      }
+      out << "\n";
       for (const auto& field : structDecl.fields) {
         printIndent(out, 2);
         out << "Field " << field.name << ": " << field.type.name() << "\n";

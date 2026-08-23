@@ -25,6 +25,8 @@ namespace noria {
     ast::Function parseFunction();
     ast::StructDecl parseStructDecl();
     ast::ImportDecl parseImportDecl();
+    std::vector<ast::TypeParameter> parseTypeParameterList();
+    std::vector<Type> parseTypeArguments();
     std::vector<ast::Parameter> parseFunctionParameters();
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();
@@ -52,6 +54,7 @@ namespace noria {
     std::size_t index_ = 0;
     bool structLiteralAllowed_ = true;
     std::unordered_set<std::string> typeParamsInScope_;
+    std::unordered_set<std::string> genericStructNames_;
   };
 
 } // namespace noria

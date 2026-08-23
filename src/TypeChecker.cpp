@@ -4,6 +4,7 @@
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
 
+#include <algorithm>
 #include <sstream>
 #include <unordered_set>
 
@@ -17,6 +18,26 @@ namespace noria {
 
     [[noreturn]] void unsupportedStatementInExpressionVisitor() {
       throw CompileError("typecheck: internal error: statement visited by expression visitor");
+    }
+
+    bool containsUnboundTypeParam(const Type& type) {
+      if (type.kind == TypeKind::TypeParam) {
+        return true;
+      }
+
+      if (type.kind == TypeKind::Array) {
+        return type.element && containsUnboundTypeParam(*type.element);
+      }
+
+      if (type.kind == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArgs) {
+          if (containsUnboundTypeParam(typeArg)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
     }
 
   } // namespace
@@ -445,6 +466,117 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    const auto genericStruct = checker_.genericStructs_.find(literal.structName);
+    if (genericStruct != checker_.genericStructs_.end()) {
+      const ast::StructDecl& templated = *genericStruct->second;
+      std::vector<Type> typeArgs = literal.typeArgs;
+
+      if (typeArgs.empty()) {
+        std::unordered_map<std::string, Type> bindings;
+        std::unordered_map<std::string, Type> provided;
+        for (const auto& field : literal.fields) {
+          if (provided.contains(field.name)) {
+            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                                "duplicate field '" + field.name +
+                                                    "' in struct literal for '" +
+                                                    literal.structName + "'"));
+          }
+
+          const auto templateField = std::find_if(
+              templated.fields.begin(), templated.fields.end(),
+              [&](const ast::StructField& candidate) { return candidate.name == field.name; });
+          if (templateField == templated.fields.end()) {
+            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                                "struct '" + literal.structName +
+                                                    "' has no field '" + field.name + "'"));
+          }
+
+          const Type actual = checker_.checkRvalue(*field.value);
+          checker_.unifyTypes(templateField->type, actual, bindings, field.location);
+          provided.emplace(field.name, actual);
+        }
+
+        for (const auto& expectedField : templated.fields) {
+          if (!provided.contains(expectedField.name)) {
+            throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                                "struct literal for '" + literal.structName +
+                                                    "' is missing field '" + expectedField.name +
+                                                    "'"));
+          }
+        }
+
+        typeArgs.reserve(templated.typeParams.size());
+        for (const auto& typeParam : templated.typeParams) {
+          const auto bound = bindings.find(typeParam.name);
+          if (bound == bindings.end()) {
+            throw CompileError(
+                formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                 "cannot infer type parameter '" + typeParam.name + "'"));
+          }
+          typeArgs.push_back(bound->second);
+        }
+      } else if (typeArgs.size() != templated.typeParams.size()) {
+        std::ostringstream out;
+        out << "struct '" << literal.structName << "' expects " << templated.typeParams.size()
+            << " type argument(s), got " << typeArgs.size();
+        throw CompileError(
+            formatDiagnostic(literal.location, DiagnosticStage::TypeCheck, out.str()));
+      }
+
+      for (const Type& typeArg : typeArgs) {
+        checker_.requireKnownType(typeArg, literal.location);
+      }
+
+      checker_.recordStructSpecialization(literal.structName, typeArgs, literal.location);
+
+      const StructInfo structInfo = checker_.resolveStructInfo(
+          Type::structType(literal.structName, typeArgs), literal.location);
+
+      std::unordered_map<std::string, Type> provided;
+      for (const auto& field : literal.fields) {
+        if (provided.contains(field.name)) {
+          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                              "duplicate field '" + field.name +
+                                                  "' in struct literal for '" + literal.structName +
+                                                  "'"));
+        }
+
+        if (!structInfo.fieldIndex.contains(field.name)) {
+          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                              "struct '" + literal.structName + "' has no field '" +
+                                                  field.name + "'"));
+        }
+
+        provided.emplace(field.name, checker_.checkRvalue(*field.value));
+      }
+
+      for (const auto& expectedField : structInfo.fields) {
+        const auto actual = provided.find(expectedField.name);
+        if (actual == provided.end()) {
+          throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                              "struct literal for '" + literal.structName +
+                                                  "' is missing field '" + expectedField.name +
+                                                  "'"));
+        }
+
+        if (!checker_.isAssignable(expectedField.type, actual->second)) {
+          throw CompileError(formatDiagnostic(
+              literal.location, DiagnosticStage::TypeCheck,
+              "field '" + expectedField.name + "' of '" + literal.structName + "' expects " +
+                  expectedField.type.name() + ", got " + actual->second.name()));
+        }
+      }
+
+      result_ = Type::structType(literal.structName, typeArgs);
+      return;
+    }
+
+    if (!literal.typeArgs.empty()) {
+      throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                          "type '" + literal.structName +
+                                              "' is not generic and cannot take type arguments"));
+    }
+
     const StructInfo& structInfo = checker_.lookupStruct(literal.structName, literal.location);
 
     std::unordered_map<std::string, Type> provided;
@@ -492,7 +624,7 @@ namespace noria {
                            "field access requires struct base, got " + baseType.name()));
     }
 
-    const StructInfo& structInfo = checker_.lookupStruct(baseType.structName, access.location);
+    const StructInfo structInfo = checker_.resolveStructInfo(baseType, access.location);
     const auto field = structInfo.fieldIndex.find(access.fieldName);
     if (field == structInfo.fieldIndex.end()) {
       throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
@@ -673,7 +805,7 @@ namespace noria {
                            "field access requires struct base, got " + baseType.name()));
     }
 
-    const StructInfo& structInfo = checker_.lookupStruct(baseType.structName, access.location);
+    const StructInfo structInfo = checker_.resolveStructInfo(baseType, access.location);
     const auto field = structInfo.fieldIndex.find(access.fieldName);
     if (field == structInfo.fieldIndex.end()) {
       throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
@@ -740,7 +872,43 @@ namespace noria {
     }
 
     if (type.kind == TypeKind::Struct) {
+      if (!type.typeArgs.empty()) {
+        const auto genericStruct = genericStructs_.find(type.structName);
+        if (genericStruct == genericStructs_.end()) {
+          if (structs_.contains(type.structName)) {
+            throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                                "type '" + type.name() +
+                                                    "' is not generic and cannot take type "
+                                                    "arguments"));
+          }
+          throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                              "unknown type '" + type.name() + "'"));
+        }
+
+        const ast::StructDecl& templated = *genericStruct->second;
+        if (type.typeArgs.size() != templated.typeParams.size()) {
+          std::ostringstream out;
+          out << "type '" << type.name() << "' expects " << templated.typeParams.size()
+              << " type argument(s), got " << type.typeArgs.size();
+          throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
+        }
+
+        for (const Type& typeArg : type.typeArgs) {
+          requireKnownType(typeArg, location, allowedTypeParams);
+        }
+
+        if (!containsUnboundTypeParam(type)) {
+          recordStructSpecialization(type.structName, type.typeArgs, location);
+        }
+        return;
+      }
+
       if (!structs_.contains(type.structName)) {
+        if (genericStructs_.contains(type.structName)) {
+          throw CompileError(
+              formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                               "generic struct '" + type.structName + "' requires type arguments"));
+        }
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                             "unknown type '" + type.name() + "'"));
       }
@@ -780,11 +948,78 @@ namespace noria {
       return;
     }
 
+    if (expected.kind == TypeKind::Struct) {
+      if (actual.kind != TypeKind::Struct || expected.structName != actual.structName) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "expected " + expected.name() + ", got " + actual.name()));
+      }
+
+      if (expected.typeArgs.size() != actual.typeArgs.size()) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "expected " + expected.name() + ", got " + actual.name()));
+      }
+
+      for (std::size_t index{}; index < expected.typeArgs.size(); ++index) {
+        unifyTypes(expected.typeArgs[index], actual.typeArgs[index], bindings, location);
+      }
+      return;
+    }
+
     if (!isAssignable(expected, actual)) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
     }
+  }
+
+  void TypeChecker::recordStructSpecialization(const std::string& templateName,
+                                               const std::vector<Type>& typeArgs,
+                                               SourceLocation location) const {
+    structSpecializationRequests_.push_back(
+        StructSpecializationRequest{templateName, typeArgs, location});
+  }
+
+  TypeChecker::StructInfo TypeChecker::resolveStructInfo(const Type& structType,
+                                                         SourceLocation location) const {
+    if (structType.kind != TypeKind::Struct) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "internal: resolveStructInfo requires struct type"));
+    }
+
+    if (structType.typeArgs.empty()) {
+      return lookupStruct(structType.structName, location);
+    }
+
+    const auto genericStruct = genericStructs_.find(structType.structName);
+    if (genericStruct == genericStructs_.end()) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "unknown type '" + structType.name() + "'"));
+    }
+
+    const ast::StructDecl& templated = *genericStruct->second;
+    if (structType.typeArgs.size() != templated.typeParams.size()) {
+      std::ostringstream out;
+      out << "type '" << structType.name() << "' expects " << templated.typeParams.size()
+          << " type argument(s), got " << structType.typeArgs.size();
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
+    }
+
+    Substitution substitution;
+    for (std::size_t index{}; index < templated.typeParams.size(); ++index) {
+      substitution.emplace(templated.typeParams[index].name, structType.typeArgs[index]);
+    }
+
+    StructInfo info;
+    for (const auto& field : templated.fields) {
+      const std::size_t fieldIndex = info.fields.size();
+      const Type fieldType = substitute(field.type, substitution);
+      info.fields.push_back(StructFieldInfo{field.name, fieldType, fieldIndex});
+      info.fieldIndex.emplace(field.name, fieldIndex);
+    }
+
+    return info;
   }
 
   const TypeChecker::StructInfo& TypeChecker::lookupStruct(const std::string& name,
@@ -804,6 +1039,10 @@ namespace noria {
     std::unordered_set<std::string> visiting;
 
     const auto visitStruct = [&](const auto& visitStructRef, const std::string& name) -> void {
+      if (!structs_.contains(name)) {
+        return;
+      }
+
       if (!visiting.insert(name).second)
         return;
 
@@ -835,11 +1074,33 @@ namespace noria {
 
   void TypeChecker::collectStructDecls(const ast::Module& module) {
     structs_.clear();
+    genericStructs_.clear();
 
     for (const auto& decl : module.structs) {
-      if (structs_.contains(decl.name)) {
+      if (structs_.contains(decl.name) || genericStructs_.contains(decl.name)) {
         throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
                                             "duplicate struct '" + decl.name + "'"));
+      }
+
+      if (!decl.typeParams.empty()) {
+        std::unordered_set<std::string> allowedTypeParams;
+        for (const auto& typeParam : decl.typeParams) {
+          allowedTypeParams.insert(typeParam.name);
+        }
+
+        std::unordered_set<std::string> seenFields;
+        for (const auto& field : decl.fields) {
+          if (seenFields.contains(field.name)) {
+            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                                "duplicate field '" + field.name + "' in struct '" +
+                                                    decl.name + "'"));
+          }
+          seenFields.insert(field.name);
+          requireKnownType(field.type, field.location, &allowedTypeParams);
+        }
+
+        genericStructs_.emplace(decl.name, &decl);
+        continue;
       }
 
       StructInfo info;
@@ -861,6 +1122,10 @@ namespace noria {
     }
 
     for (const auto& decl : module.structs) {
+      if (!decl.typeParams.empty()) {
+        continue;
+      }
+
       for (const auto& field : decl.fields) {
         requireKnownType(field.type, field.location);
       }
@@ -872,6 +1137,7 @@ namespace noria {
     functions_.clear();
     genericFunctions_.clear();
     specializationRequests_.clear();
+    structSpecializationRequests_.clear();
     scopes_.clear();
 
     collectStructDecls(module);

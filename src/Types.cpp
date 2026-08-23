@@ -12,9 +12,10 @@ namespace noria {
     return type;
   }
 
-  Type Type::structType(std::string name) {
+  Type Type::structType(std::string name, std::vector<Type> typeArgs) {
     Type type(TypeKind::Struct);
     type.structName = std::move(name);
+    type.typeArgs = std::move(typeArgs);
     return type;
   }
 
@@ -34,7 +35,9 @@ namespace noria {
         return element == other.element;
       return *element == *other.element;
     case TypeKind::Struct:
-      return structName == other.structName;
+      if (structName != other.structName)
+        return false;
+      return typeArgs == other.typeArgs;
     case TypeKind::TypeParam:
       return typeParamName == other.typeParamName;
     default:
@@ -55,7 +58,20 @@ namespace noria {
     case TypeKind::Array:
       return "[" + (element ? element->name() : std::string{"?"}) + "]";
     case TypeKind::Struct:
-      return structName.empty() ? std::string{"<struct>"} : structName;
+      if (structName.empty())
+        return "<struct>";
+      if (typeArgs.empty())
+        return structName;
+      {
+        std::string rendered = structName + "<";
+        for (std::size_t index{}; index < typeArgs.size(); ++index) {
+          if (index != 0)
+            rendered += ", ";
+          rendered += typeArgs[index].name();
+        }
+        rendered += ">";
+        return rendered;
+      }
     case TypeKind::TypeParam:
       return typeParamName;
     case TypeKind::Void:
@@ -77,6 +93,9 @@ namespace noria {
     case TypeKind::Array:
       return "ptr";
     case TypeKind::Struct:
+      if (!type.typeArgs.empty()) {
+        throw CompileError("internal: unsubstituted generic struct");
+      }
       return "%" + type.structName;
     case TypeKind::TypeParam:
       throw CompileError("internal: unsubstituted type parameter");

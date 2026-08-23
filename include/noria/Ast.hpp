@@ -161,13 +161,15 @@ namespace noria::ast {
   };
 
   struct StructLiteral final : Expression {
-    StructLiteral(std::string structName, std::vector<StructLiteralField> fields,
-                  SourceLocation location)
-        : Expression(location), structName(std::move(structName)), fields(std::move(fields)) {}
+    StructLiteral(std::string structName, std::vector<Type> typeArgs,
+                  std::vector<StructLiteralField> fields, SourceLocation location)
+        : Expression(location), structName(std::move(structName)), typeArgs(std::move(typeArgs)),
+          fields(std::move(fields)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
 
     std::string structName;
+    std::vector<Type> typeArgs;
     std::vector<StructLiteralField> fields;
   };
 
@@ -277,6 +279,7 @@ namespace noria::ast {
 
   struct StructDecl {
     std::string name;
+    std::vector<TypeParameter> typeParams;
     std::vector<StructField> fields;
     SourceLocation location;
   };

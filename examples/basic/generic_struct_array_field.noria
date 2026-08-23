@@ -1,0 +1,8 @@
+struct Holder<T> {
+  items: [T];
+}
+
+fn main() -> i32 {
+  let h: Holder<i32> = Holder<i32> { items: [1, 2, 3] };
+  return h.items[0] + h.items[1] + h.items[2];
+}

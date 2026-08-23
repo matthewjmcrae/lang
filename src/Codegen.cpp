@@ -955,6 +955,9 @@ namespace noria {
     std::unordered_map<std::string, StructLayout> layouts;
 
     for (const auto& decl : module.structs) {
+      if (!decl.typeParams.empty()) {
+        continue;
+      }
       StructLayout layout;
       for (const auto& field : decl.fields) {
         const std::size_t index = layout.fieldTypes.size();
@@ -972,6 +975,9 @@ namespace noria {
     std::ostringstream out;
 
     for (const auto& decl : module.structs) {
+      if (!decl.typeParams.empty()) {
+        continue;
+      }
       out << "%" << decl.name << " = type { ";
       for (std::size_t index{}; index < decl.fields.size(); ++index) {
         if (index != 0)

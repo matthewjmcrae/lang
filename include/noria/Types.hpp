@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace noria {
 
@@ -23,6 +24,7 @@ namespace noria {
     TypeKind kind = TypeKind::I32;
     std::shared_ptr<Type> element; // Array element type
     std::string structName;        // Struct name
+    std::vector<Type> typeArgs;    // Generic struct type arguments
     std::string typeParamName;     // TypeParam name
 
     Type() = default;
@@ -34,7 +36,7 @@ namespace noria {
     static Type str() { return Type(TypeKind::Str); }
     static Type voidType() { return Type(TypeKind::Void); }
     static Type array(Type elementType);
-    static Type structType(std::string name);
+    static Type structType(std::string name, std::vector<Type> typeArgs = {});
     static Type typeParam(std::string name);
 
     bool operator==(const Type& other) const;

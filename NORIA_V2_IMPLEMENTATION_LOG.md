@@ -577,3 +577,36 @@ Generic structs, implementation tags, and constraints unsupported. No explicit t
 ### Next unit
 
 Generic structs / implementation tags, or `SourceLocation` file attribution for imported diagnostics.
+
+## Phase 6 — Generic structs (type applications)
+
+Baseline commit `44d2dc5`.
+
+### Objective and acceptance
+
+Add `struct Box<T> { ... }` with type applications in annotations and literals; infer missing type args from struct literal fields; monomorphize reachable struct specializations before codegen; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`Types.hpp`/`Types.cpp`: struct `typeArgs` payload. `Ast.hpp`: `StructDecl.typeParams`, `StructLiteral.typeArgs`. Parser: type-param lists on structs, `Foo<i32>` applications, generic-name pre-scan for literal disambiguation. TypeChecker: `genericStructs_`, struct specialization requests, recursive struct unification for inference. Monomorphize: `expandStructSpecializations`, application rewrite, `stripGenericTemplates` after fixpoint. Codegen skips template structs. Six positive and eight negative `generic_struct_*` examples; extended `generics_test.cpp`, `run_examples.sh`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Struct monomorphization mirrors functions: collect concrete requests during typecheck, expand in the compiler fixpoint loop, strip templates before codegen. Kind-prefixed mangling reuses the function path (`Box$s.i32`). Only fully concrete applications enqueue specialization.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST byte-identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+First review BLOCKED on template lifecycle, codegen emission of unused templates, and struct unification in inference. Fixed: defer template stripping to `stripGenericTemplates`, skip template structs in codegen, recursive `unifyTypes` for struct args, substitute literal type args during function cloning. Non-blocking: parser pre-scan limits imported-only generic literals; diagnostic line assertions deferred.
+
+### Limitations and risks
+
+Implementation tags and constraints unsupported. Generic struct literals with explicit `<...>` require a local generic struct declaration in the same file. Combining generic functions with generic struct type arguments in one specialization round may still need follow-up.
+
+### Next unit
+
+Implementation tags (`arr`/`list`/…), or `SourceLocation` file attribution for imported diagnostics.
+

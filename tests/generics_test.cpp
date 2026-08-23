@@ -168,6 +168,42 @@ fn main() -> i32 {
   expect(countSpecializations(unusedOutput.module, "unused") == 0,
          "uncalled template yields no specializations");
 
+  constexpr std::string_view structBoxSource = R"(
+struct Box<T> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let b: Box<i32> = Box<i32> { value: 42 };
+  return b.value;
+}
+)";
+
+  const noria::CompileOutput structBoxOutput =
+      noria::compileSource(structBoxSource, noria::StopAfter::Ir);
+  expect(structBoxOutput.llvmIr.find("%Box$s.i32 = type") != std::string::npos,
+         "generic struct specialization emits concrete struct type");
+  expect(structBoxOutput.llvmIr.find("struct Box<T>") == std::string::npos,
+         "template struct is not emitted in IR");
+
+  constexpr std::string_view unusedStructTemplateSource = R"(
+struct Box<T> {
+  value: T;
+}
+
+fn main() -> i32 {
+  return 0;
+}
+)";
+
+  const noria::CompileOutput unusedStructOutput =
+      noria::compileSource(unusedStructTemplateSource, noria::StopAfter::Ir);
+  expect(unusedStructOutput.llvmIr.find("%Box = type") == std::string::npos,
+         "uncalled generic struct template is not emitted in IR");
+
+  expectEqual(noria::mangleType(Type::structType("Box", {Type::i32()})), "st.Box$s.i32",
+              "mangle applied struct type");
+
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";
     return EXIT_FAILURE;

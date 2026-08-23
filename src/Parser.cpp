@@ -72,6 +72,14 @@ namespace noria {
     ast::Module module;
     bool seenNonImportDecl = false;
 
+    for (std::size_t index{}; index + 2 < tokens_.size(); ++index) {
+      if (tokens_[index].kind == TokenKind::Struct &&
+          tokens_[index + 1].kind == TokenKind::Identifier &&
+          tokens_[index + 2].kind == TokenKind::Less) {
+        genericStructNames_.insert(tokens_[index + 1].text);
+      }
+    }
+
     while (peek().kind != TokenKind::End) {
       if (peek().kind == TokenKind::Import) {
         if (seenNonImportDecl) {
@@ -138,11 +146,22 @@ namespace noria {
   ast::StructDecl Parser::parseStructDecl() {
     const Token& structToken = expect(TokenKind::Struct, "expected struct declaration");
     const Token& name = expect(TokenKind::Identifier, "expected struct name");
-    expect(TokenKind::LeftBrace, "expected '{' after struct name");
 
     ast::StructDecl decl;
     decl.name = name.text;
     decl.location = structToken.location;
+
+    if (peek().kind == TokenKind::Less) {
+      decl.typeParams = parseTypeParameterList();
+    }
+
+    const std::unordered_set<std::string> savedTypeParams = std::move(typeParamsInScope_);
+    typeParamsInScope_.clear();
+    for (const auto& typeParam : decl.typeParams) {
+      typeParamsInScope_.insert(typeParam.name);
+    }
+
+    expect(TokenKind::LeftBrace, "expected '{' after struct name");
 
     while (!match(TokenKind::RightBrace)) {
       if (peek().kind == TokenKind::End) {
@@ -157,7 +176,54 @@ namespace noria {
           ast::StructField{fieldName.text, std::move(fieldType), fieldName.location});
     }
 
+    typeParamsInScope_ = std::move(savedTypeParams);
+
     return decl;
+  }
+
+  std::vector<ast::TypeParameter> Parser::parseTypeParameterList() {
+    expect(TokenKind::Less, "expected '<' before type parameters");
+    if (peek().kind == TokenKind::Greater) {
+      throw CompileError(formatDiagnostic(
+          peek().location, "generic declaration requires at least one type parameter"));
+    }
+
+    std::vector<ast::TypeParameter> typeParams;
+    std::unordered_set<std::string> seenTypeParams;
+    while (true) {
+      const Token& typeParam = expect(TokenKind::Identifier, "expected type parameter name");
+      if (!seenTypeParams.insert(typeParam.text).second) {
+        throw CompileError(formatDiagnostic(typeParam.location,
+                                            "duplicate type parameter '" + typeParam.text + "'"));
+      }
+      typeParams.push_back(ast::TypeParameter{typeParam.text, typeParam.location});
+
+      if (!match(TokenKind::Comma)) {
+        break;
+      }
+    }
+
+    expect(TokenKind::Greater, "expected '>' after type parameters");
+    return typeParams;
+  }
+
+  std::vector<Type> Parser::parseTypeArguments() {
+    expect(TokenKind::Less, "expected '<' before type arguments");
+    if (peek().kind == TokenKind::Greater) {
+      throw CompileError(formatDiagnostic(peek().location,
+                                          "type application requires at least one type argument"));
+    }
+
+    std::vector<Type> typeArgs;
+    while (true) {
+      typeArgs.push_back(parseTypeAnnotation("expected type argument"));
+      if (!match(TokenKind::Comma)) {
+        break;
+      }
+    }
+
+    expect(TokenKind::Greater, "expected '>' after type arguments");
+    return typeArgs;
   }
 
   ast::Function Parser::parseFunction() {
@@ -169,27 +235,7 @@ namespace noria {
     function.location = fnToken.location;
 
     if (peek().kind == TokenKind::Less) {
-      advance();
-      if (peek().kind == TokenKind::Greater) {
-        throw CompileError(formatDiagnostic(
-            peek().location, "generic function requires at least one type parameter"));
-      }
-
-      std::unordered_set<std::string> seenTypeParams;
-      while (true) {
-        const Token& typeParam = expect(TokenKind::Identifier, "expected type parameter name");
-        if (!seenTypeParams.insert(typeParam.text).second) {
-          throw CompileError(formatDiagnostic(typeParam.location,
-                                              "duplicate type parameter '" + typeParam.text + "'"));
-        }
-        function.typeParams.push_back(ast::TypeParameter{typeParam.text, typeParam.location});
-
-        if (!match(TokenKind::Comma)) {
-          break;
-        }
-      }
-
-      expect(TokenKind::Greater, "expected '>' after type parameters");
+      function.typeParams = parseTypeParameterList();
     }
 
     const std::unordered_set<std::string> savedTypeParams = std::move(typeParamsInScope_);
@@ -602,6 +648,31 @@ namespace noria {
     if (peek().kind == TokenKind::Identifier) {
       const Token& name = advance();
 
+      if (structLiteralAllowed_ && genericStructNames_.contains(name.text) &&
+          peek().kind == TokenKind::Less) {
+        std::vector<Type> typeArgs = parseTypeArguments();
+        const SourceLocation location = peek().location;
+        expect(TokenKind::LeftBrace, "expected '{' after generic struct type arguments");
+
+        std::vector<ast::StructLiteralField> fields;
+        if (peek().kind != TokenKind::RightBrace) {
+          while (true) {
+            const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
+            expect(TokenKind::Colon, "expected ':' after field name");
+            auto value = parseExpression();
+            fields.push_back(
+                ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
+
+            if (!match(TokenKind::Comma))
+              break;
+          }
+        }
+
+        expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
+        return std::make_unique<ast::StructLiteral>(name.text, std::move(typeArgs),
+                                                    std::move(fields), location);
+      }
+
       if (structLiteralAllowed_ && peek().kind == TokenKind::LeftBrace) {
         const SourceLocation location = peek().location;
         advance();
@@ -621,7 +692,8 @@ namespace noria {
         }
 
         expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
-        return std::make_unique<ast::StructLiteral>(name.text, std::move(fields), location);
+        return std::make_unique<ast::StructLiteral>(name.text, std::vector<Type>{},
+                                                    std::move(fields), location);
       }
 
       return std::make_unique<ast::IdentifierExpression>(name.text, name.location);
@@ -756,6 +828,11 @@ namespace noria {
       return Type::boolean();
     if (token.text == "str")
       return Type::str();
+
+    if (peek().kind == TokenKind::Less) {
+      std::vector<Type> typeArgs = parseTypeArguments();
+      return Type::structType(token.text, std::move(typeArgs));
+    }
 
     return Type::structType(token.text);
   }

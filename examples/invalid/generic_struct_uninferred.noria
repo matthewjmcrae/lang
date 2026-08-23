@@ -1,0 +1,8 @@
+struct Pair<A, B> {
+  first: A;
+}
+
+fn main() -> i32 {
+  let p: Pair<i32, bool> = Pair { first: 1 };
+  return p.first;
+}

@@ -116,7 +116,19 @@ fn main() -> i32 {
 
 Type parameters are bare identifiers with no bounds or defaults. At a call site, concrete type arguments are inferred from argument types only (`id(7)` specializes to `i32`). Explicit type application (turbofish) is not supported. If a type parameter cannot be inferred from arguments — for example, when it appears only in the return type — the compiler reports a type error.
 
-Each distinct specialization is monomorphized into a concrete function with a deterministic mangled name such as `id$s.i32` (type kinds are encoded: scalars as `s.i32`, structs as `st.Point`). Calling the same generic twice with the same type reuses one specialization. Generic structs, implementation tags, and constraints are not supported in the current compiler.
+Each distinct specialization is monomorphized into a concrete function with a deterministic mangled name such as `id$s.i32` (type kinds are encoded: scalars as `s.i32`, structs as `st.Point`). Calling the same generic twice with the same type reuses one specialization. Implementation tags and constraints are not supported in the current compiler.
+
+## Generic Structs
+
+Structs may declare type parameters after the name:
+
+```noria
+struct Box<T> {
+  value: T;
+}
+```
+
+Use type applications in annotations and struct literals: `Box<i32>`, `Box<i32> { value: 42 }`. When type arguments are omitted from a literal (`Box { value: 42 }`), the compiler infers them from field values. Each concrete application is monomorphized into a specialized struct type such as `Box$s.i32`. Uncalled generic struct templates are not emitted in LLVM IR.
 
 ## Variables
 

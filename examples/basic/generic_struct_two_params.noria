@@ -1,0 +1,12 @@
+struct Pair<A, B> {
+  first: A;
+  second: B;
+}
+
+fn main() -> i32 {
+  let p: Pair<i32, bool> = Pair<i32, bool> { first: 3, second: true };
+  if p.second {
+    return p.first + 4;
+  }
+  return 0;
+}

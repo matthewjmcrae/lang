@@ -28,18 +28,38 @@ namespace noria {
       constexpr std::size_t kMaxSpecializationRounds = 8;
       constexpr std::size_t kMaxSpecializations = 64;
       std::size_t totalSpecializations = 0;
+      SourceLocation lastSpecializationLocation{};
 
       for (std::size_t round = 0; round < kMaxSpecializationRounds; ++round) {
-        if (checker.specializationRequests().empty()) {
+        bool expanded = false;
+
+        if (!checker.structSpecializationRequests().empty()) {
+          const std::vector<StructSpecializationRequest> structRequests =
+              checker.structSpecializationRequests();
+          checker.clearStructSpecializationRequests();
+          for (const StructSpecializationRequest& request : structRequests) {
+            lastSpecializationLocation = request.useSiteLocation;
+          }
+          totalSpecializations += expandStructSpecializations(output.module, structRequests);
+          expanded = true;
+        }
+
+        if (!checker.specializationRequests().empty()) {
+          const std::vector<SpecializationRequest> requests = checker.specializationRequests();
+          checker.clearSpecializationRequests();
+          for (const SpecializationRequest& request : requests) {
+            lastSpecializationLocation = request.callSiteLocation;
+          }
+          totalSpecializations += expandSpecializations(output.module, requests);
+          expanded = true;
+        }
+
+        if (!expanded) {
           break;
         }
 
-        const std::vector<SpecializationRequest> requests = checker.specializationRequests();
-        checker.clearSpecializationRequests();
-
-        totalSpecializations += expandSpecializations(output.module, requests);
         if (totalSpecializations > kMaxSpecializations) {
-          throw CompileError(formatDiagnostic(requests.front().callSiteLocation,
+          throw CompileError(formatDiagnostic(lastSpecializationLocation,
                                               DiagnosticStage::TypeCheck,
                                               "recursive generic specialization"));
         }
@@ -47,11 +67,13 @@ namespace noria {
         checker.check(output.module);
       }
 
-      if (!checker.specializationRequests().empty()) {
-        throw CompileError(
-            formatDiagnostic(checker.specializationRequests().front().callSiteLocation,
-                             DiagnosticStage::TypeCheck, "recursive generic specialization"));
+      if (!checker.specializationRequests().empty() ||
+          !checker.structSpecializationRequests().empty()) {
+        throw CompileError(formatDiagnostic(lastSpecializationLocation, DiagnosticStage::TypeCheck,
+                                            "recursive generic specialization"));
       }
+
+      stripGenericTemplates(output.module);
 
       if (stopAfter == StopAfter::Typed) {
         return output;

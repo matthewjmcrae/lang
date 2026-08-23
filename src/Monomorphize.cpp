@@ -27,6 +27,18 @@ namespace noria {
         return Type::array(substituteType(*type.element, substitution));
       }
 
+      if (type.kind == TypeKind::Struct) {
+        if (type.typeArgs.empty()) {
+          return type;
+        }
+        std::vector<Type> substitutedArgs;
+        substitutedArgs.reserve(type.typeArgs.size());
+        for (const Type& typeArg : type.typeArgs) {
+          substitutedArgs.push_back(substituteType(typeArg, substitution));
+        }
+        return Type::structType(type.structName, std::move(substitutedArgs));
+      }
+
       return type;
     }
 
@@ -121,8 +133,13 @@ namespace noria {
           field.value->accept(*this);
           fields.push_back(ast::StructLiteralField{field.name, takeExpression(), field.location});
         }
-        expression_ =
-            std::make_unique<ast::StructLiteral>(node.structName, std::move(fields), node.location);
+        std::vector<Type> typeArgs;
+        typeArgs.reserve(node.typeArgs.size());
+        for (const Type& typeArg : node.typeArgs) {
+          typeArgs.push_back(substituteType(typeArg, substitution_));
+        }
+        expression_ = std::make_unique<ast::StructLiteral>(node.structName, std::move(typeArgs),
+                                                           std::move(fields), node.location);
       }
 
       void visit(const ast::FieldAccessExpression& node) override {
@@ -272,7 +289,7 @@ namespace noria {
       std::string currentFunction_;
     };
 
-    const ast::Function* findTemplate(const ast::Module& module, std::string_view name) {
+    const ast::Function* findTemplateFunction(const ast::Module& module, std::string_view name) {
       for (const auto& function : module.functions) {
         if (function.name == name && !function.typeParams.empty()) {
           return &function;
@@ -281,7 +298,16 @@ namespace noria {
       return nullptr;
     }
 
-    bool hasSpecialization(const ast::Module& module, std::string_view mangledName) {
+    const ast::StructDecl* findTemplateStruct(const ast::Module& module, std::string_view name) {
+      for (const auto& structDecl : module.structs) {
+        if (structDecl.name == name && !structDecl.typeParams.empty()) {
+          return &structDecl;
+        }
+      }
+      return nullptr;
+    }
+
+    bool hasFunctionSpecialization(const ast::Module& module, std::string_view mangledName) {
       for (const auto& function : module.functions) {
         if (function.name == mangledName && function.typeParams.empty()) {
           return true;
@@ -289,6 +315,160 @@ namespace noria {
       }
       return false;
     }
+
+    bool hasStructSpecialization(const ast::Module& module, std::string_view mangledName) {
+      for (const auto& structDecl : module.structs) {
+        if (structDecl.name == mangledName && structDecl.typeParams.empty()) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    ast::StructDecl cloneStructSpecialization(const ast::StructDecl& templated,
+                                              const std::vector<Type>& typeArgs) {
+      Substitution substitution;
+      if (typeArgs.size() != templated.typeParams.size()) {
+        throw CompileError("internal: struct specialization type argument count mismatch");
+      }
+
+      for (std::size_t index{}; index < templated.typeParams.size(); ++index) {
+        substitution.emplace(templated.typeParams[index].name, typeArgs[index]);
+      }
+
+      ast::StructDecl specialized;
+      specialized.name = mangleSpecialization(templated.name, typeArgs);
+      specialized.location = templated.location;
+      specialized.typeParams = {};
+      specialized.fields.reserve(templated.fields.size());
+      for (const auto& field : templated.fields) {
+        specialized.fields.push_back(
+            ast::StructField{field.name, substituteType(field.type, substitution), field.location});
+      }
+      return specialized;
+    }
+
+    Type rewriteAppliedStructType(const Type& type) {
+      if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
+        return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return Type::array(rewriteAppliedStructType(*type.element));
+      }
+
+      return type;
+    }
+
+    class StructApplicationRewriteVisitor final : public ast::AstVisitor {
+    public:
+      explicit StructApplicationRewriteVisitor(
+          const std::vector<StructSpecializationRequest>& requests)
+          : requests_(requests) {}
+
+      void rewriteModule(ast::Module& module) {
+        for (auto& structDecl : module.structs) {
+          for (auto& field : structDecl.fields) {
+            field.type = rewriteAppliedStructType(field.type);
+          }
+        }
+
+        for (auto& function : module.functions) {
+          function.returnType = rewriteAppliedStructType(function.returnType);
+          for (auto& parameter : function.parameters) {
+            parameter.type = rewriteAppliedStructType(parameter.type);
+          }
+          for (const auto& statement : function.body) {
+            statement->accept(*this);
+          }
+        }
+      }
+
+      void visit(const ast::ReturnStatement& node) override { node.expression->accept(*this); }
+      void visit(const ast::LetStatement& node) override {
+        const_cast<ast::LetStatement&>(node).type = rewriteAppliedStructType(node.type);
+        node.initializer->accept(*this);
+      }
+      void visit(const ast::IfStatement& node) override {
+        node.condition->accept(*this);
+        visitStatements(node.thenBranch);
+        visitStatements(node.elseBranch);
+      }
+      void visit(const ast::WhileStatement& node) override {
+        node.condition->accept(*this);
+        visitStatements(node.body);
+      }
+      void visit(const ast::AssignmentStatement& node) override {
+        node.lhs->accept(*this);
+        node.rhs->accept(*this);
+      }
+      void visit(const ast::ExpressionStatement& node) override { node.expression->accept(*this); }
+
+      void visit(const ast::UnaryExpression& node) override { node.operand->accept(*this); }
+      void visit(const ast::CastExpression& node) override {
+        const_cast<ast::CastExpression&>(node).targetType =
+            rewriteAppliedStructType(node.targetType);
+        node.expression->accept(*this);
+      }
+      void visit(const ast::BinaryExpression& node) override {
+        node.left->accept(*this);
+        node.right->accept(*this);
+      }
+      void visit(const ast::CallExpression& node) override {
+        for (const auto& argument : node.arguments) {
+          argument->accept(*this);
+        }
+      }
+      void visit(const ast::ArrayLiteral& node) override {
+        for (const auto& element : node.elements) {
+          element->accept(*this);
+        }
+      }
+      void visit(const ast::IndexExpression& node) override {
+        node.base->accept(*this);
+        node.index->accept(*this);
+      }
+      void visit(const ast::StructLiteral& node) override {
+        ast::StructLiteral& literal = const_cast<ast::StructLiteral&>(node);
+        if (!literal.typeArgs.empty()) {
+          literal.structName = mangleSpecialization(literal.structName, literal.typeArgs);
+          literal.typeArgs.clear();
+          for (const auto& field : literal.fields) {
+            field.value->accept(*this);
+          }
+          return;
+        }
+
+        for (const auto& request : requests_) {
+          if (literal.location.line == request.useSiteLocation.line &&
+              literal.location.column == request.useSiteLocation.column &&
+              literal.structName == request.templateName) {
+            literal.structName = mangleSpecialization(request.templateName, request.typeArgs);
+            break;
+          }
+        }
+
+        for (const auto& field : literal.fields) {
+          field.value->accept(*this);
+        }
+      }
+      void visit(const ast::FieldAccessExpression& node) override { node.base->accept(*this); }
+
+      void visit(const ast::IntegerLiteral&) override {}
+      void visit(const ast::FloatLiteral&) override {}
+      void visit(const ast::StringLiteral&) override {}
+      void visit(const ast::BoolLiteral&) override {}
+      void visit(const ast::IdentifierExpression&) override {}
+
+    private:
+      void visitStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements) {
+        for (const auto& statement : statements) {
+          statement->accept(*this);
+        }
+      }
+
+      const std::vector<StructSpecializationRequest>& requests_;
+    };
 
     ast::Function cloneSpecialization(const ast::Function& templated,
                                       const std::vector<Type>& typeArgs) {
@@ -335,7 +515,17 @@ namespace noria {
     case TypeKind::Str:
       return "s.str";
     case TypeKind::Struct:
-      return "st." + type.structName;
+      if (type.typeArgs.empty()) {
+        return "st." + type.structName;
+      }
+      {
+        std::ostringstream out;
+        out << "st." << type.structName;
+        for (const Type& typeArg : type.typeArgs) {
+          out << "$" << mangleType(typeArg);
+        }
+        return out.str();
+      }
     case TypeKind::Array:
       return "arr." + mangleType(*type.element);
     case TypeKind::TypeParam:
@@ -383,11 +573,11 @@ namespace noria {
       if (!seen.insert(mangledName).second) {
         continue;
       }
-      if (hasSpecialization(module, mangledName)) {
+      if (hasFunctionSpecialization(module, mangledName)) {
         continue;
       }
 
-      const ast::Function* templated = findTemplate(module, request.templateName);
+      const ast::Function* templated = findTemplateFunction(module, request.templateName);
       if (templated == nullptr) {
         throw CompileError(
             formatDiagnostic(request.callSiteLocation, DiagnosticStage::TypeCheck,
@@ -400,6 +590,62 @@ namespace noria {
 
     rewriteGenericCallSites(module, requests);
     return added;
+  }
+
+  std::size_t
+  expandStructSpecializations(ast::Module& module,
+                              const std::vector<StructSpecializationRequest>& requests) {
+    std::vector<StructSpecializationRequest> sorted = requests;
+    std::sort(
+        sorted.begin(), sorted.end(),
+        [](const StructSpecializationRequest& left, const StructSpecializationRequest& right) {
+          const std::string leftName = mangleSpecialization(left.templateName, left.typeArgs);
+          const std::string rightName = mangleSpecialization(right.templateName, right.typeArgs);
+          if (leftName != rightName) {
+            return leftName < rightName;
+          }
+          if (left.templateName != right.templateName) {
+            return left.templateName < right.templateName;
+          }
+          return left.useSiteLocation.line < right.useSiteLocation.line;
+        });
+
+    std::unordered_set<std::string> seen;
+    std::size_t added = 0;
+
+    module.structs.reserve(module.structs.size() + sorted.size());
+    for (const StructSpecializationRequest& request : sorted) {
+      const std::string mangledName = mangleSpecialization(request.templateName, request.typeArgs);
+      if (!seen.insert(mangledName).second) {
+        continue;
+      }
+      if (hasStructSpecialization(module, mangledName)) {
+        continue;
+      }
+
+      const ast::StructDecl* templated = findTemplateStruct(module, request.templateName);
+      if (templated == nullptr) {
+        throw CompileError(
+            formatDiagnostic(request.useSiteLocation, DiagnosticStage::TypeCheck,
+                             "unknown generic struct '" + request.templateName + "'"));
+      }
+
+      module.structs.push_back(cloneStructSpecialization(*templated, request.typeArgs));
+      ++added;
+    }
+
+    StructApplicationRewriteVisitor rewriter(requests);
+    rewriter.rewriteModule(module);
+
+    return added;
+  }
+
+  void stripGenericTemplates(ast::Module& module) {
+    module.structs.erase(std::remove_if(module.structs.begin(), module.structs.end(),
+                                        [](const ast::StructDecl& structDecl) {
+                                          return !structDecl.typeParams.empty();
+                                        }),
+                         module.structs.end());
   }
 
   void rewriteGenericCallSites(ast::Module& module,

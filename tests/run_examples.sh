@@ -250,6 +250,16 @@ grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
   "${TEST_OUT_DIR}/generic_conflicting_inference.stderr"
 grep -q "typecheck: arithmetic operator requires matching numeric operands, got bool and i32" \
   "${TEST_OUT_DIR}/generic_instantiation_body_error.stderr"
+grep -q "typecheck: type 'Box<i32, bool>' expects 1 type argument(s), got 2" \
+  "${TEST_OUT_DIR}/generic_struct_wrong_arity.stderr"
+grep -q "typecheck: unknown type 'Missing<i32>'" \
+  "${TEST_OUT_DIR}/generic_struct_unknown.stderr"
+grep -q "typecheck: cannot infer type parameter 'B'" \
+  "${TEST_OUT_DIR}/generic_struct_uninferred.stderr"
+grep -q "typecheck: type 'Point<i32>' is not generic and cannot take type arguments" \
+  "${TEST_OUT_DIR}/generic_struct_non_generic_args.stderr"
+grep -q "typecheck: field 'value' of 'Box' expects i32, got bool" \
+  "${TEST_OUT_DIR}/generic_struct_field_mismatch.stderr"
 
 echo "[noria-tests] phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
@@ -301,13 +311,25 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       ;;
     generic_empty_type_params.noria)
       expect_compile_failure_contains "${source}" \
-        "generic function requires at least one type parameter"
+        "generic declaration requires at least one type parameter"
       ;;
     generic_duplicate_type_param.noria)
       expect_compile_failure_contains "${source}" \
         "duplicate type parameter 'T'"
       ;;
     generic_unclosed_type_params.noria)
+      expect_compile_failure_contains "${source}" \
+        "expected '>' after type parameters"
+      ;;
+    generic_struct_empty_type_params.noria)
+      expect_compile_failure_contains "${source}" \
+        "generic declaration requires at least one type parameter"
+      ;;
+    generic_struct_duplicate_type_param.noria)
+      expect_compile_failure_contains "${source}" \
+        "duplicate type parameter 'T'"
+      ;;
+    generic_struct_unclosed_type_params.noria)
       expect_compile_failure_contains "${source}" \
         "expected '>' after type parameters"
       ;;
@@ -528,6 +550,15 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_params.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_array_param.noria" 10
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_with_comparison.noria" 42
 grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_same_type.ll" | grep -q "^1$"
+
+echo "[noria-tests] phase 6 generic struct acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_box.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_two_params.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_nested.noria" 15
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_reuse.noria" 3
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_array_field.noria" 6
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_infer.noria" 42
+grep -c '%Box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
