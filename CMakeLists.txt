@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(noria
   src/AstPrinter.cpp
   src/Codegen.cpp
+  src/Diagnostic.cpp
   src/Lexer.cpp
   src/main.cpp
   src/Parser.cpp

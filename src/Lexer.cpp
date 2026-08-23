@@ -10,8 +10,6 @@ namespace noria {
 
   namespace {
 
-    std::string atLocation(SourceLocation location, std::string_view message);
-
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character);
   } // namespace
 
@@ -180,9 +178,9 @@ namespace noria {
     const auto startIndex = index_;
 
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
-        {"fn", TokenKind::Fn},     {"return", TokenKind::Return}, {"let", TokenKind::Let},
-        {"if", TokenKind::If},     {"else", TokenKind::Else},     {"while", TokenKind::While},
-        {"as", TokenKind::As},     {"true", TokenKind::True},     {"false", TokenKind::False},
+        {"fn", TokenKind::Fn}, {"return", TokenKind::Return}, {"let", TokenKind::Let},
+        {"if", TokenKind::If}, {"else", TokenKind::Else},     {"while", TokenKind::While},
+        {"as", TokenKind::As}, {"true", TokenKind::True},     {"false", TokenKind::False},
     };
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
@@ -225,7 +223,8 @@ namespace noria {
       if (peek() == '\\') {
         advance();
         if (isAtEnd())
-          throw CompileError(atLocation(location_, "lexer: unterminated string literal"));
+          throw CompileError(
+              formatDiagnostic(location_, DiagnosticStage::Lexer, "unterminated string literal"));
 
         switch (peek()) {
         case 'n':
@@ -241,7 +240,8 @@ namespace noria {
           value.push_back('\\');
           break;
         default:
-          throw CompileError(atLocation(location_, "lexer: invalid string escape sequence"));
+          throw CompileError(formatDiagnostic(location_, DiagnosticStage::Lexer,
+                                              "invalid string escape sequence"));
         }
         advance();
         continue;
@@ -251,7 +251,8 @@ namespace noria {
     }
 
     if (isAtEnd())
-      throw CompileError(atLocation(start, "lexer: unterminated string literal"));
+      throw CompileError(
+          formatDiagnostic(start, DiagnosticStage::Lexer, "unterminated string literal"));
 
     advance(); // closing "
     return makeToken(TokenKind::String, std::move(value), start);
@@ -395,18 +396,11 @@ namespace noria {
 
   namespace {
 
-    std::string atLocation(SourceLocation location, std::string_view message) {
-      std::ostringstream out;
-      out << location.line << ":" << location.column << ": " << message;
-      return out.str();
-    }
-
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character) {
       std::ostringstream message;
-      message << "lexer: unexpected character '" << character << "'";
-      throw CompileError(atLocation(location, message.str()));
+      message << "unexpected character '" << character << "'";
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::Lexer, message.str()));
     }
 
   } // namespace
 } // namespace noria
-

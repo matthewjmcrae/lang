@@ -7,10 +7,6 @@
 
 namespace noria {
 
-  namespace {
-    std::string atLocation(const Token& token, std::string_view message);
-  }
-
   // take in Tokens[] return the root of a fully built AST
   Parser::Parser(std::span<const Token> tokens) : tokens_(tokens) {}
 
@@ -73,7 +69,7 @@ namespace noria {
     while (!match(TokenKind::RightBrace)) {
       // consume statements until we hit an '}'
       if (peek().kind == TokenKind::End) {
-        throw CompileError(atLocation(peek(), "unterminated function body"));
+        throw CompileError(formatDiagnostic(peek().location, "unterminated function body"));
       }
       statements.push_back(parseStatement());
     }
@@ -148,7 +144,7 @@ namespace noria {
       return std::make_unique<ast::ExpressionStatement>(std::move(expression), start.location);
     }
 
-    throw CompileError(atLocation(peek(), "expected statement"));
+    throw CompileError(formatDiagnostic(peek().location, "expected statement"));
   }
 
   // parseLogicalOr -> parseLogicalAnd -> parseEquality -> parseComparison ->
@@ -394,12 +390,12 @@ namespace noria {
       const auto* end = integer.text.data() + integer.text.size();
       const auto result = std::from_chars(begin, end, value);
       if (result.ec != std::errc())
-        throw CompileError(atLocation(integer, "invalid integer literal"));
+        throw CompileError(formatDiagnostic(integer.location, "invalid integer literal"));
 
       return std::make_unique<ast::IntegerLiteral>(value, integer.location);
     }
 
-    throw CompileError(atLocation(peek(), "expected expression"));
+    throw CompileError(formatDiagnostic(peek().location, "expected expression"));
   }
 
   std::vector<std::unique_ptr<ast::Expression>> Parser::parseCallArguments() {
@@ -448,7 +444,7 @@ namespace noria {
 
     std::ostringstream out;
     out << message << ", got '" << peek().text << "' (" << tokenKindName(peek().kind) << ")";
-    throw CompileError(atLocation(peek(), out.str()));
+    throw CompileError(formatDiagnostic(peek().location, out.str()));
   }
 
   Type Parser::parseTypeAnnotation(std::string_view message) {
@@ -485,13 +481,4 @@ namespace noria {
     }
   }
 
-  namespace {
-
-    std::string atLocation(const Token& token, std::string_view message) {
-      std::ostringstream out;
-      out << token.location.line << ":" << token.location.column << ": " << message;
-      return out.str();
-    }
-
-  } // namespace
 } // namespace noria
