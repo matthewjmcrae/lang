@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; `import std::<name>::{...}` from the bundled `stdlib/`; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
@@ -195,11 +195,11 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (90 programs).
+Passing examples live in `examples/basic` (93 programs).
 
 Negative type-checking examples live in `examples/invalid` (61 programs).
 
-Lexer and parser failure examples live in `examples/invalid_syntax` (7 programs).
+Lexer and parser failure examples live in `examples/invalid_syntax` (10 programs).
 
 Design sketches and superseded stubs live in `examples/future`.
 

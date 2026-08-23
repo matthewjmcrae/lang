@@ -3,6 +3,7 @@
 #include "noria/AstVisitor.hpp"
 
 #include <memory>
+#include <sstream>
 #include <string_view>
 
 namespace noria {
@@ -15,6 +16,7 @@ namespace noria {
     void printBlock(std::string_view blockType,
                     const std::vector<std::unique_ptr<ast::Statement>>& statements,
                     std::ostream& out, int indent);
+    std::string formatImportPath(const std::vector<std::string>& path);
 
     class AstPrintVisitor final : public ast::AstVisitor {
     public:
@@ -178,6 +180,18 @@ namespace noria {
   void printAst(const ast::Module& module, std::ostream& out) {
     out << "Module\n";
 
+    for (const auto& importDecl : module.imports) {
+      printIndent(out, 1);
+      out << "Import " << formatImportPath(importDecl.path) << " {";
+      for (std::size_t index{}; index < importDecl.names.size(); ++index) {
+        if (index != 0) {
+          out << ", ";
+        }
+        out << importDecl.names[index].name;
+      }
+      out << "}\n";
+    }
+
     for (const auto& structDecl : module.structs) {
       printIndent(out, 1);
       out << "Struct " << structDecl.name << "\n";
@@ -282,6 +296,17 @@ namespace noria {
         AstPrintVisitor visitor(out, indent + 1);
         statement->accept(visitor);
       }
+    }
+
+    std::string formatImportPath(const std::vector<std::string>& path) {
+      std::ostringstream formatted;
+      for (std::size_t index{}; index < path.size(); ++index) {
+        if (index != 0) {
+          formatted << "::";
+        }
+        formatted << path[index];
+      }
+      return formatted.str();
     }
 
   } // namespace

@@ -17,10 +17,10 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 | 3 — strings | **Done** | `len`, `s[i]`, `str + str`, escapes; `print(str)` |
 | 4 — arrays | **Done** | `[T]`, literals, `len`, index read/write places |
 | 5 — structs | **Done** | Decl, construction, field r/w, by-value params/returns |
-| 6 — generics-modules | **Next** | Imports, generics, monomorphization |
+| 6 — generics-modules | **Partial** | `import std::…` + `stdlib/` resolver; generics pending |
 | 7–9 | **Not started** | Blocked on 6 |
 
-**Regression gate:** `just test` (90 `examples/basic`, 61 `examples/invalid`, 7 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (93 `examples/basic`, 61 `examples/invalid`, 10 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
 **Documentation:** README/SYNTAX updated through Phase 5; keep updating after each feature phase.
 

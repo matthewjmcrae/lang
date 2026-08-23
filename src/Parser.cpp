@@ -68,14 +68,26 @@ namespace noria {
   // parse order is module -> functions[] -> parameters[] -> block -> statements[] -> expressions[]
   ast::Module Parser::parseModule() {
     ast::Module module;
+    bool seenNonImportDecl = false;
 
     while (peek().kind != TokenKind::End) {
+      if (peek().kind == TokenKind::Import) {
+        if (seenNonImportDecl) {
+          throw CompileError(
+              formatDiagnostic(peek().location, "imports must appear before other declarations"));
+        }
+        module.imports.push_back(parseImportDecl());
+        continue;
+      }
+
       if (peek().kind == TokenKind::Fn) {
+        seenNonImportDecl = true;
         module.functions.push_back(parseFunction());
         continue;
       }
 
       if (peek().kind == TokenKind::Struct) {
+        seenNonImportDecl = true;
         module.structs.push_back(parseStructDecl());
         continue;
       }
@@ -85,6 +97,40 @@ namespace noria {
     }
 
     return module;
+  }
+
+  ast::ImportDecl Parser::parseImportDecl() {
+    const Token& importToken = expect(TokenKind::Import, "expected import declaration");
+    ast::ImportDecl decl;
+    decl.location = importToken.location;
+
+    const Token& firstSegment =
+        expect(TokenKind::Identifier, "expected module path after 'import'");
+    decl.path.push_back(firstSegment.text);
+
+    while (peek().kind == TokenKind::ColonColon && peek(1).kind == TokenKind::Identifier) {
+      expect(TokenKind::ColonColon, "expected module path segment after '::'");
+      decl.path.push_back(
+          expect(TokenKind::Identifier, "expected module path segment after '::'").text);
+    }
+
+    if (decl.path.size() < 2) {
+      throw CompileError(
+          formatDiagnostic(importToken.location, "expected module path after 'import'"));
+    }
+
+    expect(TokenKind::ColonColon, "expected '::' after module path");
+    expect(TokenKind::LeftBrace, "expected '{' after module path");
+
+    do {
+      const Token& name = expect(TokenKind::Identifier, "expected imported name");
+      decl.names.push_back(ast::ImportedName{name.text, name.location});
+    } while (match(TokenKind::Comma));
+
+    expect(TokenKind::RightBrace, "expected '}' after imported names");
+    expect(TokenKind::Semicolon, "expected ';' after import declaration");
+
+    return decl;
   }
 
   ast::StructDecl Parser::parseStructDecl() {

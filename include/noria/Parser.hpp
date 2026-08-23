@@ -22,6 +22,7 @@ namespace noria {
 
     ast::Function parseFunction();
     ast::StructDecl parseStructDecl();
+    ast::ImportDecl parseImportDecl();
     std::vector<ast::Parameter> parseFunctionParameters();
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();

@@ -1,0 +1,5 @@
+import std::mathx::{square, double};
+
+fn main() -> i32 {
+  return square(3) + double(4);
+}

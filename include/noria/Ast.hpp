@@ -284,7 +284,19 @@ namespace noria::ast {
     std::vector<std::unique_ptr<Statement>> body;
   };
 
+  struct ImportedName {
+    std::string name;
+    SourceLocation location;
+  };
+
+  struct ImportDecl {
+    std::vector<std::string> path;
+    std::vector<ImportedName> names;
+    SourceLocation location;
+  };
+
   struct Module {
+    std::vector<ImportDecl> imports;
     std::vector<StructDecl> structs;
     std::vector<Function> functions;
   };

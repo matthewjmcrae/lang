@@ -30,7 +30,7 @@ Noria does not perform implicit conversions among `i32`, `bool`, `f64`, or `str`
 
 ## Program Structure
 
-A Noria program is a list of struct and function declarations.
+A Noria program is a list of optional import declarations followed by struct and function declarations.
 
 ```noria
 fn main() -> i32 {
@@ -45,6 +45,34 @@ fn main() -> i32
 ```
 
 Struct types are declared by name and referenced in annotations (for example, `Point`). Struct-typed parameters and returns are supported with pass-by-value copy semantics.
+
+## Modules
+
+Wake 1 supports importing selected symbols from bundled stdlib modules. Import declarations must appear before any struct or function declarations.
+
+```noria
+import std::mathx::{square};
+
+fn main() -> i32 {
+  return square(5);
+}
+```
+
+Syntax:
+
+```noria
+import <module-path>::{<name> (, <name>)*};
+```
+
+Current limitations:
+
+- Only the `std` module root is supported.
+- Paths must be exactly `std::<name>` (for example, `std::mathx`).
+- There is no `as` renaming, glob import, or user module search path.
+- Only names listed in the import braces are merged into the program; other symbols in the imported file remain unavailable.
+- Diagnostics report `line:column` without a source file path for imported modules.
+
+The bundled stdlib lives in `stdlib/` next to the project root. The compiler resolves `std::mathx` to `stdlib/mathx.noria`. Override the location with `--stdlib <dir>`.
 
 ## Functions
 

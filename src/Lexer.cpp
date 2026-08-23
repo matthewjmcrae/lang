@@ -80,6 +80,12 @@ namespace noria {
         tokens.push_back(makeToken(TokenKind::Comma, std::string(1, advance()), start));
         break;
       case ':':
+        if (peek(1) == ':') {
+          advance();
+          advance();
+          tokens.push_back(makeToken(TokenKind::ColonColon, "::", start));
+          break;
+        }
         tokens.push_back(makeToken(TokenKind::Colon, std::string(1, advance()), start));
         break;
       case '=':
@@ -187,10 +193,10 @@ namespace noria {
     const auto startIndex = index_;
 
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
-        {"fn", TokenKind::Fn},       {"struct", TokenKind::Struct}, {"return", TokenKind::Return},
-        {"let", TokenKind::Let},     {"if", TokenKind::If},         {"else", TokenKind::Else},
-        {"while", TokenKind::While}, {"as", TokenKind::As},         {"true", TokenKind::True},
-        {"false", TokenKind::False},
+        {"fn", TokenKind::Fn},         {"import", TokenKind::Import}, {"struct", TokenKind::Struct},
+        {"return", TokenKind::Return}, {"let", TokenKind::Let},       {"if", TokenKind::If},
+        {"else", TokenKind::Else},     {"while", TokenKind::While},   {"as", TokenKind::As},
+        {"true", TokenKind::True},     {"false", TokenKind::False},
     };
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
@@ -323,6 +329,8 @@ namespace noria {
       return "string";
     case TokenKind::Fn:
       return "fn";
+    case TokenKind::Import:
+      return "import";
     case TokenKind::Struct:
       return "struct";
     case TokenKind::Return:
@@ -359,6 +367,8 @@ namespace noria {
       return ".";
     case TokenKind::Colon:
       return ":";
+    case TokenKind::ColonColon:
+      return "::";
     case TokenKind::Comma:
       return ",";
     case TokenKind::Equal:

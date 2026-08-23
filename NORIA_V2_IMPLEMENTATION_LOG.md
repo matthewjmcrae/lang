@@ -513,3 +513,35 @@ Still no heap structs. Chained array+field place roots partially covered. Struct
 ### Next unit
 
 Phase 6 — generics/modules; smallest end-to-end slice first.
+
+## Phase 6 — Source imports (stdlib modules)
+
+Baseline commit `fb772c6`.
+
+### Objective and acceptance
+
+Add `import std::name::{exports};` at module top; resolve stdlib `.noria` files via `ModuleResolver`, merge imported declarations into one `Module`; preserve preexisting IR/AST and diagnostic contracts; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `ModuleResolver.hpp`/`ModuleResolver.cpp`: path lookup under `CompileOptions::stdlibRoot`, parse cache for diamond imports, merge exports into caller module. Lexer/Parser: `Import` token and import statement parsing (top-level only). `Compiler.hpp`/`Compiler.cpp`: `stdlibRoot`; CLI `--stdlib`. `stdlib/mathx.noria` sample module. Examples: `import_math`, `import_two_names`, `import_twice_same_module`; invalid_syntax: missing module, unknown export, import after function. `tests/module_resolver_test.cpp`; updated `SYNTAX.md`, `README.md`, `run_examples.sh`.
+
+### Semantic and architectural decisions
+
+Imports are compile-time merge only — TypeChecker and Codegen unchanged. `std::` prefix selects stdlib root; named export list required. Diamond imports parse each file once via resolver cache.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST byte-identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: duplicate declaration in imported module not rejected; `argv[0]`-relative stdlib path should canonicalize; parse-once instrumentation deferred.
+
+### Limitations and risks
+
+No user module paths yet; stdlib-only. Import placement and export validation only partially covered by negatives. Duplicate symbols across imports unresolved.
+
+### Next unit
+
+Phase 6 generics scaffold or `SourceLocation` file attribution for imported diagnostics.

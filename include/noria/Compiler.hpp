@@ -3,6 +3,7 @@
 #include "noria/Ast.hpp"
 #include "noria/Token.hpp"
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,6 +11,10 @@
 namespace noria {
 
   enum class StopAfter { Tokens, Ast, Typed, Ir };
+
+  struct CompileOptions {
+    std::filesystem::path stdlibRoot;
+  };
 
   struct CompileOutput {
     std::vector<Token> tokens;
@@ -24,5 +29,7 @@ namespace noria {
   };
 
   CompileOutput compileSource(std::string_view source, StopAfter stopAfter);
+  CompileOutput compileSource(std::string_view source, StopAfter stopAfter,
+                              const CompileOptions& options);
 
 } // namespace noria

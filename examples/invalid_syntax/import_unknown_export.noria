@@ -1,0 +1,5 @@
+import std::mathx::{cube};
+
+fn main() -> i32 {
+  return cube(5);
+}

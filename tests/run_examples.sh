@@ -187,6 +187,7 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/builtin_registry_test"
 "${BUILD_DIR}/visitor_smoke_test"
 "${BUILD_DIR}/compiler_facade_test"
+"${BUILD_DIR}/module_resolver_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"
@@ -245,6 +246,18 @@ grep -q "typecheck: index requires i32 index, got bool" \
 
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in
+    import_after_function.noria)
+      expect_compile_failure_contains "${source}" \
+        "5:1: imports must appear before other declarations"
+      ;;
+    import_missing_module.noria)
+      expect_compile_failure_contains "${source}" \
+        "unknown module 'std::nope'"
+      ;;
+    import_unknown_export.noria)
+      expect_compile_failure_contains "${source}" \
+        "module 'std::mathx' does not export 'cube'"
+      ;;
     invalid_token.noria)
       expect_compile_failure_contains "${source}" \
         "2:11: lexer: unexpected character '$'"
@@ -472,6 +485,15 @@ grep -q "typecheck: argument 1 of 'm' expects Point, got i32" \
   "${TEST_OUT_DIR}/struct_argument_non_struct.stderr"
 grep -q "typecheck: return type i32 does not match expected Point" \
   "${TEST_OUT_DIR}/struct_return_type_mismatch.stderr"
+
+echo "[noria-tests] phase 6 import acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/import_math.noria" 25
+run_native_exit_test "${ROOT_DIR}/examples/basic/import_two_names.noria" 17
+run_native_exit_test "${ROOT_DIR}/examples/basic/import_twice_same_module.noria" 25
+grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | grep -q "^1$"
+run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
+  -o "${TEST_OUT_DIR}/import_math.ast"
+grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

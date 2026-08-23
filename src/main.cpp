@@ -24,6 +24,7 @@ namespace {
   struct Options {
     std::filesystem::path inputPath;
     std::filesystem::path outputPath;
+    std::filesystem::path stdlibRoot;
     OutputMode outputMode = OutputMode::LlvmIr;
     int optimizationLevel = 0;
   };
@@ -32,8 +33,10 @@ namespace {
     std::cerr << "Noria compiler\n\n";
     std::cerr << "Usage:\n";
     std::cerr << "  " << argv0
-              << " [--emit-tokens|--emit-ast] [-O0|-O1|-O2|-O3] <input.noria> [-o output]\n";
-    std::cerr << "  " << argv0 << " build [-O0|-O1|-O2|-O3] <input.noria> [-o executable]\n\n";
+              << " [--emit-tokens|--emit-ast] [--stdlib <dir>] [-O0|-O1|-O2|-O3] <input.noria> [-o "
+                 "output]\n";
+    std::cerr << "  " << argv0
+              << " build [--stdlib <dir>] [-O0|-O1|-O2|-O3] <input.noria> [-o executable]\n\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << argv0 << " examples/basic/return_answer.noria\n";
     std::cerr << "  " << argv0
@@ -49,11 +52,20 @@ namespace {
 
   Options parseOptions(int argc, char** argv) {
     Options options;
+    options.stdlibRoot = std::filesystem::canonical(argv[0]).parent_path().parent_path() / "stdlib";
 
     for (int index{1}; index < argc; ++index) {
       const std::string arg = argv[index];
       if (arg == "build") {
         options.outputMode = OutputMode::NativeExecutable;
+        continue;
+      }
+
+      if (arg == "--stdlib") {
+        if (index + 1 >= argc) {
+          throw noria::CompileError("expected directory after --stdlib");
+        }
+        options.stdlibRoot = argv[++index];
         continue;
       }
 
@@ -254,7 +266,9 @@ int main(int argc, char** argv) {
       break;
     }
 
-    noria::CompileOutput output = noria::compileSource(source, stopAfter);
+    noria::CompileOptions compileOptions;
+    compileOptions.stdlibRoot = options.stdlibRoot;
+    noria::CompileOutput output = noria::compileSource(source, stopAfter, compileOptions);
 
     if (options.outputMode == OutputMode::Tokens) {
       writeOutput(options.outputPath, dumpTokens(output.tokens));

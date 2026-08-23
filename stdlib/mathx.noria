@@ -1,0 +1,7 @@
+fn square(n: i32) -> i32 {
+  return n * n;
+}
+
+fn double(n: i32) -> i32 {
+  return n + n;
+}
