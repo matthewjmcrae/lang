@@ -222,8 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- imports or modules
-- generics
+- multi-segment / non-`std` imports and generics (basic `import std::module::{names};` works)
 - container stdlib
 - `break` or `continue`
 - `for` loops
