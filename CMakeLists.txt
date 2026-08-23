@@ -34,6 +34,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(type_representation_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(builtin_registry_test
+  tests/builtin_registry_test.cpp
+  src/Types.cpp
+)
+
+target_include_directories(builtin_registry_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(builtin_registry_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(noria PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -49,3 +60,4 @@ endif()
 
 add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
 add_test(NAME type_representation COMMAND type_representation_test)
+add_test(NAME builtin_registry COMMAND builtin_registry_test)

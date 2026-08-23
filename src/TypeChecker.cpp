@@ -1,17 +1,11 @@
 #include "noria/TypeChecker.hpp"
 
+#include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
 
 #include <sstream>
 
 namespace noria {
-  namespace {
-
-    bool isBuiltinName(const std::string& name) {
-      return name == "print" || name == "print_int" || name == "print_float" ||
-             name == "print_char" || name == "println" || name == "sqrt" || name == "pow";
-    }
-  } // namespace
 
   void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
@@ -178,85 +172,38 @@ namespace noria {
         formatDiagnostic(statement.location, DiagnosticStage::TypeCheck, "unsupported statement"));
   }
 
-  Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call) {
-    const std::string& name = call.callee;
-
-    if (name == "print") {
-      if (call.arguments.size() != 1)
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "print expects 1 argument"));
-      const Type argType = checkExpression(*call.arguments[0]);
-      if (argType != Type::str())
-        throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                            "print expects str, got " + argType.name()));
-      return Type::voidType();
+  Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
+                                     const BuiltinSignature& descriptor) {
+    if (!builtinArityMatches(descriptor, call.arguments.size())) {
+      throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                                          formatBuiltinArityError(descriptor)));
     }
 
-    if (name == "print_int") {
-      if (call.arguments.size() != 1)
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "print_int expects 1 argument"));
-      const Type argType = checkExpression(*call.arguments[0]);
-      if (argType != Type::i32())
-        throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                            "print_int expects i32, got " + argType.name()));
-      return Type::voidType();
+    if (descriptor.style == MismatchStyle::AllArguments) {
+      const Type firstType = checkExpression(*call.arguments[0]);
+      const Type secondType = checkExpression(*call.arguments[1]);
+      const Type expected = Type(descriptor.parameters[0]);
+      if (firstType != expected || secondType != expected) {
+        throw CompileError(formatDiagnostic(
+            call.location, DiagnosticStage::TypeCheck,
+            formatBuiltinAllArgumentsMismatch(descriptor.name, descriptor.parameters[0],
+                                              firstType.name(), secondType.name())));
+      }
+      return Type(descriptor.returnKind);
     }
 
-    if (name == "print_float") {
-      if (call.arguments.size() != 1)
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "print_float expects 1 argument"));
-      const Type argType = checkExpression(*call.arguments[0]);
-      if (argType != Type::f64())
-        throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                            "print_float expects f64, got " + argType.name()));
-      return Type::voidType();
-    }
-
-    if (name == "print_char") {
-      if (call.arguments.size() != 1)
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "print_char expects 1 argument"));
-      const Type argType = checkExpression(*call.arguments[0]);
-      if (argType != Type::i32())
-        throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                            "print_char expects i32, got " + argType.name()));
-      return Type::voidType();
-    }
-
-    if (name == "println") {
-      if (!call.arguments.empty())
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "println expects 0 arguments"));
-      return Type::voidType();
-    }
-
-    if (name == "sqrt") {
-      if (call.arguments.size() != 1)
+    for (std::size_t index{}; index < descriptor.arity; ++index) {
+      const Type actual = checkExpression(*call.arguments[index]);
+      const Type expected = Type(descriptor.parameters[index]);
+      if (actual != expected) {
         throw CompileError(
-            formatDiagnostic(call.location, DiagnosticStage::TypeCheck, "sqrt expects 1 argument"));
-      const Type argType = checkExpression(*call.arguments[0]);
-      if (argType != Type::f64())
-        throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                            "sqrt expects f64, got " + argType.name()));
-      return Type::f64();
+            formatDiagnostic(call.arguments[index]->location, DiagnosticStage::TypeCheck,
+                             formatBuiltinPerArgumentMismatch(
+                                 descriptor.name, descriptor.parameters[index], actual.name())));
+      }
     }
 
-    if (name == "pow") {
-      if (call.arguments.size() != 2)
-        throw CompileError(
-            formatDiagnostic(call.location, DiagnosticStage::TypeCheck, "pow expects 2 arguments"));
-      const Type baseType = checkExpression(*call.arguments[0]);
-      const Type expType = checkExpression(*call.arguments[1]);
-      if (baseType != Type::f64() || expType != Type::f64())
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                                            "pow expects f64 arguments, got " + baseType.name() +
-                                                " and " + expType.name()));
-      return Type::f64();
-    }
-
-    throw CompileError("internal typecheck error: unknown builtin");
+    return Type(descriptor.returnKind);
   }
 
   Type TypeChecker::checkExpression(const ast::Expression& expression) {
@@ -376,8 +323,8 @@ namespace noria {
     }
 
     if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
-      if (isBuiltinName(call->callee))
-        return checkBuiltinCall(*call);
+      if (const BuiltinSignature* descriptor = lookupBuiltin(call->callee))
+        return checkBuiltinCall(*call, *descriptor);
 
       const auto function = functions_.find(call->callee);
 

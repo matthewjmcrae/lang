@@ -65,3 +65,35 @@ Most of the 38 typecheck strings are pinned only by generic greps, so the stderr
 ### Next unit
 
 Phase 2.5, checkpoint 3 — builtin registry (`Builtins.hpp` with `BuiltinId` and signature descriptors, TypeChecker validates via the table, Codegen dispatches on `BuiltinId`, migrate print/print_int/print_float/print_char/println/sqrt/pow, add a C++ unit test for lookup and arity).
+
+## Phase 2.5, checkpoint 3 — Builtin registry
+
+Baseline commit `ffd6059`.
+
+### Objective and acceptance
+
+Introduce a header-only builtin registry; TypeChecker validates calls via the table and shared formatters; Codegen dispatches on `BuiltinId`; migrate print family and sqrt/pow; remove duplicated `isBuiltinName` chains; add unit test; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `include/noria/Builtins.hpp`: `BuiltinId`, `BuiltinSignature` table, `lookupBuiltin`, and shared helpers `builtinArityMatches`, `formatBuiltinArityError`, `formatBuiltinPerArgumentMismatch`, `formatBuiltinAllArgumentsMismatch`. TypeChecker validates via table + helpers; Codegen switches on `BuiltinId`. Migrated: `print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`. Removed duplicated `isBuiltinName` chains and unused `isBuiltin` wrapper after review. `tests/builtin_registry_test.cpp` registered in `CMakeLists.txt`, CTest, and `run_examples.sh`.
+
+### Semantic and architectural decisions
+
+Header-only registry centralizes builtin identity, signatures, and diagnostic formatting so TypeChecker and tests share one source of truth; Codegen maps `BuiltinId` to IR without string matching.
+
+### Tests, sanitizer, results
+
+All gates green: warning-clean build; empty IR/AST diffs (base3 vs after3); `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+First review BLOCKED — test duplicated formatters; fixed by moving helpers into `Builtins.hpp`. Re-review APPROVED with zero findings. Reviewer extensibility note: adding `len` needs four production edit sites (enum, descriptor, `strlen` decl, Codegen case).
+
+### Limitations and risks
+
+Still deferred: `dynamic_cast` dispatch chains → checkpoint 4.
+
+### Next unit
+
+Phase 2.5, checkpoint 4 — Full Visitor.

@@ -1,5 +1,6 @@
 #include "noria/Codegen.hpp"
 
+#include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
 
 #include <sstream>
@@ -14,11 +15,6 @@ namespace noria {
     std::string llvmFloatInstruction(ast::BinaryOperator op);
     std::string llvmIntegerComparisonPredicate(ast::BinaryOperator op);
     std::string llvmFloatComparisonPredicate(ast::BinaryOperator op);
-
-    bool isBuiltinName(const std::string& name) {
-      return name == "print" || name == "print_int" || name == "print_float" ||
-             name == "print_char" || name == "println" || name == "sqrt" || name == "pow";
-    }
 
     std::string escapeForLlvmString(std::string_view value) {
       std::string escaped;
@@ -394,31 +390,30 @@ namespace noria {
       const ast::CallExpression& call, std::ostringstream& out, int& nextTemporary, int& nextLabel,
       const std::vector<Scope>& scopes) const {
 
-    if (!isBuiltinName(call.callee))
+    const BuiltinSignature* descriptor = lookupBuiltin(call.callee);
+    if (descriptor == nullptr)
       return std::nullopt;
 
-    const auto& name = call.callee;
-
-    if (name == "println") {
+    switch (descriptor->id) {
+    case BuiltinId::Println:
       out << "  call i32 @putchar(i32 10)\n";
       return Value{"", Type::voidType()};
-    }
 
-    if (name == "print") {
+    case BuiltinId::Print: {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call i32 @puts(ptr " << argument.text << ")\n";
       return Value{"", Type::voidType()};
     }
 
-    if (name == "print_int") {
+    case BuiltinId::PrintInt: {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call void @noria_print_int(i32 " << argument.text << ")\n";
       return Value{"", Type::voidType()};
     }
 
-    if (name == "print_float") {
+    case BuiltinId::PrintFloat: {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       const std::string formatPointer = "%t" + std::to_string(nextTemporary++);
@@ -428,14 +423,14 @@ namespace noria {
       return Value{"", Type::voidType()};
     }
 
-    if (name == "print_char") {
+    case BuiltinId::PrintChar: {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call i32 @putchar(i32 " << argument.text << ")\n";
       return Value{"", Type::voidType()};
     }
 
-    if (name == "sqrt") {
+    case BuiltinId::Sqrt: {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       const std::string result = "%t" + std::to_string(nextTemporary++);
@@ -443,7 +438,7 @@ namespace noria {
       return Value{result, Type::f64()};
     }
 
-    if (name == "pow") {
+    case BuiltinId::Pow: {
       const Value base =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       const Value exponent =
@@ -452,6 +447,7 @@ namespace noria {
       out << "  " << result << " = call double @llvm.pow.f64(double " << base.text << ", double "
           << exponent.text << ")\n";
       return Value{result, Type::f64()};
+    }
     }
 
     return std::nullopt;

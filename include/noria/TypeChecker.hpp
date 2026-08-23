@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noria/Ast.hpp"
+#include "noria/Builtins.hpp"
 #include "noria/Types.hpp"
 
 #include <memory>
@@ -29,7 +30,7 @@ namespace noria {
                          Type expectedReturnType);
     bool checkStatement(const ast::Statement& statement, Type expectedReturnType);
     Type checkExpression(const ast::Expression& expression);
-    Type checkBuiltinCall(const ast::CallExpression& call);
+    Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
     using Scope = std::unordered_map<std::string, Type>;
     void pushScope();
     void popScope();
