@@ -1,0 +1,6 @@
+fn main() -> i32 {
+  let s: str = "noria";
+  print_int(len(s));
+  print_int(len(""));
+  return 0;
+}

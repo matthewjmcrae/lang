@@ -593,6 +593,15 @@ namespace noria {
                    exponent.text + ")");
       return Value{result, Type::f64()};
     }
+
+    case BuiltinId::Len: {
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const std::string length = emitter.freshTemp();
+      emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = trunc i64 " + length + " to i32");
+      return Value{result, Type::i32()};
+    }
     }
 
     return std::nullopt;

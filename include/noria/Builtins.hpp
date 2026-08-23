@@ -10,7 +10,7 @@
 
 namespace noria {
 
-  enum class BuiltinId { Print, PrintInt, PrintFloat, PrintChar, Println, Sqrt, Pow };
+  enum class BuiltinId { Print, PrintInt, PrintFloat, PrintChar, Println, Sqrt, Pow, Len };
 
   enum class MismatchStyle { PerArgument, AllArguments };
 
@@ -23,7 +23,7 @@ namespace noria {
     MismatchStyle style;
   };
 
-  inline constexpr std::array<BuiltinSignature, 7> builtinSignatures{{
+  inline constexpr std::array<BuiltinSignature, 8> builtinSignatures{{
       {BuiltinId::Print,
        "print",
        1,
@@ -66,6 +66,12 @@ namespace noria {
        {TypeKind::F64, TypeKind::F64},
        TypeKind::F64,
        MismatchStyle::AllArguments},
+      {BuiltinId::Len,
+       "len",
+       1,
+       {TypeKind::Str, TypeKind::Void},
+       TypeKind::I32,
+       MismatchStyle::PerArgument},
   }};
 
   inline const BuiltinSignature* lookupBuiltin(std::string_view name) {

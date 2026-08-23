@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`); expression statements that call void builtins; functions; recursion; lexical scoping; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
@@ -195,9 +195,9 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (69 programs).
+Passing examples live in `examples/basic` (70 programs).
 
-Negative type-checking examples live in `examples/invalid` (34 programs).
+Negative type-checking examples live in `examples/invalid` (35 programs).
 
 Lexer and parser failure examples live in `examples/invalid_syntax` (5 programs).
 
@@ -222,7 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- string indexing, length, or concatenation
+- string indexing or concatenation
 - arrays
 - structs or classes
 - imports or modules

@@ -257,3 +257,35 @@ First review BLOCKED: expression-stmt scope too broad, cast matrix incomplete, R
 ### Next unit
 
 Phase 3 — strings finish; smallest end-to-end first (recommend `len(str)` or indexing). Track `print_float` ABI fix as known debt.
+
+## Phase 3 — len(str) -> i32
+
+Baseline commit `a3d5bc3`.
+
+### Objective and acceptance
+
+Add `len(str) -> i32` as the first Phase 3 string builtin: table-driven typecheck, runtime `strlen`, codegen truncates i64 to i32; preserve preexisting AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`Builtins.hpp`: `BuiltinId::Len` last in table with `(str) -> i32`. `Runtime.hpp`: declare `i64 @strlen(ptr)`. `Codegen.cpp`: call `strlen`, `trunc i64 to i32`. TypeChecker unchanged (registry-driven). New `examples/basic/string_length.noria` + `.expected`; `examples/invalid/len_wrong_type.noria`. Updated `run_examples.sh`, `builtin_registry_test.cpp`, `SYNTAX.md`, `README.md`. Emitted IR gains an unconditional `strlen` declare in the preamble; AST byte-identical on existing programs.
+
+### Semantic and architectural decisions
+
+`len` follows the checkpoint 3 registry pattern: one descriptor drives typecheck; Codegen maps `BuiltinId::Len` to libc `strlen` with explicit i64→i32 narrowing to match Noria's i32 int model.
+
+### Tests, sanitizer, results
+
+All gates green: `just test` (70 basic, 35 invalid); `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: README example counts stale (70/35); fixed before commit.
+
+### Limitations and risks
+
+Only `str` accepted; no generic `len` for arrays yet. Unconditional `strlen` in module preamble even when unused (harmless linkage). `print_float` ABI debt unchanged.
+
+### Next unit
+
+Phase 3 indexing `s[i]` (`IndexExpression` + `[` `]` tokens) or escape-sequence stdout example; string concat deferred.

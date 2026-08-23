@@ -233,6 +233,10 @@ grep -q "typecheck: print_int expects i32, got str" \
 grep -q "typecheck: expression statement must be a function call" \
   "${TEST_OUT_DIR}/bare_expression_statement.stderr"
 
+echo "[noria-tests] phase 3 string length diagnostics"
+grep -q "typecheck: len expects str, got i32" \
+  "${TEST_OUT_DIR}/len_wrong_type.stderr"
+
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in
     invalid_token.noria)
@@ -325,6 +329,11 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
   "${ROOT_DIR}/examples/basic/hello_world.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
   "${ROOT_DIR}/examples/basic/fizzbuzz.expected"
+
+echo "[noria-tests] phase 3 string length acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/string_length.noria" \
+  "${ROOT_DIR}/examples/basic/string_length.expected"
+grep -q "call i64 @strlen" "${TEST_OUT_DIR}/string_length.ll"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

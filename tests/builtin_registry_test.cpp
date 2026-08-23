@@ -51,6 +51,14 @@ int main() {
   const BuiltinSignature* printIntDescriptor = lookupBuiltin("print_int");
   expect(printIntDescriptor != nullptr, "lookup print_int");
 
+  const BuiltinSignature* lenDescriptor = lookupBuiltin("len");
+  expect(lenDescriptor != nullptr, "lookup len");
+  expect(lenDescriptor->id == BuiltinId::Len, "len id");
+  expect(lenDescriptor->arity == 1, "len arity");
+  expect(lenDescriptor->parameters[0] == TypeKind::Str, "len parameter kind");
+  expect(lenDescriptor->returnKind == TypeKind::I32, "len return kind");
+  expect(lenDescriptor->style == MismatchStyle::PerArgument, "len mismatch style");
+
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
 
@@ -82,6 +90,8 @@ int main() {
          "pow combined mismatch message");
 
   expect(Type(printDescriptor->parameters[0]) == Type::str(), "print parameter type");
+  expect(Type(lenDescriptor->parameters[0]) == Type::str(), "len parameter type");
+  expect(Type(lenDescriptor->returnKind) == Type::i32(), "len return type");
   expect(Type(powDescriptor->parameters[0]) == Type::f64(), "pow first parameter type");
   expect(Type(powDescriptor->parameters[1]) == Type::f64(), "pow second parameter type");
   expect(Type(powDescriptor->returnKind) == Type::f64(), "pow return type");
