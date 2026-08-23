@@ -195,9 +195,9 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (71 programs).
+Passing examples live in `examples/basic` (74 programs).
 
-Negative type-checking examples live in `examples/invalid` (37 programs).
+Negative type-checking examples live in `examples/invalid` (39 programs).
 
 Lexer and parser failure examples live in `examples/invalid_syntax` (6 programs).
 
@@ -222,7 +222,6 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- string concatenation
 - arrays
 - structs or classes
 - imports or modules

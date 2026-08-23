@@ -1,0 +1,16 @@
+fn main() -> i32 {
+  print("Hello" + ", world!");
+
+  let a: str = "foo";
+  print(a + "!");
+
+  let b: str = "bar";
+  let c: str = "baz";
+  let combined: str = a + b + c;
+  print(combined);
+
+  print_int(len("ab" + "cd"));
+  print_int(("xy" + "z")[2]);
+
+  return 0;
+}

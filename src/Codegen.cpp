@@ -702,6 +702,24 @@ namespace noria {
 
     const Value left = generateRvalue(*binary.left, emitter, context, scopes);
     const Value right = generateRvalue(*binary.right, emitter, context, scopes);
+
+    if (binary.op == ast::BinaryOperator::Add && left.type == Type::str() &&
+        right.type == Type::str()) {
+      const std::string leftLength = emitter.freshTemp();
+      emitter.line(leftLength + " = call i64 @strlen(ptr " + left.text + ")");
+      const std::string rightLength = emitter.freshTemp();
+      emitter.line(rightLength + " = call i64 @strlen(ptr " + right.text + ")");
+      const std::string sumLength = emitter.freshTemp();
+      emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
+      const std::string size = emitter.freshTemp();
+      emitter.line(size + " = add i64 " + sumLength + ", 1");
+      const std::string buffer = emitter.freshTemp();
+      emitter.line(buffer + " = call ptr @malloc(i64 " + size + ")");
+      emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
+      emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
+      return Value{buffer, Type::str()};
+    }
+
     const std::string result = emitter.freshTemp();
 
     if (isComparison(binary.op)) {

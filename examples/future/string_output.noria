@@ -1,8 +1,1 @@
-// Future example: strings and standard library output are not part of the current MVP.
-
-fn main() -> i32 {
-  print("hello from noria");
-  print("compilers turn text into machines");
-
-  return 0;
-}
+// Superseded: see examples/basic/string_output.noria

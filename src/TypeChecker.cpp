@@ -188,6 +188,16 @@ namespace noria {
       result_ = Type::boolean();
       return;
     case ast::BinaryOperator::Add:
+      if (left == Type::str() && right == Type::str()) {
+        result_ = Type::str();
+        return;
+      }
+      if (left == Type::str() || right == Type::str()) {
+        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                            "string concatenation requires str operands, got " +
+                                                left.name() + " and " + right.name()));
+      }
+      [[fallthrough]];
     case ast::BinaryOperator::Subtract:
     case ast::BinaryOperator::Multiply:
     case ast::BinaryOperator::Divide:

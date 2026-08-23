@@ -321,3 +321,35 @@ No indexed assignment — parser retains `Identifier`+`=` lookahead. No bounds c
 ### Next unit
 
 Phase 3 string concat (`str + str`) or escape-sequence stdout example.
+
+## Phase 3 — String concat str + str
+
+Baseline commit `d97e3c3`.
+
+### Objective and acceptance
+
+Add `str + str` string concatenation: typecheck both operands as `str`, result `str`; runtime heap allocation via libc; mixed-type `+` rejected with clear diagnostics; preserve preexisting AST; all gates green including sanitizer; close Phase 3.
+
+### Files and behavior changed
+
+`Runtime.hpp`: declare `malloc`, `strcpy`, `strcat`. TypeChecker: `Add` for `str+str`; mixed-type diagnostic for `str`/`i32` combinations. Codegen: `strlen`×2, `malloc(n+m+1)` as i64, `strcpy` then `strcat`. Examples: `string_concat`, `string_escapes`, `concat_str_i32`, `concat_i32_str`; promoted `string_output` from future. Updated `SYNTAX.md`, `README.md`; Phase 3 plan checkbox ticked by orchestrator. Emitted IR gains three runtime declares; preexisting AST unchanged.
+
+### Semantic and architectural decisions
+
+Concat follows the Phase 3 pattern: type rules in TypeChecker, heap copy in codegen via libc helpers rather than a custom runtime allocator. Mixed-type `+` is a hard error, not implicit coercion.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: libc name collision risk if Noria later defines its own `malloc`/`strcpy`/`strcat`; README example counts stale — fixed before commit.
+
+### Limitations and risks
+
+Heap-allocated result; no ownership/lifetime model yet. Unconditional runtime declares in module preamble when concat is linked. `print_float` ABI debt unchanged.
+
+### Next unit
+
+Phase 4 — arrays.

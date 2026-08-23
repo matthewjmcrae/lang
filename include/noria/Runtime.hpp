@@ -34,13 +34,16 @@ namespace noria::runtime {
 #endif
   }
 
-  constexpr std::array<std::string_view, 6> runtimeDeclarations = {
+  constexpr std::array<std::string_view, 9> runtimeDeclarations = {
       "declare i32 @printf(ptr, ...)\n",
       "declare i32 @puts(ptr)\n",
       "declare i32 @putchar(i32)\n",
       "declare double @llvm.sqrt.f64(double)\n",
       "declare double @llvm.pow.f64(double, double)\n",
       "declare i64 @strlen(ptr)\n",
+      "declare ptr @malloc(i64)\n",
+      "declare ptr @strcpy(ptr, ptr)\n",
+      "declare ptr @strcat(ptr, ptr)\n",
   };
 
   constexpr std::array<std::string_view, 1> runtimeGlobals = {

@@ -351,6 +351,27 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/string_index.noria" \
 grep -q "getelementptr inbounds i8" "${TEST_OUT_DIR}/string_index.ll"
 grep -q "zext i8" "${TEST_OUT_DIR}/string_index.ll"
 
+echo "[noria-tests] phase 3 string concat acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/string_concat.noria" \
+  "${ROOT_DIR}/examples/basic/string_concat.expected"
+grep -q "call ptr @malloc" "${TEST_OUT_DIR}/string_concat.ll"
+grep -q "call ptr @strcpy" "${TEST_OUT_DIR}/string_concat.ll"
+grep -q "call ptr @strcat" "${TEST_OUT_DIR}/string_concat.ll"
+
+echo "[noria-tests] phase 3 string escape acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/string_escapes.noria" \
+  "${ROOT_DIR}/examples/basic/string_escapes.expected"
+
+echo "[noria-tests] phase 3 string output acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/string_output.noria" \
+  "${ROOT_DIR}/examples/basic/string_output.expected"
+
+echo "[noria-tests] phase 3 string concat diagnostics"
+grep -q "typecheck: string concatenation requires str operands, got str and i32" \
+  "${TEST_OUT_DIR}/concat_str_i32.stderr"
+grep -q "typecheck: string concatenation requires str operands, got i32 and str" \
+  "${TEST_OUT_DIR}/concat_i32_str.stderr"
+
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
 set +e
