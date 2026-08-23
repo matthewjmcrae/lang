@@ -30,7 +30,7 @@ Noria does not perform implicit conversions among `i32`, `bool`, `f64`, or `str`
 
 ## Program Structure
 
-A Noria program is a list of function declarations.
+A Noria program is a list of struct and function declarations.
 
 ```noria
 fn main() -> i32 {
@@ -43,6 +43,8 @@ The compiler expects an executable program to contain:
 ```noria
 fn main() -> i32
 ```
+
+Struct types are declared by name and referenced in annotations (for example, `Point`). Struct-typed parameters, returns, and field assignment are not yet supported.
 
 ## Functions
 
@@ -414,6 +416,46 @@ fn main() -> i32 {
 }
 ```
 
+## Structs
+
+Declare a struct with named fields and semicolon-terminated field types:
+
+```noria
+struct Point {
+  x: i32;
+  y: i32;
+}
+```
+
+Construct a struct value with a literal: the struct name followed by `{ field: expr, ... }`. Fields may appear in any order; the compiler stores them in declaration order:
+
+```noria
+let origin: Point = Point { x: 3, y: 4 };
+let flipped: Point = Point { y: 4, x: 3 };
+```
+
+Read a field as an rvalue with postfix `.ident`:
+
+```noria
+origin.x + origin.y
+```
+
+Struct values are first-class aggregates stored in local slots. Copying a struct (`let b: Point = a;`) copies the aggregate value. Field assignment (`p.x = v`) is not supported yet.
+
+Example:
+
+```noria
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+fn main() -> i32 {
+  let origin: Point = Point { x: 3, y: 4 };
+  return origin.x + origin.y;
+}
+```
+
 ## Builtins
 
 Noria provides a small set of builtin functions:
@@ -557,7 +599,8 @@ fn main() -> i32 {
 
 Noria does not currently support:
 
-- structs or classes
+- struct-typed parameters or returns
+- field assignment (`p.x = v`)
 - imports or modules
 - generics
 - container stdlib

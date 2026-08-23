@@ -409,6 +409,37 @@ grep -q "store i32 99, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.l
 grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/array_len_of_element.stderr"
 
+echo "[noria-tests] phase 5 struct acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_point.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_copy.noria" 7
+run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_order.noria" \
+  "${ROOT_DIR}/examples/basic/struct_field_order.expected"
+grep -q "%Point = type { i32, i32 }" "${TEST_OUT_DIR}/struct_point.ll"
+grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
+  "${TEST_OUT_DIR}/struct_field_order.ll"
+grep -q "alloca %Point" "${TEST_OUT_DIR}/struct_point.ll"
+
+echo "[noria-tests] emit ast examples/basic/struct_point.noria"
+run_noria --emit-ast "${ROOT_DIR}/examples/basic/struct_point.noria" \
+  -o "${TEST_OUT_DIR}/struct_point.ast"
+grep -q "Struct Point" "${TEST_OUT_DIR}/struct_point.ast"
+
+echo "[noria-tests] phase 5 struct diagnostics"
+grep -q "typecheck: struct 'Point' has no field 'z'" \
+  "${TEST_OUT_DIR}/struct_unknown_field.stderr"
+grep -q "typecheck: struct literal for 'Point' is missing field 'y'" \
+  "${TEST_OUT_DIR}/struct_missing_field.stderr"
+grep -q "typecheck: duplicate field 'x' in struct literal for 'Point'" \
+  "${TEST_OUT_DIR}/struct_duplicate_field.stderr"
+grep -q "typecheck: field 'x' of 'Point' expects i32, got bool" \
+  "${TEST_OUT_DIR}/struct_field_type_mismatch.stderr"
+grep -q "typecheck: field access requires struct base, got i32" \
+  "${TEST_OUT_DIR}/struct_field_on_non_struct.stderr"
+grep -q "typecheck: unknown type 'Nope'" \
+  "${TEST_OUT_DIR}/struct_unknown_type.stderr"
+grep -q "typecheck: duplicate struct 'Point'" \
+  "${TEST_OUT_DIR}/struct_duplicate_decl.stderr"
+
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
 set +e

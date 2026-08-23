@@ -27,6 +27,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -49,6 +51,8 @@ namespace noria {
     void IdentifierNameProbe::visit(const ast::CallExpression&) {}
     void IdentifierNameProbe::visit(const ast::ArrayLiteral&) {}
     void IdentifierNameProbe::visit(const ast::IndexExpression&) {}
+    void IdentifierNameProbe::visit(const ast::StructLiteral&) {}
+    void IdentifierNameProbe::visit(const ast::FieldAccessExpression&) {}
     void IdentifierNameProbe::visit(const ast::ReturnStatement&) {}
     void IdentifierNameProbe::visit(const ast::LetStatement&) {}
     void IdentifierNameProbe::visit(const ast::IfStatement&) {}
@@ -65,10 +69,47 @@ namespace noria {
   ast::Module Parser::parseModule() {
     ast::Module module;
 
-    while (peek().kind != TokenKind::End)
-      module.functions.push_back(parseFunction());
+    while (peek().kind != TokenKind::End) {
+      if (peek().kind == TokenKind::Fn) {
+        module.functions.push_back(parseFunction());
+        continue;
+      }
+
+      if (peek().kind == TokenKind::Struct) {
+        module.structs.push_back(parseStructDecl());
+        continue;
+      }
+
+      throw CompileError(
+          formatDiagnostic(peek().location, "expected function or struct declaration"));
+    }
 
     return module;
+  }
+
+  ast::StructDecl Parser::parseStructDecl() {
+    const Token& structToken = expect(TokenKind::Struct, "expected struct declaration");
+    const Token& name = expect(TokenKind::Identifier, "expected struct name");
+    expect(TokenKind::LeftBrace, "expected '{' after struct name");
+
+    ast::StructDecl decl;
+    decl.name = name.text;
+    decl.location = structToken.location;
+
+    while (!match(TokenKind::RightBrace)) {
+      if (peek().kind == TokenKind::End) {
+        throw CompileError(formatDiagnostic(peek().location, "unterminated struct body"));
+      }
+
+      const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
+      expect(TokenKind::Colon, "expected ':' after field name");
+      Type fieldType = parseTypeAnnotation("expected field type");
+      expect(TokenKind::Semicolon, "expected ';' after field declaration");
+      decl.fields.push_back(
+          ast::StructField{fieldName.text, std::move(fieldType), fieldName.location});
+    }
+
+    return decl;
   }
 
   ast::Function Parser::parseFunction() {
@@ -166,13 +207,16 @@ namespace noria {
         auto rhs = parseExpression();
         expect(TokenKind::Semicolon, "expected ';' after assignment");
         return std::make_unique<ast::AssignmentStatement>(std::move(assignmentLhs), std::move(rhs),
-                                                         lhs.location);
+                                                          lhs.location);
       }
     }
 
     if (peek().kind == TokenKind::If) {
       const Token& ifToken = advance();
+      const bool savedStructLiteralAllowed = structLiteralAllowed_;
+      structLiteralAllowed_ = false;
       auto condition = parseExpression();
+      structLiteralAllowed_ = savedStructLiteralAllowed;
       auto thenBlock = parseBlock();
 
       std::vector<std::unique_ptr<ast::Statement>> elseBranch;
@@ -190,7 +234,10 @@ namespace noria {
 
     if (peek().kind == TokenKind::While) {
       const Token& whileToken = advance();
+      const bool savedStructLiteralAllowed = structLiteralAllowed_;
+      structLiteralAllowed_ = false;
       auto condition = parseExpression();
+      structLiteralAllowed_ = savedStructLiteralAllowed;
       auto body = parseBlock();
       return std::make_unique<ast::WhileStatement>(std::move(condition), std::move(body),
                                                    whileToken.location);
@@ -434,6 +481,14 @@ namespace noria {
         continue;
       }
 
+      if (peek().kind == TokenKind::Dot) {
+        const SourceLocation location = advance().location;
+        const Token& field = expect(TokenKind::Identifier, "expected field name after '.'");
+        expression = std::make_unique<ast::FieldAccessExpression>(std::move(expression), field.text,
+                                                                  location);
+        continue;
+      }
+
       break;
     }
 
@@ -446,14 +501,40 @@ namespace noria {
 
     //(expr)
     if (match(TokenKind::LeftParen)) {
+      const bool savedStructLiteralAllowed = structLiteralAllowed_;
+      structLiteralAllowed_ = true;
       auto expression = parseExpression();
+      structLiteralAllowed_ = savedStructLiteralAllowed;
       expect(TokenKind::RightParen, "expected ')' after expression");
       return expression;
     }
 
-    // identifier
+    // identifier or struct literal
     if (peek().kind == TokenKind::Identifier) {
       const Token& name = advance();
+
+      if (structLiteralAllowed_ && peek().kind == TokenKind::LeftBrace) {
+        const SourceLocation location = peek().location;
+        advance();
+
+        std::vector<ast::StructLiteralField> fields;
+        if (peek().kind != TokenKind::RightBrace) {
+          while (true) {
+            const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
+            expect(TokenKind::Colon, "expected ':' after field name");
+            auto value = parseExpression();
+            fields.push_back(
+                ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
+
+            if (!match(TokenKind::Comma))
+              break;
+          }
+        }
+
+        expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
+        return std::make_unique<ast::StructLiteral>(name.text, std::move(fields), location);
+      }
+
       return std::make_unique<ast::IdentifierExpression>(name.text, name.location);
     }
 

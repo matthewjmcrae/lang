@@ -154,6 +154,34 @@ namespace noria::ast {
     std::unique_ptr<Expression> index;
   };
 
+  struct StructLiteralField {
+    std::string name;
+    std::unique_ptr<Expression> value;
+    SourceLocation location;
+  };
+
+  struct StructLiteral final : Expression {
+    StructLiteral(std::string structName, std::vector<StructLiteralField> fields,
+                  SourceLocation location)
+        : Expression(location), structName(std::move(structName)), fields(std::move(fields)) {}
+
+    void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
+
+    std::string structName;
+    std::vector<StructLiteralField> fields;
+  };
+
+  struct FieldAccessExpression final : Expression {
+    FieldAccessExpression(std::unique_ptr<Expression> base, std::string fieldName,
+                          SourceLocation location)
+        : Expression(location), base(std::move(base)), fieldName(std::move(fieldName)) {}
+
+    void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
+
+    std::unique_ptr<Expression> base;
+    std::string fieldName;
+  };
+
   struct Statement {
     explicit Statement(SourceLocation location) : location(location) {}
     virtual ~Statement() = default;
@@ -236,6 +264,18 @@ namespace noria::ast {
     SourceLocation location;
   };
 
+  struct StructField {
+    std::string name;
+    Type type;
+    SourceLocation location;
+  };
+
+  struct StructDecl {
+    std::string name;
+    std::vector<StructField> fields;
+    SourceLocation location;
+  };
+
   struct Function {
     std::string name;
     Type returnType;
@@ -245,6 +285,7 @@ namespace noria::ast {
   };
 
   struct Module {
+    std::vector<StructDecl> structs;
     std::vector<Function> functions;
   };
 

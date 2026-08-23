@@ -46,6 +46,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
     private:
       TypeChecker& checker_;
@@ -70,6 +72,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -107,6 +111,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -137,6 +143,8 @@ namespace noria {
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -151,6 +159,21 @@ namespace noria {
 
     void requireKnownType(const Type& type, SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;
+
+    struct StructFieldInfo {
+      std::string name;
+      Type type;
+      std::size_t index;
+    };
+
+    struct StructInfo {
+      std::vector<StructFieldInfo> fields;
+      std::unordered_map<std::string, std::size_t> fieldIndex;
+    };
+
+    void collectStructDecls(const ast::Module& module);
+    void checkStructAcyclic(const std::string& structName, SourceLocation location) const;
+    const StructInfo& lookupStruct(const std::string& name, SourceLocation location) const;
 
     void collectFunctionSignatures(const ast::Module& module);
     void checkFunction(const ast::Function& function);
@@ -167,6 +190,7 @@ namespace noria {
     Type lookupLocal(const std::string& name, SourceLocation location) const;
 
     std::unordered_map<std::string, FunctionSignature> functions_;
+    std::unordered_map<std::string, StructInfo> structs_;
     std::vector<Scope> scopes_;
   };
 

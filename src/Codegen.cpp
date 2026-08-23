@@ -51,8 +51,9 @@ namespace noria {
         return 1;
       case TypeKind::Str:
       case TypeKind::Array:
-      case TypeKind::Struct:
         return 8;
+      case TypeKind::Struct:
+        throw CompileError("codegen: struct element size is not supported");
       case TypeKind::Void:
         break;
       }
@@ -68,13 +69,15 @@ namespace noria {
   std::string LlvmIrTextGenerator::generate(const ast::Module& module) const {
     CodegenContext context;
     context.functions = collectFunctionBindings(module);
+    context.structs = collectStructLayouts(module);
 
     std::ostringstream functions;
     for (const auto& function : module.functions) {
       functions << generateFunction(function, context) << "\n";
     }
 
-    return modulePreamble() + context.globals.str() + functions.str();
+    return modulePreamble() + emitStructTypeDefinitions(module) + context.globals.str() +
+           functions.str();
   }
 
   std::string LlvmIrTextGenerator::modulePreamble() const {
@@ -304,6 +307,12 @@ namespace noria {
   void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IndexExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::StructLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::FieldAccessExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
 
   LlvmIrTextGenerator::ExpressionVisitor::ExpressionVisitor(const LlvmIrTextGenerator& generator,
                                                             IrEmitter& emitter,
@@ -414,6 +423,14 @@ namespace noria {
     result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
   }
 
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    result_ = generator_.generateStructLiteral(literal, emitter_, context_, scopes_);
+  }
+
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+    result_ = generator_.generateFieldAccess(access, emitter_, context_, scopes_);
+  }
+
   void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ReturnStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
@@ -448,6 +465,8 @@ namespace noria {
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CallExpression&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ArrayLiteral&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IndexExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::StructLiteral&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::FieldAccessExpression&) {}
 
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ReturnStatement&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::LetStatement&) {}
@@ -492,6 +511,9 @@ namespace noria {
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::StructLiteral&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression& index) {
     const Value base = generator_.generateRvalue(*index.base, emitter_, context_, scopes_);
     const Value indexValue = generator_.generateRvalue(*index.index, emitter_, context_, scopes_);
@@ -507,6 +529,10 @@ namespace noria {
     const std::string pointer =
         generator_.emitArrayElementPointer(base, indexValue, elementType, emitter_);
     result_ = LocalBinding{pointer, elementType};
+  }
+
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression&) {
+    throw CompileError("codegen: invalid assignment target");
   }
 
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
@@ -895,6 +921,134 @@ namespace noria {
     }
 
     return functions;
+  }
+
+  std::unordered_map<std::string, LlvmIrTextGenerator::StructLayout>
+  LlvmIrTextGenerator::collectStructLayouts(const ast::Module& module) const {
+    std::unordered_map<std::string, StructLayout> layouts;
+
+    for (const auto& decl : module.structs) {
+      StructLayout layout;
+      for (const auto& field : decl.fields) {
+        const std::size_t index = layout.fieldTypes.size();
+        layout.fieldNames.push_back(field.name);
+        layout.fieldTypes.push_back(field.type);
+        layout.fieldIndex.emplace(field.name, index);
+      }
+      layouts.emplace(decl.name, std::move(layout));
+    }
+
+    return layouts;
+  }
+
+  std::string LlvmIrTextGenerator::emitStructTypeDefinitions(const ast::Module& module) const {
+    std::ostringstream out;
+
+    for (const auto& decl : module.structs) {
+      out << "%" << decl.name << " = type { ";
+      for (std::size_t index{}; index < decl.fields.size(); ++index) {
+        if (index != 0)
+          out << ", ";
+        out << llvmType(decl.fields[index].type);
+      }
+      out << " }\n";
+    }
+
+    return out.str();
+  }
+
+  const LlvmIrTextGenerator::StructLayout&
+  LlvmIrTextGenerator::lookupStructLayout(const CodegenContext& context,
+                                          const Type& structType) const {
+    const auto layout = context.structs.find(structType.structName);
+    if (layout == context.structs.end()) {
+      throw CompileError("codegen: unknown struct '" + structType.structName + "'");
+    }
+
+    return layout->second;
+  }
+
+  std::string LlvmIrTextGenerator::emitStructFieldPointer(const Type& structType,
+                                                          const std::string& slot,
+                                                          std::size_t fieldIndex,
+                                                          IrEmitter& emitter) const {
+    const std::string pointer = emitter.freshTemp();
+    emitter.line(pointer + " = getelementptr inbounds " + llvmType(structType) + ", ptr " + slot +
+                 ", i32 0, i32 " + std::to_string(fieldIndex));
+    return pointer;
+  }
+
+  LlvmIrTextGenerator::Value
+  LlvmIrTextGenerator::generateStructLiteral(const ast::StructLiteral& literal, IrEmitter& emitter,
+                                             CodegenContext& context,
+                                             const std::vector<Scope>& scopes) const {
+    const Type structType = Type::structType(literal.structName);
+    const StructLayout& layout = lookupStructLayout(context, structType);
+
+    std::unordered_map<std::string, const ast::Expression*> fieldValues;
+    for (const auto& field : literal.fields) {
+      fieldValues.emplace(field.name, field.value.get());
+    }
+
+    const std::string slot = emitter.freshTemp();
+    emitter.emitAlloca(structType, slot);
+
+    for (std::size_t index{}; index < layout.fieldTypes.size(); ++index) {
+      const std::string& fieldName = layout.fieldNames[index];
+      const auto valueExpression = fieldValues.find(fieldName);
+      if (valueExpression == fieldValues.end()) {
+        throw CompileError("codegen: missing struct literal field '" + fieldName + "'");
+      }
+
+      const Value fieldValue = generateRvalue(*valueExpression->second, emitter, context, scopes);
+      const std::string pointer = emitStructFieldPointer(structType, slot, index, emitter);
+      emitter.emitStore(layout.fieldTypes[index], fieldValue.text, pointer);
+    }
+
+    const std::string result = emitter.freshTemp();
+    emitter.emitLoad(structType, slot, result);
+    return Value{result, structType};
+  }
+
+  LlvmIrTextGenerator::Value
+  LlvmIrTextGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
+                                           IrEmitter& emitter, CodegenContext& context,
+                                           const std::vector<Scope>& scopes) const {
+    std::string slot;
+    Type structType;
+
+    if (const auto* identifier =
+            dynamic_cast<const ast::IdentifierExpression*>(access.base.get())) {
+      const LocalBinding& local = lookupLocal(scopes, identifier->name);
+      if (local.type.kind != TypeKind::Struct) {
+        throw CompileError("codegen: field access requires struct base");
+      }
+      slot = local.slot;
+      structType = local.type;
+    } else {
+      const Value baseValue = generateRvalue(*access.base, emitter, context, scopes);
+      if (baseValue.type.kind != TypeKind::Struct) {
+        throw CompileError("codegen: field access requires struct base");
+      }
+      structType = baseValue.type;
+      slot = emitter.freshTemp();
+      emitter.emitAlloca(structType, slot);
+      emitter.emitStore(structType, baseValue.text, slot);
+    }
+
+    const StructLayout& layout = lookupStructLayout(context, structType);
+    const auto fieldIndex = layout.fieldIndex.find(access.fieldName);
+    if (fieldIndex == layout.fieldIndex.end()) {
+      throw CompileError("codegen: struct '" + structType.structName + "' has no field '" +
+                         access.fieldName + "'");
+    }
+
+    const Type fieldType = layout.fieldTypes[fieldIndex->second];
+    const std::string pointer =
+        emitStructFieldPointer(structType, slot, fieldIndex->second, emitter);
+    const std::string result = emitter.freshTemp();
+    emitter.emitLoad(fieldType, pointer, result);
+    return Value{result, fieldType};
   }
 
   namespace {

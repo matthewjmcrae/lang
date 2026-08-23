@@ -4,6 +4,7 @@
 #include "noria/Diagnostic.hpp"
 
 #include <sstream>
+#include <unordered_set>
 
 namespace noria {
 
@@ -151,6 +152,12 @@ namespace noria {
     unsupportedExpressionInStatementVisitor();
   }
   void TypeChecker::StatementVisitor::visit(const ast::IndexExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::StructLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
+  void TypeChecker::StatementVisitor::visit(const ast::FieldAccessExpression&) {
     unsupportedExpressionInStatementVisitor();
   }
 
@@ -396,6 +403,65 @@ namespace noria {
                          "index requires str or array base, got " + baseType.name()));
   }
 
+  void TypeChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    const StructInfo& structInfo = checker_.lookupStruct(literal.structName, literal.location);
+
+    std::unordered_map<std::string, Type> provided;
+    for (const auto& field : literal.fields) {
+      if (provided.contains(field.name)) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "duplicate field '" + field.name +
+                                                "' in struct literal for '" + literal.structName +
+                                                "'"));
+      }
+
+      if (!structInfo.fieldIndex.contains(field.name)) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "struct '" + literal.structName + "' has no field '" +
+                                                field.name + "'"));
+      }
+
+      provided.emplace(field.name, checker_.checkRvalue(*field.value));
+    }
+
+    for (const auto& expectedField : structInfo.fields) {
+      const auto actual = provided.find(expectedField.name);
+      if (actual == provided.end()) {
+        throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                            "struct literal for '" + literal.structName +
+                                                "' is missing field '" + expectedField.name + "'"));
+      }
+
+      if (!checker_.isAssignable(expectedField.type, actual->second)) {
+        throw CompileError(formatDiagnostic(
+            literal.location, DiagnosticStage::TypeCheck,
+            "field '" + expectedField.name + "' of '" + literal.structName + "' expects " +
+                expectedField.type.name() + ", got " + actual->second.name()));
+      }
+    }
+
+    result_ = Type::structType(literal.structName);
+  }
+
+  void TypeChecker::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+    const Type baseType = checker_.checkRvalue(*access.base);
+    if (baseType.kind != TypeKind::Struct) {
+      throw CompileError(
+          formatDiagnostic(access.base->location, DiagnosticStage::TypeCheck,
+                           "field access requires struct base, got " + baseType.name()));
+    }
+
+    const StructInfo& structInfo = checker_.lookupStruct(baseType.structName, access.location);
+    const auto field = structInfo.fieldIndex.find(access.fieldName);
+    if (field == structInfo.fieldIndex.end()) {
+      throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
+                                          "struct '" + baseType.structName + "' has no field '" +
+                                              access.fieldName + "'"));
+    }
+
+    result_ = structInfo.fields[field->second].type;
+  }
+
   void TypeChecker::ExpressionVisitor::visit(const ast::ReturnStatement&) {
     unsupportedStatementInExpressionVisitor();
   }
@@ -429,6 +495,8 @@ namespace noria {
   void TypeChecker::CallExpressionProbe::visit(const ast::IdentifierExpression&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::ArrayLiteral&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::IndexExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::StructLiteral&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::FieldAccessExpression&) {}
 
   void TypeChecker::CallExpressionProbe::visit(const ast::ReturnStatement&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::LetStatement&) {}
@@ -480,6 +548,9 @@ namespace noria {
   void TypeChecker::PlaceVisitor::visit(const ast::ArrayLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
+  void TypeChecker::PlaceVisitor::visit(const ast::StructLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
   void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& index) {
     const Type baseType = checker_.checkRvalue(*index.base);
     const Type indexType = checker_.checkRvalue(*index.index);
@@ -515,6 +586,11 @@ namespace noria {
     throw CompileError(
         formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
                          "index requires str or array base, got " + baseType.name()));
+  }
+
+  void TypeChecker::PlaceVisitor::visit(const ast::FieldAccessExpression& node) {
+    throw CompileError(formatDiagnostic(node.location, DiagnosticStage::TypeCheck,
+                                        "field assignment is not supported yet"));
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {
@@ -556,14 +632,104 @@ namespace noria {
       return;
     }
 
+    if (type.kind == TypeKind::Struct) {
+      if (!structs_.contains(type.structName)) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "unknown type '" + type.name() + "'"));
+      }
+      return;
+    }
+
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                         "unknown type '" + type.name() + "'"));
+  }
+
+  const TypeChecker::StructInfo& TypeChecker::lookupStruct(const std::string& name,
+                                                           SourceLocation location) const {
+    const auto structInfo = structs_.find(name);
+    if (structInfo == structs_.end()) {
+      throw CompileError(
+          formatDiagnostic(location, DiagnosticStage::TypeCheck, "unknown type '" + name + "'"));
+    }
+
+    return structInfo->second;
+  }
+
+  void TypeChecker::checkStructAcyclic(const std::string& structName,
+                                       SourceLocation location) const {
+    std::vector<const std::string*> stack;
+    std::unordered_set<std::string> visiting;
+
+    const auto visitStruct = [&](const auto& visitStructRef, const std::string& name) -> void {
+      if (!visiting.insert(name).second)
+        return;
+
+      stack.push_back(&name);
+      if (stack.size() > structs_.size()) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "struct '" + structName + "' has infinite size"));
+      }
+
+      const StructInfo& info = structs_.at(name);
+      for (const auto& field : info.fields) {
+        if (field.type.kind == TypeKind::Struct) {
+          for (const std::string* seen : stack) {
+            if (*seen == field.type.structName) {
+              throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                                  "struct '" + structName + "' has infinite size"));
+            }
+          }
+          visitStructRef(visitStructRef, field.type.structName);
+        }
+      }
+
+      stack.pop_back();
+      visiting.erase(name);
+    };
+
+    visitStruct(visitStruct, structName);
+  }
+
+  void TypeChecker::collectStructDecls(const ast::Module& module) {
+    structs_.clear();
+
+    for (const auto& decl : module.structs) {
+      if (structs_.contains(decl.name)) {
+        throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
+                                            "duplicate struct '" + decl.name + "'"));
+      }
+
+      StructInfo info;
+      std::unordered_set<std::string> seenFields;
+      for (const auto& field : decl.fields) {
+        if (seenFields.contains(field.name)) {
+          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                              "duplicate field '" + field.name + "' in struct '" +
+                                                  decl.name + "'"));
+        }
+        seenFields.insert(field.name);
+
+        const std::size_t index = info.fields.size();
+        info.fields.push_back(StructFieldInfo{field.name, field.type, index});
+        info.fieldIndex.emplace(field.name, index);
+      }
+
+      structs_.emplace(decl.name, std::move(info));
+    }
+
+    for (const auto& decl : module.structs) {
+      for (const auto& field : decl.fields) {
+        requireKnownType(field.type, field.location);
+      }
+      checkStructAcyclic(decl.name, decl.location);
+    }
   }
 
   void TypeChecker::check(const ast::Module& module) {
     functions_.clear();
     scopes_.clear();
 
+    collectStructDecls(module);
     collectFunctionSignatures(module);
 
     for (const auto& function : module.functions) {

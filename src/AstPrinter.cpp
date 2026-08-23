@@ -150,6 +150,24 @@ namespace noria {
         node.index->accept(child);
       }
 
+      void visit(const ast::StructLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "StructLiteral " << node.structName << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        for (const auto& field : node.fields) {
+          printIndent(out_, indent_ + 1);
+          out_ << "Field " << field.name << "\n";
+          field.value->accept(child);
+        }
+      }
+
+      void visit(const ast::FieldAccessExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "FieldAccess " << node.fieldName << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.base->accept(child);
+      }
+
     private:
       std::ostream& out_;
       int indent_;
@@ -159,6 +177,15 @@ namespace noria {
 
   void printAst(const ast::Module& module, std::ostream& out) {
     out << "Module\n";
+
+    for (const auto& structDecl : module.structs) {
+      printIndent(out, 1);
+      out << "Struct " << structDecl.name << "\n";
+      for (const auto& field : structDecl.fields) {
+        printIndent(out, 2);
+        out << "Field " << field.name << ": " << field.type.name() << "\n";
+      }
+    }
 
     for (const auto& function : module.functions) {
       printFunction(function, out, 1);

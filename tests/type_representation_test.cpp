@@ -53,7 +53,7 @@ int main() {
   expectLlvm(Type::voidType(), "void");
   expectLlvm(Type::str(), "ptr");
   expectLlvm(Type::array(Type::i32()), "ptr");
-  expectLlvm(Type::structType("Point"), "ptr");
+  expectLlvm(Type::structType("Point"), "%Point");
 
   expect(Type::i32() == Type::i32(), "i32 equals i32");
   expect(Type::f64() == Type::f64(), "f64 equals f64");

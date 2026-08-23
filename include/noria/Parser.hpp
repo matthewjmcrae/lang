@@ -21,6 +21,7 @@ namespace noria {
     const Token& expect(TokenKind kind, std::string_view message);
 
     ast::Function parseFunction();
+    ast::StructDecl parseStructDecl();
     std::vector<ast::Parameter> parseFunctionParameters();
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();
@@ -45,6 +46,7 @@ namespace noria {
 
     std::span<const Token> tokens_;
     std::size_t index_ = 0;
+    bool structLiteralAllowed_ = true;
   };
 
 } // namespace noria

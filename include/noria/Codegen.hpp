@@ -33,8 +33,15 @@ namespace noria {
       std::vector<Type> parameterTypes;
     };
 
+    struct StructLayout {
+      std::vector<std::string> fieldNames;
+      std::vector<Type> fieldTypes;
+      std::unordered_map<std::string, std::size_t> fieldIndex;
+    };
+
     struct CodegenContext {
       std::unordered_map<std::string, FunctionBinding> functions;
+      std::unordered_map<std::string, StructLayout> structs;
       std::ostringstream globals;
       int nextStringGlobal = 0;
     };
@@ -67,6 +74,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
     private:
       const LlvmIrTextGenerator& generator_;
@@ -95,6 +104,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -130,6 +141,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -162,6 +175,8 @@ namespace noria {
       void visit(const ast::CallExpression& node) override;
       void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
+      void visit(const ast::StructLiteral& node) override;
+      void visit(const ast::FieldAccessExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -200,6 +215,12 @@ namespace noria {
                                CodegenContext& context, const std::vector<Scope>& scopes) const;
     Value generateIndexExpression(const ast::IndexExpression& index, IrEmitter& emitter,
                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value generateStructLiteral(const ast::StructLiteral& literal, IrEmitter& emitter,
+                                CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value generateFieldAccess(const ast::FieldAccessExpression& access, IrEmitter& emitter,
+                              CodegenContext& context, const std::vector<Scope>& scopes) const;
+    std::string emitStructFieldPointer(const Type& structType, const std::string& slot,
+                                       std::size_t fieldIndex, IrEmitter& emitter) const;
     std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call, IrEmitter& emitter,
                                                 CodegenContext& context,
                                                 const std::vector<Scope>& scopes) const;
@@ -212,6 +233,11 @@ namespace noria {
                                     const std::string& name) const;
     std::unordered_map<std::string, FunctionBinding>
     collectFunctionBindings(const ast::Module& module) const;
+    std::unordered_map<std::string, StructLayout>
+    collectStructLayouts(const ast::Module& module) const;
+    std::string emitStructTypeDefinitions(const ast::Module& module) const;
+    const StructLayout& lookupStructLayout(const CodegenContext& context,
+                                           const Type& structType) const;
   };
 
 } // namespace noria

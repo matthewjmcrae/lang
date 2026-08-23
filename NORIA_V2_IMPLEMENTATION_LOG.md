@@ -417,3 +417,35 @@ No bounds checks. String indexed assignment still rejected. Heap array literals;
 ### Next unit
 
 Phase 5 — structs.
+
+## Phase 5 — Struct decl, construction, field rvalue
+
+Baseline commit `a5e9e9d`.
+
+### Objective and acceptance
+
+Add struct declarations, struct literals, and field rvalue access (`p.x`); locals only; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Lexer: `Struct`/`Dot` tokens. AST: `StructDecl`, `StructLiteral`, `FieldAccessExpression`; `Module::structs`; `collectStructDecls`. Types: `llvmType(Struct)` → `%Name`. Parser: `structLiteralAllowed_` disambiguates struct literals from `if`/`while` bodies. TypeChecker/Codegen: struct decl collection; alloca+stores construction; field GEP+load. Examples: `struct_point`, `struct_field_order`, `struct_copy` + seven invalid; updated `SYNTAX.md`, `visitor_smoke_test`, `type_representation_test`.
+
+### Semantic and architectural decisions
+
+Struct types are nominal LLVM named structs; construction uses stack alloca and per-field stores; field read is GEP+load. Struct literals gated where statement/expr ambiguity exists.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST byte-identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED after usage-limit delay. Non-blocking: initializer evaluation order follows declaration order; struct parameters accepted early; `p.x =` unreachable at parse; missing cycle/duplicate-declaration negative examples.
+
+### Limitations and risks
+
+Locals only — no struct params/returns, field assignment, or heap structs. No struct cycle or duplicate-decl negatives yet.
+
+### Next unit
+
+Phase 5 field lvalue `p.x = v`.

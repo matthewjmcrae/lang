@@ -63,8 +63,9 @@ namespace noria {
       return "i1";
     case TypeKind::Str:
     case TypeKind::Array:
-    case TypeKind::Struct:
       return "ptr";
+    case TypeKind::Struct:
+      return "%" + type.structName;
     case TypeKind::Void:
       return "void";
     }

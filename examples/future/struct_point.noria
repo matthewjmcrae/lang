@@ -1,4 +1,5 @@
-// Future example: structs, field access, and unary minus are not part of the current MVP.
+// Future example: struct parameters and pass-by-value are deferred to Phase 5 wake 3.
+// Field assignment (p.x = v) is deferred to Phase 5 wake 2.
 
 struct Point {
   x: i32;

@@ -33,6 +33,8 @@ namespace {
     void visit(const noria::ast::CallExpression&) override { ++callExpression_; }
     void visit(const noria::ast::ArrayLiteral&) override { ++arrayLiteral_; }
     void visit(const noria::ast::IndexExpression&) override { ++indexExpression_; }
+    void visit(const noria::ast::StructLiteral&) override { ++structLiteral_; }
+    void visit(const noria::ast::FieldAccessExpression&) override { ++fieldAccessExpression_; }
 
     void visit(const noria::ast::ReturnStatement&) override { ++returnStatement_; }
     void visit(const noria::ast::LetStatement&) override { ++letStatement_; }
@@ -53,6 +55,8 @@ namespace {
       expect(callExpression_ == 1, "CallExpression visited once");
       expect(arrayLiteral_ == 1, "ArrayLiteral visited once");
       expect(indexExpression_ == 1, "IndexExpression visited once");
+      expect(structLiteral_ == 1, "StructLiteral visited once");
+      expect(fieldAccessExpression_ == 1, "FieldAccessExpression visited once");
       expect(returnStatement_ == 1, "ReturnStatement visited once");
       expect(letStatement_ == 1, "LetStatement visited once");
       expect(ifStatement_ == 1, "IfStatement visited once");
@@ -73,6 +77,8 @@ namespace {
     int callExpression_ = 0;
     int arrayLiteral_ = 0;
     int indexExpression_ = 0;
+    int structLiteral_ = 0;
+    int fieldAccessExpression_ = 0;
     int returnStatement_ = 0;
     int letStatement_ = 0;
     int ifStatement_ = 0;
@@ -197,6 +203,9 @@ int main() {
   using noria::ast::LetStatement;
   using noria::ast::ReturnStatement;
   using noria::ast::StringLiteral;
+  using noria::ast::StructLiteral;
+  using noria::ast::StructLiteralField;
+  using noria::ast::FieldAccessExpression;
   using noria::ast::UnaryExpression;
   using noria::ast::UnaryOperator;
   using noria::ast::WhileStatement;
@@ -223,6 +232,11 @@ int main() {
   std::vector<std::unique_ptr<noria::ast::Expression>> arrayElements;
   arrayElements.push_back(std::make_unique<IntegerLiteral>(1, loc));
   ArrayLiteral arrayLiteral(std::move(arrayElements), loc);
+  std::vector<StructLiteralField> structFields;
+  structFields.push_back(StructLiteralField{"x", std::make_unique<IntegerLiteral>(1, loc), loc});
+  StructLiteral structLiteral("Point", std::move(structFields), loc);
+  FieldAccessExpression fieldAccessExpression(
+      std::make_unique<IdentifierExpression>("p", loc), "x", loc);
 
   ReturnStatement returnStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
   LetStatement letStatement("a", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
@@ -246,6 +260,8 @@ int main() {
   binaryExpression.accept(counter);
   callExpression.accept(counter);
   arrayLiteral.accept(counter);
+  structLiteral.accept(counter);
+  fieldAccessExpression.accept(counter);
   indexExpression.accept(counter);
   returnStatement.accept(counter);
   letStatement.accept(counter);

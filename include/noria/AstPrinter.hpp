@@ -9,4 +9,3 @@ namespace noria {
   void printAst(const ast::Module& module, std::ostream& out);
 
 }
-
