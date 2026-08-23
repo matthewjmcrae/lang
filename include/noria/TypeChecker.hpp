@@ -193,6 +193,9 @@ namespace noria {
     void checkStructAcyclic(const std::string& structName, SourceLocation location) const;
     const StructInfo& lookupStruct(const std::string& name, SourceLocation location) const;
     StructInfo resolveStructInfo(const Type& structType, SourceLocation location) const;
+    void checkSpecializationConstraints(const std::string& templateName,
+                                        const std::vector<Type>& typeArgs,
+                                        SourceLocation location) const;
     void recordStructSpecialization(const std::string& templateName,
                                     const std::vector<Type>& typeArgs,
                                     SourceLocation location) const;

@@ -189,6 +189,7 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/compiler_facade_test"
 "${BUILD_DIR}/module_resolver_test"
 "${BUILD_DIR}/generics_test"
+"${BUILD_DIR}/constraints_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"
@@ -264,6 +265,10 @@ grep -q "typecheck: implementation tag 'arr' cannot be used as a type" \
   "${TEST_OUT_DIR}/impl_tag_as_type.stderr"
 grep -q "typecheck: type 'Box<i32>' expects 2 type argument(s), got 1" \
   "${TEST_OUT_DIR}/impl_tag_wrong_arity.stderr"
+grep -q "typecheck: implementation tag 'bst' requires '<' for key type str" \
+  "${TEST_OUT_DIR}/generic_bst_key_unordered.stderr"
+grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64; V2 hashes i32, bool, str" \
+  "${TEST_OUT_DIR}/generic_hashmap_key_unhashable.stderr"
 
 echo "[noria-tests] phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
@@ -569,6 +574,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_infer.noria" 42
 grep -c '%Box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria" 3
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_tag_constraint_ok.noria" 43
 grep -c '%Box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 

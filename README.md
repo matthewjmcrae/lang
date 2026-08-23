@@ -222,8 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- constraints (generic functions and structs with inference work; implementation tags `arr`/`list`/`bst`/`hashmap` parse in type arguments)
-- container stdlib
+- container stdlib (implementation tags `arr`/`list`/`bst`/`hashmap` parse in type arguments and enforce key constraints at specialization time)
 - `break` or `continue`
 - `for` loops
 - type inference

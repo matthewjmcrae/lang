@@ -14,6 +14,7 @@ add_library(noria_core OBJECT
   src/AstPrinter.cpp
   src/Codegen.cpp
   src/Compiler.cpp
+  src/Constraints.cpp
   src/Diagnostic.cpp
   src/IrEmitter.cpp
   src/Lexer.cpp
@@ -126,6 +127,24 @@ if(NORIA_ENABLE_SANITIZERS)
   endif()
 endif()
 
+add_executable(constraints_test
+  tests/constraints_test.cpp
+  src/Constraints.cpp
+  src/Types.cpp
+)
+
+target_include_directories(constraints_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(constraints_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(NORIA_ENABLE_SANITIZERS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_link_options(constraints_test PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+
 add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
 add_test(NAME type_representation COMMAND type_representation_test)
 add_test(NAME builtin_registry COMMAND builtin_registry_test)
@@ -133,3 +152,4 @@ add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
 add_test(NAME compiler_facade COMMAND compiler_facade_test)
 add_test(NAME module_resolver COMMAND module_resolver_test)
 add_test(NAME generics COMMAND generics_test)
+add_test(NAME constraints COMMAND constraints_test)

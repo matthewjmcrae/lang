@@ -642,4 +642,36 @@ No ADT stdlib bodies, constraints, or tag-selected implementations. Tags recogni
 
 Constraints checking, private stdlib runtime ABI, or `SourceLocation` file attribution for imported diagnostics.
 
+## Phase 6 — Constraints scaffold
+
+Baseline commit `e443a16`.
+
+### Objective and acceptance
+
+At generic specialization time, reject concrete type arguments lacking required operators for tagged instantiations: `bst` requires `<` and `==`; `hashmap` requires `==` and V2 `hash`. Scaffold only — no stdlib ADT bodies. One positive example, two negative cases, C++ unit test; all gates green including sanitizer; 107 preexisting IR/AST byte-identical.
+
+### Files and behavior changed
+
+New `Constraints.hpp`/`Constraints.cpp`: `RequiredOperation`, per-tag op lists, `supportsOperation`, `operationName`. TypeChecker: `checkSpecializationConstraints` on function-call and struct specialization recording; source-located diagnostics name tag, missing operation, and key type. `generic_tag_constraint_ok.noria`; `generic_bst_key_unordered.noria`, `generic_hashmap_key_unhashable.noria`; `constraints_test.cpp`; `CMakeLists.txt`, `run_examples.sh`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Validation at typecheck specialization recording, not monomorphize. Closed tables per tag; first non-tag type argument is the key. V2 hash covers i32, bool, str; ordering ops cover i32 and f64 only.
+
+### Tests, sanitizer, results
+
+`just test`; `just sanitize` green. 107 preexisting IR/AST unchanged.
+
+### Review findings and resolutions
+
+APPROVED after format fix in `constraints_test.cpp` (expected operation-name strings).
+
+### Limitations and risks
+
+Hardcoded type sets — no trait or user overload system. Key/tag positional pairing may not scale to multi-key ADTs. No tag-selected implementation bodies or monomorph cache dedup.
+
+### Next unit
+
+Private stdlib runtime ABI, `SourceLocation` file attribution for imported diagnostics, or full ADT stdlib bodies.
+
 

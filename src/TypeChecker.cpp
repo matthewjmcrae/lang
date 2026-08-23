@@ -1,10 +1,12 @@
 #include "noria/TypeChecker.hpp"
 
 #include "noria/Builtins.hpp"
+#include "noria/Constraints.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <unordered_set>
 
@@ -407,6 +409,7 @@ namespace noria {
       substitution.emplace(typeParam.name, bindings.at(typeParam.name));
     }
 
+    checker_.checkSpecializationConstraints(call.callee, typeArgs, call.location);
     checker_.specializationRequests_.push_back(
         SpecializationRequest{call.callee, typeArgs, call.location, checker_.currentFunctionName_});
     result_ = substitute(templated.returnType, substitution);
@@ -993,9 +996,52 @@ namespace noria {
     }
   }
 
+  void TypeChecker::checkSpecializationConstraints(const std::string& templateName,
+                                                   const std::vector<Type>& typeArgs,
+                                                   SourceLocation location) const {
+    (void)templateName;
+
+    std::optional<ImplementationTag> tag;
+    for (const Type& typeArg : typeArgs) {
+      if (typeArg.kind == TypeKind::ImplTag) {
+        tag = typeArg.implTag;
+        break;
+      }
+    }
+    if (!tag) {
+      return;
+    }
+
+    std::optional<Type> keyType;
+    for (const Type& typeArg : typeArgs) {
+      if (typeArg.kind != TypeKind::ImplTag) {
+        keyType = typeArg;
+        break;
+      }
+    }
+    if (!keyType) {
+      return;
+    }
+
+    for (const RequiredOperation operation : requiredOperations(*tag)) {
+      if (supportsOperation(*keyType, operation)) {
+        continue;
+      }
+
+      std::ostringstream out;
+      out << "implementation tag '" << implementationTagName(*tag) << "' requires '"
+          << operationName(operation) << "' for key type " << keyType->name();
+      if (operation == RequiredOperation::Hash) {
+        out << "; V2 hashes i32, bool, str";
+      }
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
+    }
+  }
+
   void TypeChecker::recordStructSpecialization(const std::string& templateName,
                                                const std::vector<Type>& typeArgs,
                                                SourceLocation location) const {
+    checkSpecializationConstraints(templateName, typeArgs, location);
     structSpecializationRequests_.push_back(
         StructSpecializationRequest{templateName, typeArgs, location});
   }
