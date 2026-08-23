@@ -25,7 +25,7 @@ namespace noria {
   void TypeChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
     checker_.requireKnownType(letStatement.type, letStatement.location);
     const Type declaredType = letStatement.type;
-    const Type initializerType = checker_.checkExpression(*letStatement.initializer);
+    const Type initializerType = checker_.checkRvalue(*letStatement.initializer);
 
     if (!checker_.declareLocal(letStatement.name, declaredType)) {
       throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
@@ -43,22 +43,21 @@ namespace noria {
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
-    const Type targetType =
-        checker_.lookupLocal(assignmentStatement.lhs, assignmentStatement.location);
-    const Type valueType = checker_.checkExpression(*assignmentStatement.rhs);
+    const auto place = checker_.checkPlace(*assignmentStatement.lhs);
+    const Type valueType = checker_.checkRvalue(*assignmentStatement.rhs);
 
-    if (!checker_.isAssignable(targetType, valueType)) {
-      throw CompileError(
-          formatDiagnostic(assignmentStatement.rhs->location, DiagnosticStage::TypeCheck,
-                           "cannot assign " + valueType.name() + " to variable '" +
-                               assignmentStatement.lhs + "' of type " + targetType.name()));
+    if (!checker_.isAssignable(place.type, valueType)) {
+      throw CompileError(formatDiagnostic(assignmentStatement.rhs->location,
+                                          DiagnosticStage::TypeCheck,
+                                          "cannot assign " + valueType.name() + " to variable '" +
+                                              place.name + "' of type " + place.type.name()));
     }
 
     returned_ = false;
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
-    const Type returnType = checker_.checkExpression(*returnStatement.expression);
+    const Type returnType = checker_.checkRvalue(*returnStatement.expression);
 
     if (!checker_.isAssignable(expectedReturnType_, returnType)) {
       throw CompileError(
@@ -71,7 +70,7 @@ namespace noria {
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
-    const Type conditionType = checker_.checkExpression(*ifStatement.condition);
+    const Type conditionType = checker_.checkRvalue(*ifStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
           formatDiagnostic(ifStatement.condition->location, DiagnosticStage::TypeCheck,
@@ -90,7 +89,7 @@ namespace noria {
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
-    const Type conditionType = checker_.checkExpression(*whileStatement.condition);
+    const Type conditionType = checker_.checkRvalue(*whileStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
           formatDiagnostic(whileStatement.condition->location, DiagnosticStage::TypeCheck,
@@ -111,7 +110,7 @@ namespace noria {
                                           "expression statement must be a function call"));
     }
 
-    const Type expressionType = checker_.checkExpression(*expressionStatement.expression);
+    const Type expressionType = checker_.checkRvalue(*expressionStatement.expression);
     if (expressionType != Type::voidType()) {
       throw CompileError(formatDiagnostic(expressionStatement.expression->location,
                                           DiagnosticStage::TypeCheck,
@@ -172,8 +171,8 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
-    const Type left = checker_.checkExpression(*binary.left);
-    const Type right = checker_.checkExpression(*binary.right);
+    const Type left = checker_.checkRvalue(*binary.left);
+    const Type right = checker_.checkRvalue(*binary.right);
 
     switch (binary.op) {
     case ast::BinaryOperator::And:
@@ -231,7 +230,7 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
-    const Type operandType = checker_.checkExpression(*unary.operand);
+    const Type operandType = checker_.checkRvalue(*unary.operand);
 
     switch (unary.op) {
     case ast::UnaryOperator::Negate:
@@ -262,7 +261,7 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
-    const Type sourceType = checker_.checkExpression(*castExpression.expression);
+    const Type sourceType = checker_.checkRvalue(*castExpression.expression);
     checker_.requireKnownType(castExpression.targetType, castExpression.location);
     const Type targetType = castExpression.targetType;
 
@@ -314,7 +313,7 @@ namespace noria {
     }
 
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
-      const Type actual = checker_.checkExpression(*call.arguments[index]);
+      const Type actual = checker_.checkRvalue(*call.arguments[index]);
       const Type expected = function->second.parameterTypes[index];
       if (!checker_.isAssignable(expected, actual)) {
         std::ostringstream out;
@@ -366,6 +365,69 @@ namespace noria {
   void TypeChecker::CallExpressionProbe::visit(const ast::WhileStatement&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::AssignmentStatement&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::ExpressionStatement&) {}
+
+  namespace {
+
+    [[noreturn]] void invalidAssignmentTarget(SourceLocation location) {
+      throw CompileError(
+          formatDiagnostic(location, DiagnosticStage::TypeCheck, "invalid assignment target"));
+    }
+
+  } // namespace
+
+  void TypeChecker::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
+    name_ = identifier.name;
+  }
+
+  void TypeChecker::PlaceVisitor::visit(const ast::IntegerLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::FloatLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::StringLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::BoolLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::UnaryExpression& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::CastExpression& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::BinaryExpression& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::CallExpression& node) {
+    invalidAssignmentTarget(node.location);
+  }
+
+  void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::LetStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::IfStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::WhileStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::AssignmentStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::ExpressionStatement& node) {
+    invalidAssignmentTarget(node.location);
+  }
+
+  TypeChecker::PlaceInfo TypeChecker::checkPlace(const ast::Expression& place) {
+    PlaceVisitor visitor;
+    place.accept(visitor);
+    return PlaceInfo{visitor.name(), lookupLocal(visitor.name(), place.location)};
+  }
 
   void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
@@ -434,8 +496,8 @@ namespace noria {
     }
 
     if (descriptor.style == MismatchStyle::AllArguments) {
-      const Type firstType = checkExpression(*call.arguments[0]);
-      const Type secondType = checkExpression(*call.arguments[1]);
+      const Type firstType = checkRvalue(*call.arguments[0]);
+      const Type secondType = checkRvalue(*call.arguments[1]);
       const Type expected = Type(descriptor.parameters[0]);
       if (firstType != expected || secondType != expected) {
         throw CompileError(formatDiagnostic(
@@ -447,7 +509,7 @@ namespace noria {
     }
 
     for (std::size_t index{}; index < descriptor.arity; ++index) {
-      const Type actual = checkExpression(*call.arguments[index]);
+      const Type actual = checkRvalue(*call.arguments[index]);
       const Type expected = Type(descriptor.parameters[index]);
       if (actual != expected) {
         throw CompileError(
@@ -460,7 +522,7 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
-  Type TypeChecker::checkExpression(const ast::Expression& expression) {
+  Type TypeChecker::checkRvalue(const ast::Expression& expression) {
     ExpressionVisitor visitor(*this);
     expression.accept(visitor);
     return visitor.result();

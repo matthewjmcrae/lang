@@ -109,7 +109,8 @@ namespace {
         "x", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc));
 
     function.body.push_back(std::make_unique<AssignmentStatement>(
-        "x", std::make_unique<IdentifierExpression>("x", loc), loc));
+        std::make_unique<IdentifierExpression>("x", loc),
+        std::make_unique<IdentifierExpression>("x", loc), loc));
 
     std::vector<std::unique_ptr<noria::ast::Expression>> printArguments;
     printArguments.push_back(std::make_unique<StringLiteral>("ok", loc));
@@ -122,7 +123,8 @@ namespace {
 
     std::vector<std::unique_ptr<noria::ast::Statement>> whileBody;
     whileBody.push_back(std::make_unique<AssignmentStatement>(
-        "x", std::make_unique<IntegerLiteral>(2, loc), loc));
+        std::make_unique<IdentifierExpression>("x", loc),
+        std::make_unique<IntegerLiteral>(2, loc), loc));
 
     auto whileCondition = std::make_unique<BinaryExpression>(
         BinaryOperator::Less,
@@ -208,7 +210,9 @@ int main() {
                           std::vector<std::unique_ptr<noria::ast::Statement>>{}, loc);
   WhileStatement whileStatement(std::make_unique<BoolLiteral>(true, loc),
                                 std::vector<std::unique_ptr<noria::ast::Statement>>{}, loc);
-  AssignmentStatement assignmentStatement("a", std::make_unique<IntegerLiteral>(1, loc), loc);
+  AssignmentStatement assignmentStatement(
+      std::make_unique<IdentifierExpression>("a", loc), std::make_unique<IntegerLiteral>(1, loc),
+      loc);
   ExpressionStatement expressionStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
 
   integerLiteral.accept(counter);
@@ -239,7 +243,7 @@ int main() {
   expectLabel(output, "Block", "printAst contains Block");
   expectLabel(output, "Let x: i32", "printAst contains Let x: i32");
   expectLabel(output, "Integer ", "printAst contains Integer");
-  expectLabel(output, "Assign x", "printAst contains Assign x");
+  expectLabel(output, "Assign", "printAst contains Assign");
   expectLabel(output, "Identifier x", "printAst contains Identifier x");
   expectLabel(output, "ExprStmt", "printAst contains ExprStmt");
   expectLabel(output, "Call print", "printAst contains Call print");

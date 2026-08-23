@@ -163,24 +163,23 @@ namespace noria {
     emitter_.emitAlloca(localType, slot);
 
     Value initializer =
-        generator_.generateExpression(*letStatement.initializer, emitter_, context_, scopes_);
+        generator_.generateRvalue(*letStatement.initializer, emitter_, context_, scopes_);
     emitter_.emitStore(localType, initializer.text, slot);
     returned_ = false;
   }
 
   void LlvmIrTextGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
     Value returnValue =
-        generator_.generateExpression(*returnStatement.expression, emitter_, context_, scopes_);
+        generator_.generateRvalue(*returnStatement.expression, emitter_, context_, scopes_);
     emitter_.line("ret " + llvmType(expectedReturnType_) + " " + returnValue.text);
     returned_ = true;
   }
 
   void LlvmIrTextGenerator::StatementVisitor::visit(
       const ast::AssignmentStatement& assignmentStatement) {
-    const LocalBinding& local = generator_.lookupLocal(scopes_, assignmentStatement.lhs);
+    const LocalBinding local = generator_.generatePlace(*assignmentStatement.lhs, scopes_);
 
-    Value rvalue =
-        generator_.generateExpression(*assignmentStatement.rhs, emitter_, context_, scopes_);
+    Value rvalue = generator_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_);
     emitter_.emitStore(local.type, rvalue.text, local.slot);
     returned_ = false;
   }
@@ -248,7 +247,7 @@ namespace noria {
 
   void LlvmIrTextGenerator::StatementVisitor::visit(
       const ast::ExpressionStatement& expressionStatement) {
-    generator_.generateExpression(*expressionStatement.expression, emitter_, context_, scopes_);
+    generator_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
     returned_ = false;
   }
 
@@ -310,8 +309,7 @@ namespace noria {
   }
 
   void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
-    const Value operand =
-        generator_.generateExpression(*unary.operand, emitter_, context_, scopes_);
+    const Value operand = generator_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
     const std::string result = emitter_.freshTemp();
 
     switch (unary.op) {
@@ -365,7 +363,7 @@ namespace noria {
     arguments.reserve(call.arguments.size());
 
     for (const auto& argument : call.arguments) {
-      arguments.push_back(generator_.generateExpression(*argument, emitter_, context_, scopes_));
+      arguments.push_back(generator_.generateRvalue(*argument, emitter_, context_, scopes_));
     }
 
     const std::string result = emitter_.freshTemp();
@@ -422,6 +420,66 @@ namespace noria {
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::AssignmentStatement&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ExpressionStatement&) {}
 
+  LlvmIrTextGenerator::PlaceVisitor::PlaceVisitor(const LlvmIrTextGenerator& generator,
+                                                  const std::vector<Scope>& scopes)
+      : generator_(generator), scopes_(scopes) {}
+
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
+    result_ = generator_.lookupLocal(scopes_, identifier.name);
+  }
+
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IntegerLiteral&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FloatLiteral&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::StringLiteral&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::BoolLiteral&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::UnaryExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CastExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::BinaryExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::LetStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IfStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::WhileStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::AssignmentStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ExpressionStatement&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+
+  LlvmIrTextGenerator::LocalBinding
+  LlvmIrTextGenerator::generatePlace(const ast::Expression& place,
+                                     const std::vector<Scope>& scopes) const {
+    PlaceVisitor visitor(*this, scopes);
+    place.accept(visitor);
+    return visitor.result();
+  }
+
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement, IrEmitter& emitter,
                                               CodegenContext& context, Type expectedReturnType,
                                               std::vector<Scope>& scopes) const {
@@ -448,7 +506,7 @@ namespace noria {
   LlvmIrTextGenerator::generateCastExpression(const ast::CastExpression& cast, IrEmitter& emitter,
                                               CodegenContext& context,
                                               const std::vector<Scope>& scopes) const {
-    const Value source = generateExpression(*cast.expression, emitter, context, scopes);
+    const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
     const Type targetType = cast.targetType;
 
     if (source.type == targetType)
@@ -494,19 +552,19 @@ namespace noria {
       return Value{"", Type::voidType()};
 
     case BuiltinId::Print: {
-      const Value argument = generateExpression(*call.arguments[0], emitter, context, scopes);
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
       emitter.line("call i32 @puts(ptr " + argument.text + ")");
       return Value{"", Type::voidType()};
     }
 
     case BuiltinId::PrintInt: {
-      const Value argument = generateExpression(*call.arguments[0], emitter, context, scopes);
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
       emitter.line("call void @noria_print_int(i32 " + argument.text + ")");
       return Value{"", Type::voidType()};
     }
 
     case BuiltinId::PrintFloat: {
-      const Value argument = generateExpression(*call.arguments[0], emitter, context, scopes);
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
       const std::string formatPointer = emitter.freshTemp();
       emitter.line(formatPointer +
                    " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0");
@@ -515,21 +573,21 @@ namespace noria {
     }
 
     case BuiltinId::PrintChar: {
-      const Value argument = generateExpression(*call.arguments[0], emitter, context, scopes);
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
       emitter.line("call i32 @putchar(i32 " + argument.text + ")");
       return Value{"", Type::voidType()};
     }
 
     case BuiltinId::Sqrt: {
-      const Value argument = generateExpression(*call.arguments[0], emitter, context, scopes);
+      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = call double @llvm.sqrt.f64(double " + argument.text + ")");
       return Value{result, Type::f64()};
     }
 
     case BuiltinId::Pow: {
-      const Value base = generateExpression(*call.arguments[0], emitter, context, scopes);
-      const Value exponent = generateExpression(*call.arguments[1], emitter, context, scopes);
+      const Value base = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value exponent = generateRvalue(*call.arguments[1], emitter, context, scopes);
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = call double @llvm.pow.f64(double " + base.text + ", double " +
                    exponent.text + ")");
@@ -549,7 +607,7 @@ namespace noria {
     if (const ast::BinaryExpression* binary = probe.comparison())
       return generateBinaryExpression(*binary, emitter, context, scopes).text;
 
-    const Value value = generateExpression(expression, emitter, context, scopes);
+    const Value value = generateRvalue(expression, emitter, context, scopes);
 
     if (value.type == Type::boolean())
       return value.text;
@@ -560,9 +618,9 @@ namespace noria {
   }
 
   LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateExpression(const ast::Expression& expression, IrEmitter& emitter,
-                                          CodegenContext& context,
-                                          const std::vector<Scope>& scopes) const {
+  LlvmIrTextGenerator::generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
+                                      CodegenContext& context,
+                                      const std::vector<Scope>& scopes) const {
     ExpressionVisitor visitor(*this, emitter, context, scopes);
     expression.accept(visitor);
     return visitor.result();
@@ -574,7 +632,7 @@ namespace noria {
                                                 const std::vector<Scope>& scopes) const {
 
     if (binary.op == ast::BinaryOperator::And || binary.op == ast::BinaryOperator::Or) {
-      const Value left = generateExpression(*binary.left, emitter, context, scopes);
+      const Value left = generateRvalue(*binary.left, emitter, context, scopes);
       const int labelId = emitter.freshLabelId();
       const std::string shortCircuitLabel =
           (binary.op == ast::BinaryOperator::And ? "and.short" : "or.short") +
@@ -595,7 +653,7 @@ namespace noria {
       emitter.emitBranch(mergeLabel);
 
       emitter.emitLabel(rhsLabel);
-      const Value right = generateExpression(*binary.right, emitter, context, scopes);
+      const Value right = generateRvalue(*binary.right, emitter, context, scopes);
       emitter.emitBranch(mergeLabel);
 
       emitter.emitLabel(mergeLabel);
@@ -605,8 +663,8 @@ namespace noria {
       return Value{result, Type::boolean()};
     }
 
-    const Value left = generateExpression(*binary.left, emitter, context, scopes);
-    const Value right = generateExpression(*binary.right, emitter, context, scopes);
+    const Value left = generateRvalue(*binary.left, emitter, context, scopes);
+    const Value right = generateRvalue(*binary.right, emitter, context, scopes);
     const std::string result = emitter.freshTemp();
 
     if (isComparison(binary.op)) {

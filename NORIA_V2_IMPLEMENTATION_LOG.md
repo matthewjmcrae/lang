@@ -193,3 +193,35 @@ APPROVED. Non-blocking: warnings no longer only on `main.cpp`; `freshTempCounter
 ### Next unit
 
 Phase 2.5, checkpoint 7 — Postfix + Place foundation.
+
+## Phase 2.5, checkpoint 7 — Postfix + Place foundation
+
+Baseline commit `9f99dca`.
+
+### Objective and acceptance
+
+Introduce postfix call parsing and place/rvalue split in typecheck and codegen; `AssignmentStatement::lhs` becomes `unique_ptr<Expression>`; preserve IR and diagnostic contracts; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Parser: `parsePostfix` extracts calls; `CallExpression::callee` stays a string; bare-ident gate preserves `(f)(1)`/`f(1)(2)` failures; `Identifier`+`Equal` lookahead kept for assignment. TypeChecker: `checkPlace`/`checkRvalue`. Codegen: `generatePlace`/`generateRvalue`; identifier places only; `generatePlace` emits no IR/temps for identifiers. Visitor, AstPrinter, and `visitor_smoke_test` updated; Assign AST prints nested `Identifier`.
+
+### Semantic and architectural decisions
+
+Postfix parsing separates call chaining from primary expressions without widening callee to an expression node yet. Place/rvalue split mirrors future lvalue semantics: places are checked and generated separately from rvalues, with identifiers as the only place form today.
+
+### Tests, sanitizer, results
+
+All gates green: byte-identical `-O0` IR across 69 basic examples; AST Assign-shape diffs in 22 files (justified by nested lhs); `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: no direct regression tests for rejected parenthesized/chained calls.
+
+### Limitations and risks
+
+Callee remains a string, not an expression; chained/index/field places deferred. Parenthesized and chained-call rejections rely on existing invalid examples, not dedicated C++ tests.
+
+### Next unit
+
+Phase 2.5, checkpoint 8 — closeout (README.md and SYNTAX.md for Phases 0–2, stale limitations removed, plan checkbox).

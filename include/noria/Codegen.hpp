@@ -107,6 +107,36 @@ namespace noria {
       Value result_{};
     };
 
+    class PlaceVisitor final : public ast::AstVisitor {
+    public:
+      PlaceVisitor(const LlvmIrTextGenerator& generator, const std::vector<Scope>& scopes);
+
+      LocalBinding result() const { return result_; }
+
+      void visit(const ast::IdentifierExpression& node) override;
+
+      void visit(const ast::IntegerLiteral& node) override;
+      void visit(const ast::FloatLiteral& node) override;
+      void visit(const ast::StringLiteral& node) override;
+      void visit(const ast::BoolLiteral& node) override;
+      void visit(const ast::UnaryExpression& node) override;
+      void visit(const ast::CastExpression& node) override;
+      void visit(const ast::BinaryExpression& node) override;
+      void visit(const ast::CallExpression& node) override;
+
+      void visit(const ast::ReturnStatement& node) override;
+      void visit(const ast::LetStatement& node) override;
+      void visit(const ast::IfStatement& node) override;
+      void visit(const ast::WhileStatement& node) override;
+      void visit(const ast::AssignmentStatement& node) override;
+      void visit(const ast::ExpressionStatement& node) override;
+
+    private:
+      const LlvmIrTextGenerator& generator_;
+      const std::vector<Scope>& scopes_;
+      LocalBinding result_{};
+    };
+
     class ComparisonProbe final : public ast::AstVisitor {
     public:
       const ast::BinaryExpression* comparison() const { return comparison_; }
@@ -142,8 +172,10 @@ namespace noria {
                             std::vector<Scope>& scopes) const;
     std::string generateCondition(const ast::Expression& expression, IrEmitter& emitter,
                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateExpression(const ast::Expression& expression, IrEmitter& emitter,
-                             CodegenContext& context, const std::vector<Scope>& scopes) const;
+    LocalBinding generatePlace(const ast::Expression& place,
+                               const std::vector<Scope>& scopes) const;
+    Value generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
+                         CodegenContext& context, const std::vector<Scope>& scopes) const;
 
     Value generateBinaryExpression(const ast::BinaryExpression& binary, IrEmitter& emitter,
                                    CodegenContext& context, const std::vector<Scope>& scopes) const;

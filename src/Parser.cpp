@@ -1,11 +1,58 @@
 #include "noria/Parser.hpp"
 
+#include "noria/AstVisitor.hpp"
 #include "noria/Diagnostic.hpp"
 
 #include <charconv>
+#include <optional>
 #include <sstream>
 
 namespace noria {
+
+  namespace {
+
+    class IdentifierNameProbe final : public ast::AstVisitor {
+    public:
+      std::optional<std::string> name() const { return name_; }
+
+      void visit(const ast::IdentifierExpression& node) override { name_ = node.name; }
+
+      void visit(const ast::IntegerLiteral& node) override;
+      void visit(const ast::FloatLiteral& node) override;
+      void visit(const ast::StringLiteral& node) override;
+      void visit(const ast::BoolLiteral& node) override;
+      void visit(const ast::UnaryExpression& node) override;
+      void visit(const ast::CastExpression& node) override;
+      void visit(const ast::BinaryExpression& node) override;
+      void visit(const ast::CallExpression& node) override;
+
+      void visit(const ast::ReturnStatement& node) override;
+      void visit(const ast::LetStatement& node) override;
+      void visit(const ast::IfStatement& node) override;
+      void visit(const ast::WhileStatement& node) override;
+      void visit(const ast::AssignmentStatement& node) override;
+      void visit(const ast::ExpressionStatement& node) override;
+
+    private:
+      std::optional<std::string> name_;
+    };
+
+    void IdentifierNameProbe::visit(const ast::IntegerLiteral&) {}
+    void IdentifierNameProbe::visit(const ast::FloatLiteral&) {}
+    void IdentifierNameProbe::visit(const ast::StringLiteral&) {}
+    void IdentifierNameProbe::visit(const ast::BoolLiteral&) {}
+    void IdentifierNameProbe::visit(const ast::UnaryExpression&) {}
+    void IdentifierNameProbe::visit(const ast::CastExpression&) {}
+    void IdentifierNameProbe::visit(const ast::BinaryExpression&) {}
+    void IdentifierNameProbe::visit(const ast::CallExpression&) {}
+    void IdentifierNameProbe::visit(const ast::ReturnStatement&) {}
+    void IdentifierNameProbe::visit(const ast::LetStatement&) {}
+    void IdentifierNameProbe::visit(const ast::IfStatement&) {}
+    void IdentifierNameProbe::visit(const ast::WhileStatement&) {}
+    void IdentifierNameProbe::visit(const ast::AssignmentStatement&) {}
+    void IdentifierNameProbe::visit(const ast::ExpressionStatement&) {}
+
+  } // namespace
 
   // take in Tokens[] return the root of a fully built AST
   Parser::Parser(std::span<const Token> tokens) : tokens_(tokens) {}
@@ -103,7 +150,9 @@ namespace noria {
       expect(TokenKind::Equal, "expected '=' before variable assignment");
       auto rhs = parseExpression();
       expect(TokenKind::Semicolon, "expected ';' after assignment");
-      return std::make_unique<ast::AssignmentStatement>(lhs.text, std::move(rhs), lhs.location);
+      return std::make_unique<ast::AssignmentStatement>(
+          std::make_unique<ast::IdentifierExpression>(lhs.text, lhs.location), std::move(rhs),
+          lhs.location);
     }
 
     if (peek().kind == TokenKind::If) {
@@ -149,7 +198,7 @@ namespace noria {
 
   // parseLogicalOr -> parseLogicalAnd -> parseEquality -> parseComparison ->
   // parseBitOr -> parseBitXor -> parseBitAnd -> parseShift -> parseAddition ->
-  // parseMultiplication -> parseUnary -> parseCast -> parsePrimary
+  // parseMultiplication -> parseUnary -> parseCast -> parsePostfix -> parsePrimary
   std::unique_ptr<ast::Expression> Parser::parseExpression() {
     return parseLogicalOr();
   }
@@ -325,13 +374,43 @@ namespace noria {
   }
 
   std::unique_ptr<ast::Expression> Parser::parseCast() {
-    auto expression = parsePrimary();
+    auto expression = parsePostfix();
 
     while (match(TokenKind::As)) {
       const SourceLocation typeLocation = peek().location;
       Type targetType = parseTypeAnnotation("expected cast target type");
       expression = std::make_unique<ast::CastExpression>(std::move(expression),
                                                          std::move(targetType), typeLocation);
+    }
+
+    return expression;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parsePostfix() {
+    const bool bareCallee = peek().kind == TokenKind::Identifier;
+    auto expression = parsePrimary();
+    bool calledOnce = false;
+
+    // Extension point for [expr] / .ident suffixes (Phase 3+).
+    while (true) {
+      if (bareCallee && !calledOnce && peek().kind == TokenKind::LeftParen) {
+        advance();
+        auto arguments = parseCallArguments();
+        expect(TokenKind::RightParen, "expected ')' after function call arguments");
+
+        IdentifierNameProbe probe;
+        expression->accept(probe);
+        if (!probe.name().has_value()) {
+          throw CompileError(formatDiagnostic(expression->location, "expected expression"));
+        }
+
+        expression = std::make_unique<ast::CallExpression>(*probe.name(), std::move(arguments),
+                                                           expression->location);
+        calledOnce = true;
+        continue;
+      }
+
+      break;
     }
 
     return expression;
@@ -348,16 +427,9 @@ namespace noria {
       return expression;
     }
 
-    // function call
+    // identifier
     if (peek().kind == TokenKind::Identifier) {
       const Token& name = advance();
-
-      if (match(TokenKind::LeftParen)) {
-        auto arguments = parseCallArguments();
-        expect(TokenKind::RightParen, "expected ')' after function call arguments");
-        return std::make_unique<ast::CallExpression>(name.text, std::move(arguments),
-                                                     name.location);
-      }
       return std::make_unique<ast::IdentifierExpression>(name.text, name.location);
     }
 

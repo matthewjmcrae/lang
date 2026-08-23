@@ -79,6 +79,37 @@ namespace noria {
       Type result_;
     };
 
+    struct PlaceInfo {
+      std::string name;
+      Type type;
+    };
+
+    class PlaceVisitor final : public ast::AstVisitor {
+    public:
+      const std::string& name() const { return name_; }
+
+      void visit(const ast::IdentifierExpression& node) override;
+
+      void visit(const ast::IntegerLiteral& node) override;
+      void visit(const ast::FloatLiteral& node) override;
+      void visit(const ast::StringLiteral& node) override;
+      void visit(const ast::BoolLiteral& node) override;
+      void visit(const ast::UnaryExpression& node) override;
+      void visit(const ast::CastExpression& node) override;
+      void visit(const ast::BinaryExpression& node) override;
+      void visit(const ast::CallExpression& node) override;
+
+      void visit(const ast::ReturnStatement& node) override;
+      void visit(const ast::LetStatement& node) override;
+      void visit(const ast::IfStatement& node) override;
+      void visit(const ast::WhileStatement& node) override;
+      void visit(const ast::AssignmentStatement& node) override;
+      void visit(const ast::ExpressionStatement& node) override;
+
+    private:
+      std::string name_;
+    };
+
     class CallExpressionProbe final : public ast::AstVisitor {
     public:
       bool isCallExpression() const { return isCallExpression_; }
@@ -113,7 +144,8 @@ namespace noria {
     bool checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
                          Type expectedReturnType);
     bool checkStatement(const ast::Statement& statement, Type expectedReturnType);
-    Type checkExpression(const ast::Expression& expression);
+    PlaceInfo checkPlace(const ast::Expression& place);
+    Type checkRvalue(const ast::Expression& expression);
     Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
     using Scope = std::unordered_map<std::string, Type>;
     void pushScope();

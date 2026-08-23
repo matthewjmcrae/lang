@@ -191,12 +191,13 @@ namespace noria::ast {
   };
 
   struct AssignmentStatement final : Statement {
-    AssignmentStatement(std::string lhs, std::unique_ptr<Expression> rhs, SourceLocation location)
+    AssignmentStatement(std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs,
+                        SourceLocation location)
         : Statement(location), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
 
-    std::string lhs;
+    std::unique_ptr<Expression> lhs;
     std::unique_ptr<Expression> rhs;
   };
 

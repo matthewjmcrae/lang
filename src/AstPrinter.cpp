@@ -36,9 +36,11 @@ namespace noria {
 
       void visit(const ast::AssignmentStatement& node) override {
         printIndent(out_, indent_);
-        out_ << "Assign " << node.lhs << "\n";
-        AstPrintVisitor child(out_, indent_ + 1);
-        node.rhs->accept(child);
+        out_ << "Assign\n";
+        AstPrintVisitor lhsVisitor(out_, indent_ + 1);
+        node.lhs->accept(lhsVisitor);
+        AstPrintVisitor rhsVisitor(out_, indent_ + 1);
+        node.rhs->accept(rhsVisitor);
       }
 
       void visit(const ast::ExpressionStatement& node) override {
