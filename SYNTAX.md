@@ -380,6 +380,40 @@ fn main() -> i32 {
 
 Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance.
 
+## Arrays
+
+Array types are written `[T]` where `T` is any known element type (for example, `[i32]`, `[str]`, `[[i32]]`). Array literals use square brackets with comma-separated elements:
+
+```noria
+let values: [i32] = [3, 4, 5, 6];
+let names: [str] = ["alice", "bob"];
+```
+
+Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). There is no bounds checking; out-of-range indexing is undefined behavior. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+
+Indexed assignment (`a[i] = expr`) is not supported yet.
+
+Example:
+
+```noria
+fn sum(values: [i32], count: i32) -> i32 {
+  let total: i32 = 0;
+  let index: i32 = 0;
+
+  while index < count {
+    total = total + values[index];
+    index = index + 1;
+  }
+
+  return total;
+}
+
+fn main() -> i32 {
+  let values: [i32] = [3, 4, 5, 6];
+  return sum(values, len(values));
+}
+```
+
 ## Builtins
 
 Noria provides a small set of builtin functions:
@@ -392,7 +426,7 @@ Noria provides a small set of builtin functions:
 | `println` | 0 | — | `void` |
 | `sqrt` | 1 | `f64` | `f64` |
 | `pow` | 2 | `f64`, `f64` | `f64` |
-| `len` | 1 | `str` | `i32` |
+| `len` | 1 | `str` or array | `i32` |
 
 Example:
 
@@ -523,7 +557,6 @@ fn main() -> i32 {
 
 Noria does not currently support:
 
-- arrays
 - structs or classes
 - imports or modules
 - generics

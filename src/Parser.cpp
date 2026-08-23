@@ -25,6 +25,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::ArrayLiteral& node) override;
       void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
@@ -46,6 +47,7 @@ namespace noria {
     void IdentifierNameProbe::visit(const ast::CastExpression&) {}
     void IdentifierNameProbe::visit(const ast::BinaryExpression&) {}
     void IdentifierNameProbe::visit(const ast::CallExpression&) {}
+    void IdentifierNameProbe::visit(const ast::ArrayLiteral&) {}
     void IdentifierNameProbe::visit(const ast::IndexExpression&) {}
     void IdentifierNameProbe::visit(const ast::ReturnStatement&) {}
     void IdentifierNameProbe::visit(const ast::LetStatement&) {}
@@ -155,6 +157,17 @@ namespace noria {
       return std::make_unique<ast::AssignmentStatement>(
           std::make_unique<ast::IdentifierExpression>(lhs.text, lhs.location), std::move(rhs),
           lhs.location);
+    }
+
+    if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::LeftBracket) {
+      auto assignmentLhs = parsePostfix();
+      if (peek().kind == TokenKind::Equal) {
+        advance();
+        auto rhs = parseExpression();
+        expect(TokenKind::Semicolon, "expected ';' after assignment");
+        return std::make_unique<ast::AssignmentStatement>(std::move(assignmentLhs), std::move(rhs),
+                                                         lhs.location);
+      }
     }
 
     if (peek().kind == TokenKind::If) {
@@ -465,6 +478,22 @@ namespace noria {
       return std::make_unique<ast::StringLiteral>(token.text, token.location);
     }
 
+    if (peek().kind == TokenKind::LeftBracket) {
+      const SourceLocation location = advance().location;
+      std::vector<std::unique_ptr<ast::Expression>> elements;
+
+      if (peek().kind != TokenKind::RightBracket) {
+        while (true) {
+          elements.push_back(parseExpression());
+          if (!match(TokenKind::Comma))
+            break;
+        }
+      }
+
+      expect(TokenKind::RightBracket, "expected ']' after array literal elements");
+      return std::make_unique<ast::ArrayLiteral>(std::move(elements), location);
+    }
+
     if (peek().kind == TokenKind::Integer) {
       const Token& integer = advance();
 
@@ -531,6 +560,13 @@ namespace noria {
   }
 
   Type Parser::parseTypeAnnotation(std::string_view message) {
+    if (peek().kind == TokenKind::LeftBracket) {
+      advance();
+      Type elementType = parseTypeAnnotation("expected array element type");
+      expect(TokenKind::RightBracket, "expected ']' after array element type");
+      return Type::array(std::move(elementType));
+    }
+
     const Token& token = expect(TokenKind::Identifier, message);
 
     if (token.text == "i32")

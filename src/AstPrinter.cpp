@@ -133,6 +133,15 @@ namespace noria {
         }
       }
 
+      void visit(const ast::ArrayLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "Array\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        for (const auto& element : node.elements) {
+          element->accept(child);
+        }
+      }
+
       void visit(const ast::IndexExpression& node) override {
         printIndent(out_, indent_);
         out_ << "Index\n";

@@ -40,6 +40,25 @@ namespace noria {
       }
       return escaped;
     }
+
+    std::size_t elementSizeInBytes(const Type& type) {
+      switch (type.kind) {
+      case TypeKind::I32:
+        return 4;
+      case TypeKind::F64:
+        return 8;
+      case TypeKind::Bool:
+        return 1;
+      case TypeKind::Str:
+      case TypeKind::Array:
+      case TypeKind::Struct:
+        return 8;
+      case TypeKind::Void:
+        break;
+      }
+
+      throw CompileError("codegen: unsupported array element type");
+    }
   } // namespace
 
   // main flow
@@ -278,6 +297,9 @@ namespace noria {
   void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CallExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::ArrayLiteral&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
   void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IndexExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
@@ -383,6 +405,10 @@ namespace noria {
     result_ = Value{result, function->second.returnType};
   }
 
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+    result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_);
+  }
+
   void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
     result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
   }
@@ -419,6 +445,7 @@ namespace noria {
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CastExpression&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IdentifierExpression&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CallExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ArrayLiteral&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IndexExpression&) {}
 
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ReturnStatement&) {}
@@ -458,6 +485,9 @@ namespace noria {
     throw CompileError("codegen: invalid assignment target");
   }
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression&) {
@@ -514,11 +544,59 @@ namespace noria {
   }
 
   LlvmIrTextGenerator::Value
+  LlvmIrTextGenerator::generateArrayLiteral(const ast::ArrayLiteral& literal, IrEmitter& emitter,
+                                            CodegenContext& context,
+                                            const std::vector<Scope>& scopes) const {
+    std::vector<Value> elements;
+    elements.reserve(literal.elements.size());
+
+    for (const auto& element : literal.elements) {
+      elements.push_back(generateRvalue(*element, emitter, context, scopes));
+    }
+
+    const Type elementType = elements.front().type;
+    const Type arrayType = Type::array(elementType);
+    const std::size_t count = elements.size();
+    const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);
+
+    const std::string base = emitter.freshTemp();
+    emitter.line(base + " = call ptr @malloc(i64 " + std::to_string(totalBytes) + ")");
+    emitter.line("store i64 " + std::to_string(count) + ", ptr " + base);
+
+    const std::string elems = emitter.freshTemp();
+    emitter.line(elems + " = getelementptr inbounds i8, ptr " + base + ", i64 8");
+
+    for (std::size_t index{}; index < count; ++index) {
+      const std::string slot = emitter.freshTemp();
+      emitter.line(slot + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " + elems +
+                   ", i32 " + std::to_string(index));
+      emitter.line("store " + llvmType(elementType) + " " + elements[index].text + ", ptr " + slot);
+    }
+
+    return Value{base, arrayType};
+  }
+
+  LlvmIrTextGenerator::Value
   LlvmIrTextGenerator::generateIndexExpression(const ast::IndexExpression& index,
                                                IrEmitter& emitter, CodegenContext& context,
                                                const std::vector<Scope>& scopes) const {
     const Value base = generateRvalue(*index.base, emitter, context, scopes);
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
+
+    if (base.type.kind == TypeKind::Array) {
+      if (!base.type.element)
+        throw CompileError("codegen: array type missing element type");
+
+      const Type elementType = *base.type.element;
+      const std::string elems = emitter.freshTemp();
+      emitter.line(elems + " = getelementptr inbounds i8, ptr " + base.text + ", i64 8");
+      const std::string pointer = emitter.freshTemp();
+      emitter.line(pointer + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " +
+                   elems + ", i32 " + indexValue.text);
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = load " + llvmType(elementType) + ", ptr " + pointer);
+      return Value{result, elementType};
+    }
 
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = getelementptr inbounds i8, ptr " + base.text + ", i32 " +
@@ -624,8 +702,16 @@ namespace noria {
 
     case BuiltinId::Len: {
       const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      if (argument.type == Type::str()) {
+        const std::string length = emitter.freshTemp();
+        emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
+        const std::string result = emitter.freshTemp();
+        emitter.line(result + " = trunc i64 " + length + " to i32");
+        return Value{result, Type::i32()};
+      }
+
       const std::string length = emitter.freshTemp();
-      emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
+      emitter.line(length + " = load i64, ptr " + argument.text);
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = trunc i64 " + length + " to i32");
       return Value{result, Type::i32()};

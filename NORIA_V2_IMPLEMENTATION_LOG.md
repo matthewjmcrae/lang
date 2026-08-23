@@ -353,3 +353,35 @@ Heap-allocated result; no ownership/lifetime model yet. Unconditional runtime de
 ### Next unit
 
 Phase 4 — arrays.
+
+## Phase 4 — Arrays read-only ([T], literal, len, index read)
+
+Baseline commit `5f32852`.
+
+### Objective and acceptance
+
+Add read-only arrays: `[T]` type syntax, array literals, `len([T])`, and index read `a[i]`; heap layout `i64` count plus elements at +8; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+AST: `ArrayLiteral`. Parser: `[T]` via `parseType`; postfix index on array bases. TypeChecker: `len([T])` special-case; `IndexExpression` for array bases. Codegen: heap count+elements layout. Promoted `arrays_sum` (exit 18). New `examples/basic/array_*` and `examples/invalid/array_*`; updated `visitor_smoke_test`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Read-only first: literals allocate count+elements on the heap; `len` and index read follow string-index patterns. Parser deviation: `identifier[…] =` parses so indexed assign fails at typecheck as invalid assignment target, not a parse error.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST identical. `just test`; `just sanitize`; ASan/UBSan on array IR clean.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking README arrays limitation; fixed before commit.
+
+### Limitations and risks
+
+No indexed assignment or bounds checks. Heap-allocated literals; no ownership model.
+
+### Next unit
+
+Phase 4 indexed place assignment `a[i] = …`.

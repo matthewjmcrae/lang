@@ -30,6 +30,7 @@ They cover:
 - Lexical scoping and shadowing
 - Direct native executable generation
 - Optimized LLVM IR / native builds through `-O1`, `-O2`, or `-O3`
+- Arrays: `[T]` types, literals, `len`, and index read
 
 Good starter examples:
 

@@ -234,11 +234,11 @@ grep -q "typecheck: expression statement must be a function call" \
   "${TEST_OUT_DIR}/bare_expression_statement.stderr"
 
 echo "[noria-tests] phase 3 string length diagnostics"
-grep -q "typecheck: len expects str, got i32" \
+grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/len_wrong_type.stderr"
 
 echo "[noria-tests] phase 3 string index diagnostics"
-grep -q "typecheck: index requires str base, got i32" \
+grep -q "typecheck: index requires str or array base, got i32" \
   "${TEST_OUT_DIR}/index_non_str_base.stderr"
 grep -q "typecheck: index requires i32 index, got bool" \
   "${TEST_OUT_DIR}/index_non_i32.stderr"
@@ -366,11 +366,38 @@ echo "[noria-tests] phase 3 string output acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_output.noria" \
   "${ROOT_DIR}/examples/basic/string_output.expected"
 
+echo "[noria-tests] phase 4 array acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/arrays_sum.noria" 18
+run_native_stdout_test "${ROOT_DIR}/examples/basic/array_length.noria" \
+  "${ROOT_DIR}/examples/basic/array_length.expected"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/array_index_read.noria" \
+  "${ROOT_DIR}/examples/basic/array_index_read.expected"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/array_str_elements.noria" \
+  "${ROOT_DIR}/examples/basic/array_str_elements.expected"
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_reassign.noria" 3
+grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
+grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
+grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
+
 echo "[noria-tests] phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
   "${TEST_OUT_DIR}/concat_str_i32.stderr"
 grep -q "typecheck: string concatenation requires str operands, got i32 and str" \
   "${TEST_OUT_DIR}/concat_i32_str.stderr"
+
+echo "[noria-tests] phase 4 array diagnostics"
+grep -q "typecheck: array literal element 2 has type bool, expected i32" \
+  "${TEST_OUT_DIR}/array_literal_mixed_types.stderr"
+grep -q "typecheck: cannot infer element type of empty array literal" \
+  "${TEST_OUT_DIR}/array_literal_empty.stderr"
+grep -Fq "typecheck: cannot initialize 'a' of type [i32] with [f64]" \
+  "${TEST_OUT_DIR}/array_element_type_mismatch.stderr"
+grep -q "typecheck: index requires str or array base, got i32" \
+  "${TEST_OUT_DIR}/array_index_non_array_base.stderr"
+grep -q "typecheck: invalid assignment target" \
+  "${TEST_OUT_DIR}/array_indexed_assignment.stderr"
+grep -q "typecheck: len expects str or array, got i32" \
+  "${TEST_OUT_DIR}/array_len_of_element.stderr"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

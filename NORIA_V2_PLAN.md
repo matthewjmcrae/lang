@@ -15,10 +15,10 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 | 2 — floats-io-cast | **Done** | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world |
 | 2.5 — architecture refactor | **Done** | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place |
 | 3 — strings | **Done** | `len`, `s[i]`, `str + str`, escapes; `print(str)` |
-| 4 — arrays | **Next** | Array types, literals, indexing, `len`; indexed places |
+| 4 — arrays | **Partial** | Read path done (`[T]`, literals, `len`, index read); indexed write pending |
 | 5–9 | **Not started** | Blocked on 4 |
 
-**Regression gate:** `just test` (74 `examples/basic`, 39 `examples/invalid`, 6 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (79 `examples/basic`, 45 `examples/invalid`, 6 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
 **Documentation:** README/SYNTAX updated through Phase 3; keep updating after each feature phase.
 

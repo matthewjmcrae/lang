@@ -134,6 +134,15 @@ namespace noria::ast {
     std::vector<std::unique_ptr<Expression>> arguments;
   };
 
+  struct ArrayLiteral final : Expression {
+    ArrayLiteral(std::vector<std::unique_ptr<Expression>> elements, SourceLocation location)
+        : Expression(location), elements(std::move(elements)) {}
+
+    void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
+
+    std::vector<std::unique_ptr<Expression>> elements;
+  };
+
   struct IndexExpression final : Expression {
     IndexExpression(std::unique_ptr<Expression> base, std::unique_ptr<Expression> index,
                     SourceLocation location)

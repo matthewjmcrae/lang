@@ -147,6 +147,9 @@ namespace noria {
   void TypeChecker::StatementVisitor::visit(const ast::CallExpression&) {
     unsupportedExpressionInStatementVisitor();
   }
+  void TypeChecker::StatementVisitor::visit(const ast::ArrayLiteral&) {
+    unsupportedExpressionInStatementVisitor();
+  }
   void TypeChecker::StatementVisitor::visit(const ast::IndexExpression&) {
     unsupportedExpressionInStatementVisitor();
   }
@@ -340,20 +343,57 @@ namespace noria {
     result_ = function->second.returnType;
   }
 
+  void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+    if (literal.elements.empty()) {
+      throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                          "cannot infer element type of empty array literal"));
+    }
+
+    const Type elementType = checker_.checkRvalue(*literal.elements[0]);
+    for (std::size_t index = 1; index < literal.elements.size(); ++index) {
+      const Type actual = checker_.checkRvalue(*literal.elements[index]);
+      if (actual != elementType) {
+        std::ostringstream out;
+        out << "array literal element " << (index + 1) << " has type " << actual.name()
+            << ", expected " << elementType.name();
+        throw CompileError(formatDiagnostic(literal.elements[index]->location,
+                                            DiagnosticStage::TypeCheck, out.str()));
+      }
+    }
+
+    result_ = Type::array(elementType);
+  }
+
   void TypeChecker::ExpressionVisitor::visit(const ast::IndexExpression& index) {
     const Type baseType = checker_.checkRvalue(*index.base);
     const Type indexType = checker_.checkRvalue(*index.index);
 
-    if (baseType != Type::str()) {
-      throw CompileError(formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
-                                          "index requires str base, got " + baseType.name()));
-    }
-    if (indexType != Type::i32()) {
-      throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
-                                          "index requires i32 index, got " + indexType.name()));
+    if (baseType.kind == TypeKind::Array) {
+      if (!baseType.element) {
+        throw CompileError(
+            formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
+                             "index requires str or array base, got " + baseType.name()));
+      }
+      if (indexType != Type::i32()) {
+        throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
+                                            "index requires i32 index, got " + indexType.name()));
+      }
+      result_ = *baseType.element;
+      return;
     }
 
-    result_ = Type::i32();
+    if (baseType == Type::str()) {
+      if (indexType != Type::i32()) {
+        throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
+                                            "index requires i32 index, got " + indexType.name()));
+      }
+      result_ = Type::i32();
+      return;
+    }
+
+    throw CompileError(
+        formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
+                         "index requires str or array base, got " + baseType.name()));
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ReturnStatement&) {
@@ -387,6 +427,7 @@ namespace noria {
   void TypeChecker::CallExpressionProbe::visit(const ast::CastExpression&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::BinaryExpression&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::IdentifierExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::ArrayLiteral&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::IndexExpression&) {}
 
   void TypeChecker::CallExpressionProbe::visit(const ast::ReturnStatement&) {}
@@ -433,6 +474,9 @@ namespace noria {
   void TypeChecker::PlaceVisitor::visit(const ast::CallExpression& node) {
     invalidAssignmentTarget(node.location);
   }
+  void TypeChecker::PlaceVisitor::visit(const ast::ArrayLiteral& node) {
+    invalidAssignmentTarget(node.location);
+  }
   void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& node) {
     invalidAssignmentTarget(node.location);
   }
@@ -466,6 +510,15 @@ namespace noria {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
         type == Type::str())
       return;
+
+    if (type.kind == TypeKind::Array) {
+      if (!type.element) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "unknown type '" + type.name() + "'"));
+      }
+      requireKnownType(*type.element, location);
+      return;
+    }
 
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                         "unknown type '" + type.name() + "'"));
@@ -526,6 +579,15 @@ namespace noria {
     if (!builtinArityMatches(descriptor, call.arguments.size())) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           formatBuiltinArityError(descriptor)));
+    }
+
+    if (descriptor.id == BuiltinId::Len) {
+      const Type actual = checkRvalue(*call.arguments[0]);
+      if (actual == Type::str() || actual.kind == TypeKind::Array)
+        return Type::i32();
+
+      throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
+                                          "len expects str or array, got " + actual.name()));
     }
 
     if (descriptor.style == MismatchStyle::AllArguments) {

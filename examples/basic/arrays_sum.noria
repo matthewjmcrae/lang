@@ -1,5 +1,3 @@
-// Future example: arrays, indexing, and len() are not part of the current MVP.
-
 fn sum(values: [i32], count: i32) -> i32 {
   let total: i32 = 0;
   let index: i32 = 0;
