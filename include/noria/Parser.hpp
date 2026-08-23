@@ -25,6 +25,7 @@ namespace noria {
     std::vector<ast::Parameter> parseFunctionParameters();
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();
+    std::unique_ptr<ast::Statement> tryParseAssignmentStatement();
     std::unique_ptr<ast::Expression> parseExpression();
     std::unique_ptr<ast::Expression> parseLogicalOr();
     std::unique_ptr<ast::Expression> parseLogicalAnd();

@@ -512,6 +512,42 @@ namespace noria {
           formatDiagnostic(location, DiagnosticStage::TypeCheck, "invalid assignment target"));
     }
 
+    bool isFieldAssignmentPlaceBase(const ast::Expression& expression) {
+      if (dynamic_cast<const ast::IdentifierExpression*>(&expression) != nullptr) {
+        return true;
+      }
+
+      if (const auto* index = dynamic_cast<const ast::IndexExpression*>(&expression)) {
+        const ast::Expression* root = index->base.get();
+        while (const auto* nested = dynamic_cast<const ast::IndexExpression*>(root)) {
+          root = nested->base.get();
+        }
+        return dynamic_cast<const ast::IdentifierExpression*>(root) != nullptr;
+      }
+
+      if (const auto* fieldAccess = dynamic_cast<const ast::FieldAccessExpression*>(&expression)) {
+        return isFieldAssignmentPlaceBase(*fieldAccess->base);
+      }
+
+      return false;
+    }
+
+    std::string fieldAssignmentRootName(const ast::Expression& expression) {
+      const ast::Expression* current = &expression;
+      while (const auto* index = dynamic_cast<const ast::IndexExpression*>(current)) {
+        current = index->base.get();
+      }
+      while (const auto* fieldAccess = dynamic_cast<const ast::FieldAccessExpression*>(current)) {
+        current = fieldAccess->base.get();
+      }
+
+      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(current)) {
+        return identifier->name;
+      }
+
+      throw CompileError("typecheck: internal error: missing field assignment root identifier");
+    }
+
   } // namespace
 
   TypeChecker::PlaceVisitor::PlaceVisitor(TypeChecker& checker) : checker_(checker) {}
@@ -588,9 +624,28 @@ namespace noria {
                          "index requires str or array base, got " + baseType.name()));
   }
 
-  void TypeChecker::PlaceVisitor::visit(const ast::FieldAccessExpression& node) {
-    throw CompileError(formatDiagnostic(node.location, DiagnosticStage::TypeCheck,
-                                        "field assignment is not supported yet"));
+  void TypeChecker::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
+    const Type baseType = checker_.checkRvalue(*access.base);
+    if (baseType.kind != TypeKind::Struct) {
+      throw CompileError(
+          formatDiagnostic(access.base->location, DiagnosticStage::TypeCheck,
+                           "field access requires struct base, got " + baseType.name()));
+    }
+
+    const StructInfo& structInfo = checker_.lookupStruct(baseType.structName, access.location);
+    const auto field = structInfo.fieldIndex.find(access.fieldName);
+    if (field == structInfo.fieldIndex.end()) {
+      throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
+                                          "struct '" + baseType.structName + "' has no field '" +
+                                              access.fieldName + "'"));
+    }
+
+    if (!isFieldAssignmentPlaceBase(*access.base)) {
+      invalidAssignmentTarget(access.location);
+    }
+
+    name_ = fieldAssignmentRootName(*access.base) + "." + access.fieldName;
+    type_ = structInfo.fields[field->second].type;
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {

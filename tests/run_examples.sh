@@ -269,6 +269,10 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       expect_compile_failure_contains "${source}" \
         "3:16: expected ']' after index expression"
       ;;
+    field_access_statement.noria)
+      expect_compile_failure_contains "${source}" \
+        "8:3: expected statement"
+      ;;
   esac
 done
 
@@ -412,11 +416,18 @@ grep -q "typecheck: len expects str or array, got i32" \
 echo "[noria-tests] phase 5 struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_point.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_copy.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign.noria" 34
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign_nested.noria" 5
+run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_assign_str.noria" \
+  "${ROOT_DIR}/examples/basic/struct_field_assign_str.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_order.noria" \
   "${ROOT_DIR}/examples/basic/struct_field_order.expected"
 grep -q "%Point = type { i32, i32 }" "${TEST_OUT_DIR}/struct_point.ll"
 grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
   "${TEST_OUT_DIR}/struct_field_order.ll"
+grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
+  "${TEST_OUT_DIR}/struct_field_assign.ll"
+grep -q "store i32 [^,]*, ptr %t[0-9]*" "${TEST_OUT_DIR}/struct_field_assign.ll"
 grep -q "alloca %Point" "${TEST_OUT_DIR}/struct_point.ll"
 
 echo "[noria-tests] emit ast examples/basic/struct_point.noria"
@@ -435,6 +446,14 @@ grep -q "typecheck: field 'x' of 'Point' expects i32, got bool" \
   "${TEST_OUT_DIR}/struct_field_type_mismatch.stderr"
 grep -q "typecheck: field access requires struct base, got i32" \
   "${TEST_OUT_DIR}/struct_field_on_non_struct.stderr"
+grep -q "typecheck: struct 'Point' has no field 'z'" \
+  "${TEST_OUT_DIR}/struct_field_assign_unknown_field.stderr"
+grep -q "typecheck: field access requires struct base, got i32" \
+  "${TEST_OUT_DIR}/struct_field_assign_non_struct.stderr"
+grep -q "typecheck: cannot assign bool to variable 'p.x' of type i32" \
+  "${TEST_OUT_DIR}/struct_field_assign_type_mismatch.stderr"
+grep -q "typecheck: invalid assignment target" \
+  "${TEST_OUT_DIR}/struct_field_assign_temporary.stderr"
 grep -q "typecheck: unknown type 'Nope'" \
   "${TEST_OUT_DIR}/struct_unknown_type.stderr"
 grep -q "typecheck: duplicate struct 'Point'" \

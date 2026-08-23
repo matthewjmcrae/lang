@@ -449,3 +449,35 @@ Locals only — no struct params/returns, field assignment, or heap structs. No 
 ### Next unit
 
 Phase 5 field lvalue `p.x = v`.
+
+## Phase 5 — Field lvalue p.x = v
+
+Baseline commit `a16f327`.
+
+### Objective and acceptance
+
+Enable struct field place assignment `p.x = v`; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Parser: `tryParseAssignmentStatement` backtracks postfix LHS so `p.x = v` parses as assignment. TypeChecker: `PlaceVisitor` accepts `FieldAccessExpression`. Codegen: `generatePlace` emits field GEP via `emitStructFieldPointer` (no load), then stores RHS. Examples: `struct_field_assign`, `struct_field_assign_nested`, `struct_field_assign_str`; negatives for non-struct, temporary, type mismatch, unknown field; `field_access_statement` invalid_syntax. Updated `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Field access on a placeable base is an lvalue; field GEP reuses `emitStructFieldPointer` without load, symmetric to indexed array assignment.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: IR greps loose; README counts (fixed); alternating `a[i].inner.x` root extraction gap.
+
+### Limitations and risks
+
+No struct params/returns yet. Chained/alternating array+field place roots not fully covered.
+
+### Next unit
+
+Phase 5 struct params/returns + promote full `struct_point`.

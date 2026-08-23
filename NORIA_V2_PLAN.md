@@ -16,10 +16,10 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 | 2.5 — architecture refactor | **Done** | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place |
 | 3 — strings | **Done** | `len`, `s[i]`, `str + str`, escapes; `print(str)` |
 | 4 — arrays | **Done** | `[T]`, literals, `len`, index read/write places |
-| 5 — structs | **Partial** | Decl, construction, field rvalue (locals); field lvalue + params pending |
+| 5 — structs | **Partial** | Decl, construction, field r/w (locals); params/returns pending |
 | 6–9 | **Not started** | Blocked on 5 |
 
-**Regression gate:** `just test` (83 `examples/basic`, 54 `examples/invalid`, 6 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (86 `examples/basic`, 58 `examples/invalid`, 7 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
 **Documentation:** README/SYNTAX updated through Phase 4; keep updating after each feature phase.
 

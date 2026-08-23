@@ -44,7 +44,7 @@ The compiler expects an executable program to contain:
 fn main() -> i32
 ```
 
-Struct types are declared by name and referenced in annotations (for example, `Point`). Struct-typed parameters, returns, and field assignment are not yet supported.
+Struct types are declared by name and referenced in annotations (for example, `Point`). Struct-typed parameters and returns are not yet supported.
 
 ## Functions
 
@@ -440,7 +440,12 @@ Read a field as an rvalue with postfix `.ident`:
 origin.x + origin.y
 ```
 
-Struct values are first-class aggregates stored in local slots. Copying a struct (`let b: Point = a;`) copies the aggregate value. Field assignment (`p.x = v`) is not supported yet.
+Struct values are first-class aggregates stored in local slots. Copying a struct (`let b: Point = a;`) copies the aggregate value. Mutate a field through a local with postfix assignment:
+
+```noria
+p.x = 10;
+p.y = p.y + 1;
+```
 
 Example:
 
@@ -452,6 +457,7 @@ struct Point {
 
 fn main() -> i32 {
   let origin: Point = Point { x: 3, y: 4 };
+  origin.x = 10;
   return origin.x + origin.y;
 }
 ```
@@ -600,7 +606,6 @@ fn main() -> i32 {
 Noria does not currently support:
 
 - struct-typed parameters or returns
-- field assignment (`p.x = v`)
 - imports or modules
 - generics
 - container stdlib

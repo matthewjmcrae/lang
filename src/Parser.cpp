@@ -189,26 +189,8 @@ namespace noria {
                                                  std::move(initializer), letToken.location);
     }
 
-    const Token& lhs = peek();
-    if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Equal) {
-      advance();
-      expect(TokenKind::Equal, "expected '=' before variable assignment");
-      auto rhs = parseExpression();
-      expect(TokenKind::Semicolon, "expected ';' after assignment");
-      return std::make_unique<ast::AssignmentStatement>(
-          std::make_unique<ast::IdentifierExpression>(lhs.text, lhs.location), std::move(rhs),
-          lhs.location);
-    }
-
-    if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::LeftBracket) {
-      auto assignmentLhs = parsePostfix();
-      if (peek().kind == TokenKind::Equal) {
-        advance();
-        auto rhs = parseExpression();
-        expect(TokenKind::Semicolon, "expected ';' after assignment");
-        return std::make_unique<ast::AssignmentStatement>(std::move(assignmentLhs), std::move(rhs),
-                                                          lhs.location);
-      }
+    if (auto assignment = tryParseAssignmentStatement()) {
+      return assignment;
     }
 
     if (peek().kind == TokenKind::If) {
@@ -256,6 +238,32 @@ namespace noria {
     }
 
     throw CompileError(formatDiagnostic(peek().location, "expected statement"));
+  }
+
+  std::unique_ptr<ast::Statement> Parser::tryParseAssignmentStatement() {
+    if (peek().kind != TokenKind::Identifier) {
+      return nullptr;
+    }
+
+    const TokenKind nextKind = peek(1).kind;
+    if (nextKind != TokenKind::Equal && nextKind != TokenKind::LeftBracket &&
+        nextKind != TokenKind::Dot && nextKind != TokenKind::LeftParen) {
+      return nullptr;
+    }
+
+    const Token& start = peek();
+    const std::size_t savedIndex = index_;
+    auto lhs = parsePostfix();
+    if (peek().kind == TokenKind::Equal) {
+      advance();
+      auto rhs = parseExpression();
+      expect(TokenKind::Semicolon, "expected ';' after assignment");
+      return std::make_unique<ast::AssignmentStatement>(std::move(lhs), std::move(rhs),
+                                                        start.location);
+    }
+
+    index_ = savedIndex;
+    return nullptr;
   }
 
   // parseLogicalOr -> parseLogicalAnd -> parseEquality -> parseComparison ->

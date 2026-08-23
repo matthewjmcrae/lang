@@ -531,8 +531,22 @@ namespace noria {
     result_ = LocalBinding{pointer, elementType};
   }
 
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression&) {
-    throw CompileError("codegen: invalid assignment target");
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
+    const LocalBinding base = generator_.generatePlace(*access.base, emitter_, context_, scopes_);
+    if (base.type.kind != TypeKind::Struct) {
+      throw CompileError("codegen: field access requires struct base");
+    }
+
+    const StructLayout& layout = generator_.lookupStructLayout(context_, base.type);
+    const auto field = layout.fieldIndex.find(access.fieldName);
+    if (field == layout.fieldIndex.end()) {
+      throw CompileError("codegen: struct '" + base.type.structName + "' has no field '" +
+                         access.fieldName + "'");
+    }
+
+    result_ = LocalBinding{
+        generator_.emitStructFieldPointer(base.type, base.slot, field->second, emitter_),
+        layout.fieldTypes[field->second]};
   }
 
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
