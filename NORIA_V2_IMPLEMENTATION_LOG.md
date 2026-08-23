@@ -225,3 +225,35 @@ Callee remains a string, not an expression; chained/index/field places deferred.
 ### Next unit
 
 Phase 2.5, checkpoint 8 — closeout (README.md and SYNTAX.md for Phases 0–2, stale limitations removed, plan checkbox).
+
+## Phase 2.5, checkpoint 8 — Closeout
+
+Baseline commit `db80a0d`.
+
+### Objective and acceptance
+
+Close Phase 2.5 by aligning user-facing docs with implemented Phases 0–2 behavior; remove stale limitations; tick the Phase 2.5 plan checkbox. No compiler changes.
+
+### Files and behavior changed
+
+`README.md` and `SYNTAX.md` updated: `f64`/`str` types, operators, `else if`, `as` casts (including identity), strings-as-literals, void-builtin expression statements, and the builtins table. Stale limitations removed; remaining limitations accurate. `print_float` documented as broken (arm64 variadic `printf` ABI missing in codegen), not advertised as working.
+
+### Semantic and architectural decisions
+
+Docs-only closeout: semantics unchanged; documentation reflects current gates and known debt rather than aspirational features.
+
+### Tests, sanitizer, results
+
+`just test` green. No compiler code touched; sanitizer N/A. Orchestrator ticks Phase 2.5 plan checkbox at commit.
+
+### Review findings and resolutions
+
+First review BLOCKED: expression-stmt scope too broad, cast matrix incomplete, README fence issue. All fixed; re-review APPROVED.
+
+### Limitations and risks
+
+`print_float` remains broken pending arm64 variadic ABI fix in codegen. Phase 3 string operations not yet documented as supported.
+
+### Next unit
+
+Phase 3 — strings finish; smallest end-to-end first (recommend `len(str)` or indexing). Track `print_float` ABI fix as known debt.

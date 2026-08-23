@@ -6,27 +6,27 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 
 ## Current status (as of August 2026)
 
-**Branch:** `mmcrae/v2` — Phases 0–2 are implemented; Phase 3 is partial.
+**Branch:** `mmcrae/v2` — Phases 0–2.5 are implemented; Phase 3 is partial.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 0 — type-refactor | **Done** | `Type`/`IrType` kind+payload; `tests/type_representation_test.cpp` |
+| 0 — type-refactor | **Done** | Canonical `Type` in `Types.hpp`; `llvmType` adapter |
 | 1 — operators | **Done** | Unary, logical, bitwise, `%`, `else if`, `as` |
 | 2 — floats-io-cast | **Done** | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world |
-| 2.5 — architecture refactor | **Next** | Behavior-preserving; see below |
-| 3 — strings | **Partial** | Literals + `print(str)` done; index, `len`, concat pending |
-| 4–9 | **Not started** | Blocked on 2.5 + 3 |
+| 2.5 — architecture refactor | **Done** | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place |
+| 3 — strings | **Next** | Literals + `print(str)` done; index, `len`, concat pending |
+| 4–9 | **Not started** | Blocked on 3 |
 
 **Regression gate:** `just test` (69 `examples/basic`, 34 `examples/invalid`, 5 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
-**Documentation debt:** `README.md` and `SYNTAX.md` still describe the old `i32`/`bool` MVP; update incrementally as each phase completes, not only in Phase 9.
+**Documentation:** README/SYNTAX updated through Phase 2.5 closeout; keep updating after each feature phase.
 
 ## Task checklist
 
 - [x] **Phase 0 — type-refactor:** Generalize `Type` (TypeChecker.hpp) and `IrType` (Codegen.hpp) from flat enums to kind+payload representations; keep all existing examples passing.
 - [x] **Phase 1 — operators:** Add unary (`!`, `-`, `~`), logical (`&&`, `||` short-circuit), bitwise (`& | ^ << >>`), modulo (`%`), optional `else` / `else if`, and `as` cast tokens/AST/parse levels.
 - [x] **Phase 2 — floats-io-cast:** Add `f64` end-to-end, expression statements, print builtins (printf/putchar), `as` casts (sitofp/fptosi), and sqrt/pow intrinsics. FizzBuzz + hello world run.
-- [ ] **Phase 2.5 — architecture refactor:** Canonical types, full Visitor, Compiler facade, builtin registry, CodegenContext + IrEmitter, postfix + Place foundation. No new language surface; all examples stay green after each checkpoint.
+- [x] **Phase 2.5 — architecture refactor:** Canonical types, full Visitor, Compiler facade, builtin registry, CodegenContext + IrEmitter, postfix + Place foundation. No new language surface; all examples stay green after each checkpoint.
 - [ ] **Phase 3 — strings (finish):** Indexing, `len`, concat on top of Phase 2.5 infrastructure.
 - [ ] **Phase 4 — arrays:** Array types, literals, indexing, `len`; indexed places via Phase 2.5 Place path.
 - [ ] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
@@ -93,7 +93,7 @@ Generalized the two flat enums so later phases add cases instead of reshaping ev
 - Print builtins, `as` casts, `sqrt`/`pow` intrinsics.
 - Acceptance: `hello_world.noria`, `fizzbuzz.noria` (stdout goldens); `float_math`, `cast_*`, `math_builtins`.
 
-## Phase 2.5 - Architecture refactor (pre-strings gate)
+## Phase 2.5 - Architecture refactor (pre-strings gate) — DONE
 
 **Goal:** Behavior-preserving structural cleanup before finishing strings, arrays, and structs. No new language surface area. Split into independently green checkpoints; run `just test` after each.
 

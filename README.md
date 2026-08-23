@@ -2,11 +2,20 @@
 
 Noria is a small statically typed language and C++ compiler project created by Matthew McRae. The goal is a compact, defensible compiler MVP that demonstrates the core pieces of a real language implementation without overbuilding.
 
-Noria is actively in development with features next in development in the examples/future directory
+Noria is actively in development. The `examples/future/` directory holds design sketches for upcoming work; some entries are superseded stubs that point at passing programs in `examples/basic/`.
 
 ## Current Status
 
-The compiler currently supports `i32` and `bool` values, local variables, assignment, arithmetic, comparisons, `if` / `else`, `while` loops, functions, recursion, lexical scoping, static type checking, LLVM IR generation, LLVM optimization, and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`); expression statements that call void builtins; functions; recursion; lexical scoping; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+
+```noria
+fn main() -> i32 {
+  print("Hello, world!");
+  return 0;
+}
+```
+
+Recursion example:
 
 ```noria
 fn factorial(n: i32) -> i32 {
@@ -186,11 +195,13 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic`.
+Passing examples live in `examples/basic` (69 programs).
 
-Negative type-checking examples live in `examples/invalid`.
+Negative type-checking examples live in `examples/invalid` (34 programs).
 
-Lexer/debug smoke inputs and older syntax sketches live in `examples/future`.
+Lexer and parser failure examples live in `examples/invalid_syntax` (5 programs).
+
+Design sketches and superseded stubs live in `examples/future`.
 
 ## Architecture
 
@@ -209,7 +220,23 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 ## Limitations
 
-Noria is an intentionally small MVP language. It does not yet support strings, arrays, structs, modules/imports, floating-point numbers, unary operators, logical operators, or a standard library.
+Noria is an intentionally small MVP language. It does not yet support:
+
+- string indexing, length, or concatenation
+- arrays
+- structs or classes
+- imports or modules
+- generics
+- container stdlib
+- `break` or `continue`
+- `for` loops
+- type inference
+- global variables
+- implicit conversions between types
+- float exponent literals (for example, `1e3` does not parse)
+- additional integer types (`i64`, unsigned, or character types)
+
+Known issue: `print_float` is registered but prints incorrect values on arm64 due to a variadic `printf` calling-convention mismatch in codegen; use `print` with string literals for output until that is fixed.
 
 ## Future Work
 
