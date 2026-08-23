@@ -133,6 +133,14 @@ namespace noria {
         }
       }
 
+      void visit(const ast::IndexExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Index\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.base->accept(child);
+        node.index->accept(child);
+      }
+
     private:
       std::ostream& out_;
       int indent_;

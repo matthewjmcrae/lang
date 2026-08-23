@@ -25,6 +25,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -45,6 +46,7 @@ namespace noria {
     void IdentifierNameProbe::visit(const ast::CastExpression&) {}
     void IdentifierNameProbe::visit(const ast::BinaryExpression&) {}
     void IdentifierNameProbe::visit(const ast::CallExpression&) {}
+    void IdentifierNameProbe::visit(const ast::IndexExpression&) {}
     void IdentifierNameProbe::visit(const ast::ReturnStatement&) {}
     void IdentifierNameProbe::visit(const ast::LetStatement&) {}
     void IdentifierNameProbe::visit(const ast::IfStatement&) {}
@@ -407,6 +409,15 @@ namespace noria {
         expression = std::make_unique<ast::CallExpression>(*probe.name(), std::move(arguments),
                                                            expression->location);
         calledOnce = true;
+        continue;
+      }
+
+      if (peek().kind == TokenKind::LeftBracket) {
+        const SourceLocation location = advance().location;
+        auto index = parseExpression();
+        expect(TokenKind::RightBracket, "expected ']' after index expression");
+        expression = std::make_unique<ast::IndexExpression>(std::move(expression), std::move(index),
+                                                            location);
         continue;
       }
 

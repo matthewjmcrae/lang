@@ -289,3 +289,35 @@ Only `str` accepted; no generic `len` for arrays yet. Unconditional `strlen` in 
 ### Next unit
 
 Phase 3 indexing `s[i]` (`IndexExpression` + `[` `]` tokens) or escape-sequence stdout example; string concat deferred.
+
+## Phase 3 — String indexing s[i]
+
+Baseline commit `3607698`.
+
+### Objective and acceptance
+
+Add `s[i]` via `IndexExpression` and `[`/`]` tokens; postfix index on any postfix base; typecheck `str`/`i32`→`i32`; codegen `getelementptr inbounds i8`, `load i8`, `zext`; reject index places; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Lexer: `LeftBracket`/`RightBracket`. AST: `IndexExpression`; all `AstVisitor` impls updated. Parser: `parsePostfix` index. TypeChecker/Codegen: place visitors reject; GEP+load+zext. Examples: `string_index` (+expected), `index_non_str_base`, `index_non_i32`, `unclosed_index`. Updated `visitor_smoke_test`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Postfix indexing on any postfix base; only `str[i32]` accepted, result `i32` (byte). `IndexExpression` not a place until indexed assignment.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking README counts/limitations; fixed before commit.
+
+### Limitations and risks
+
+No indexed assignment — parser retains `Identifier`+`=` lookahead. No bounds checks.
+
+### Next unit
+
+Phase 3 string concat (`str + str`) or escape-sequence stdout example.

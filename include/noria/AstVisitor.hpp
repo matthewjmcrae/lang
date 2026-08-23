@@ -11,6 +11,7 @@ namespace noria::ast {
   struct BinaryExpression;
   struct IdentifierExpression;
   struct CallExpression;
+  struct IndexExpression;
 
   struct ReturnStatement;
   struct LetStatement;
@@ -32,6 +33,7 @@ namespace noria::ast {
     virtual void visit(const BinaryExpression& node) = 0;
     virtual void visit(const IdentifierExpression& node) = 0;
     virtual void visit(const CallExpression& node) = 0;
+    virtual void visit(const IndexExpression& node) = 0;
 
     virtual void visit(const ReturnStatement& node) = 0;
     virtual void visit(const LetStatement& node) = 0;

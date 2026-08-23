@@ -31,6 +31,7 @@ namespace {
     void visit(const noria::ast::BinaryExpression&) override { ++binaryExpression_; }
     void visit(const noria::ast::IdentifierExpression&) override { ++identifierExpression_; }
     void visit(const noria::ast::CallExpression&) override { ++callExpression_; }
+    void visit(const noria::ast::IndexExpression&) override { ++indexExpression_; }
 
     void visit(const noria::ast::ReturnStatement&) override { ++returnStatement_; }
     void visit(const noria::ast::LetStatement&) override { ++letStatement_; }
@@ -49,6 +50,7 @@ namespace {
       expect(binaryExpression_ == 1, "BinaryExpression visited once");
       expect(identifierExpression_ == 1, "IdentifierExpression visited once");
       expect(callExpression_ == 1, "CallExpression visited once");
+      expect(indexExpression_ == 1, "IndexExpression visited once");
       expect(returnStatement_ == 1, "ReturnStatement visited once");
       expect(letStatement_ == 1, "LetStatement visited once");
       expect(ifStatement_ == 1, "IfStatement visited once");
@@ -67,6 +69,7 @@ namespace {
     int binaryExpression_ = 0;
     int identifierExpression_ = 0;
     int callExpression_ = 0;
+    int indexExpression_ = 0;
     int returnStatement_ = 0;
     int letStatement_ = 0;
     int ifStatement_ = 0;
@@ -89,6 +92,7 @@ namespace {
     using noria::ast::Function;
     using noria::ast::IdentifierExpression;
     using noria::ast::IfStatement;
+    using noria::ast::IndexExpression;
     using noria::ast::IntegerLiteral;
     using noria::ast::LetStatement;
     using noria::ast::Module;
@@ -116,6 +120,12 @@ namespace {
     printArguments.push_back(std::make_unique<StringLiteral>("ok", loc));
     function.body.push_back(std::make_unique<ExpressionStatement>(
         std::make_unique<CallExpression>("print", std::move(printArguments), loc), loc));
+
+    function.body.push_back(std::make_unique<ReturnStatement>(
+        std::make_unique<IndexExpression>(
+            std::make_unique<StringLiteral>("ab", loc),
+            std::make_unique<IntegerLiteral>(0, loc), loc),
+        loc));
 
     auto ifCondition =
         std::make_unique<UnaryExpression>(UnaryOperator::Not,
@@ -177,6 +187,7 @@ int main() {
   using noria::ast::FloatLiteral;
   using noria::ast::IdentifierExpression;
   using noria::ast::IfStatement;
+  using noria::ast::IndexExpression;
   using noria::ast::IntegerLiteral;
   using noria::ast::LetStatement;
   using noria::ast::ReturnStatement;
@@ -202,6 +213,8 @@ int main() {
   std::vector<std::unique_ptr<noria::ast::Expression>> callArguments;
   callArguments.push_back(std::make_unique<StringLiteral>("a", loc));
   CallExpression callExpression("f", std::move(callArguments), loc);
+  IndexExpression indexExpression(std::make_unique<StringLiteral>("x", loc),
+                                  std::make_unique<IntegerLiteral>(0, loc), loc);
 
   ReturnStatement returnStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
   LetStatement letStatement("a", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
@@ -224,6 +237,7 @@ int main() {
   castExpression.accept(counter);
   binaryExpression.accept(counter);
   callExpression.accept(counter);
+  indexExpression.accept(counter);
   returnStatement.accept(counter);
   letStatement.accept(counter);
   ifStatement.accept(counter);
@@ -247,6 +261,7 @@ int main() {
   expectLabel(output, "Identifier x", "printAst contains Identifier x");
   expectLabel(output, "ExprStmt", "printAst contains ExprStmt");
   expectLabel(output, "Call print", "printAst contains Call print");
+  expectLabel(output, "Index", "printAst contains Index");
   expectLabel(output, "String \"ok\"", "printAst contains String");
   expectLabel(output, "If", "printAst contains If");
   expectLabel(output, "Condition", "printAst contains Condition");

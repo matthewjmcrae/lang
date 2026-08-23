@@ -378,7 +378,7 @@ fn main() -> i32 {
 }
 ```
 
-Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. String indexing and concatenation are not yet supported.
+Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). String concatenation is not yet supported.
 
 ## Builtins
 
@@ -528,7 +528,7 @@ Noria does not currently support:
 - imports or modules
 - generics
 - container stdlib
-- string indexing or concatenation
+- string concatenation
 - `break` or `continue`
 - `for` loops
 - global variables

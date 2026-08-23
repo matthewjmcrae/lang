@@ -278,6 +278,9 @@ namespace noria {
   void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CallExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
+  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IndexExpression&) {
+    throw CompileError("codegen: internal error: expression visited by statement visitor");
+  }
 
   LlvmIrTextGenerator::ExpressionVisitor::ExpressionVisitor(const LlvmIrTextGenerator& generator,
                                                             IrEmitter& emitter,
@@ -380,6 +383,10 @@ namespace noria {
     result_ = Value{result, function->second.returnType};
   }
 
+  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+    result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
+  }
+
   void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ReturnStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
@@ -412,6 +419,7 @@ namespace noria {
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CastExpression&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IdentifierExpression&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CallExpression&) {}
+  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IndexExpression&) {}
 
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ReturnStatement&) {}
   void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::LetStatement&) {}
@@ -450,6 +458,9 @@ namespace noria {
     throw CompileError("codegen: invalid assignment target");
   }
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
+    throw CompileError("codegen: invalid assignment target");
+  }
+  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
 
@@ -500,6 +511,23 @@ namespace noria {
     emitter.line(result + " = getelementptr inbounds [" + std::to_string(length) + " x i8], ptr " +
                  globalName + ", i32 0, i32 0");
     return Value{result, Type::str()};
+  }
+
+  LlvmIrTextGenerator::Value
+  LlvmIrTextGenerator::generateIndexExpression(const ast::IndexExpression& index,
+                                               IrEmitter& emitter, CodegenContext& context,
+                                               const std::vector<Scope>& scopes) const {
+    const Value base = generateRvalue(*index.base, emitter, context, scopes);
+    const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
+
+    const std::string pointer = emitter.freshTemp();
+    emitter.line(pointer + " = getelementptr inbounds i8, ptr " + base.text + ", i32 " +
+                 indexValue.text);
+    const std::string byte = emitter.freshTemp();
+    emitter.line(byte + " = load i8, ptr " + pointer);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = zext i8 " + byte + " to i32");
+    return Value{result, Type::i32()};
   }
 
   LlvmIrTextGenerator::Value

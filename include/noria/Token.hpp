@@ -17,6 +17,8 @@ namespace noria {
     Arrow,
     LeftParen,
     RightParen,
+    LeftBracket,
+    RightBracket,
     LeftBrace,
     RightBrace,
     Semicolon,
@@ -67,4 +69,3 @@ namespace noria {
   std::string_view tokenKindName(TokenKind kind);
 
 } // namespace noria
-

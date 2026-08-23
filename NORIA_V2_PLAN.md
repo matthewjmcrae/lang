@@ -17,7 +17,7 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 | 3 — strings | **Next** | Literals + `print(str)` done; index, `len`, concat pending |
 | 4–9 | **Not started** | Blocked on 3 |
 
-**Regression gate:** `just test` (70 `examples/basic`, 35 `examples/invalid`, 5 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (71 `examples/basic`, 37 `examples/invalid`, 6 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
 **Documentation:** README/SYNTAX updated through Phase 2.5 closeout; keep updating after each feature phase.
 

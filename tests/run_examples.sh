@@ -237,6 +237,12 @@ echo "[noria-tests] phase 3 string length diagnostics"
 grep -q "typecheck: len expects str, got i32" \
   "${TEST_OUT_DIR}/len_wrong_type.stderr"
 
+echo "[noria-tests] phase 3 string index diagnostics"
+grep -q "typecheck: index requires str base, got i32" \
+  "${TEST_OUT_DIR}/index_non_str_base.stderr"
+grep -q "typecheck: index requires i32 index, got bool" \
+  "${TEST_OUT_DIR}/index_non_i32.stderr"
+
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in
     invalid_token.noria)
@@ -258,6 +264,10 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
     unknown_character.noria)
       expect_compile_failure_contains "${source}" \
         "2:12: lexer: unexpected character '@'"
+      ;;
+    unclosed_index.noria)
+      expect_compile_failure_contains "${source}" \
+        "3:16: expected ']' after index expression"
       ;;
   esac
 done
@@ -334,6 +344,12 @@ echo "[noria-tests] phase 3 string length acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_length.noria" \
   "${ROOT_DIR}/examples/basic/string_length.expected"
 grep -q "call i64 @strlen" "${TEST_OUT_DIR}/string_length.ll"
+
+echo "[noria-tests] phase 3 string index acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/string_index.noria" \
+  "${ROOT_DIR}/examples/basic/string_index.expected"
+grep -q "getelementptr inbounds i8" "${TEST_OUT_DIR}/string_index.ll"
+grep -q "zext i8" "${TEST_OUT_DIR}/string_index.ll"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

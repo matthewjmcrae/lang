@@ -147,6 +147,9 @@ namespace noria {
   void TypeChecker::StatementVisitor::visit(const ast::CallExpression&) {
     unsupportedExpressionInStatementVisitor();
   }
+  void TypeChecker::StatementVisitor::visit(const ast::IndexExpression&) {
+    unsupportedExpressionInStatementVisitor();
+  }
 
   TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker) : checker_(checker) {}
 
@@ -327,6 +330,22 @@ namespace noria {
     result_ = function->second.returnType;
   }
 
+  void TypeChecker::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+    const Type baseType = checker_.checkRvalue(*index.base);
+    const Type indexType = checker_.checkRvalue(*index.index);
+
+    if (baseType != Type::str()) {
+      throw CompileError(formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
+                                          "index requires str base, got " + baseType.name()));
+    }
+    if (indexType != Type::i32()) {
+      throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
+                                          "index requires i32 index, got " + indexType.name()));
+    }
+
+    result_ = Type::i32();
+  }
+
   void TypeChecker::ExpressionVisitor::visit(const ast::ReturnStatement&) {
     unsupportedStatementInExpressionVisitor();
   }
@@ -358,6 +377,7 @@ namespace noria {
   void TypeChecker::CallExpressionProbe::visit(const ast::CastExpression&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::BinaryExpression&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::IdentifierExpression&) {}
+  void TypeChecker::CallExpressionProbe::visit(const ast::IndexExpression&) {}
 
   void TypeChecker::CallExpressionProbe::visit(const ast::ReturnStatement&) {}
   void TypeChecker::CallExpressionProbe::visit(const ast::LetStatement&) {}
@@ -401,6 +421,9 @@ namespace noria {
     invalidAssignmentTarget(node.location);
   }
   void TypeChecker::PlaceVisitor::visit(const ast::CallExpression& node) {
+    invalidAssignmentTarget(node.location);
+  }
+  void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& node) {
     invalidAssignmentTarget(node.location);
   }
 

@@ -44,6 +44,7 @@ namespace noria {
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
     private:
       TypeChecker& checker_;
@@ -66,6 +67,7 @@ namespace noria {
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -98,6 +100,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -124,6 +127,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;

@@ -65,6 +65,7 @@ namespace noria {
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
     private:
       const LlvmIrTextGenerator& generator_;
@@ -91,6 +92,7 @@ namespace noria {
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -123,6 +125,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::BinaryExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -151,6 +154,7 @@ namespace noria {
       void visit(const ast::CastExpression& node) override;
       void visit(const ast::IdentifierExpression& node) override;
       void visit(const ast::CallExpression& node) override;
+      void visit(const ast::IndexExpression& node) override;
 
       void visit(const ast::ReturnStatement& node) override;
       void visit(const ast::LetStatement& node) override;
@@ -183,6 +187,8 @@ namespace noria {
                                 CodegenContext& context) const;
     Value generateCastExpression(const ast::CastExpression& cast, IrEmitter& emitter,
                                  CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value generateIndexExpression(const ast::IndexExpression& index, IrEmitter& emitter,
+                                  CodegenContext& context, const std::vector<Scope>& scopes) const;
     std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call, IrEmitter& emitter,
                                                 CodegenContext& context,
                                                 const std::vector<Scope>& scopes) const;

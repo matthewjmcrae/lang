@@ -58,6 +58,12 @@ namespace noria {
       case ')':
         tokens.push_back(makeToken(TokenKind::RightParen, std::string(1, advance()), start));
         break;
+      case '[':
+        tokens.push_back(makeToken(TokenKind::LeftBracket, std::string(1, advance()), start));
+        break;
+      case ']':
+        tokens.push_back(makeToken(TokenKind::RightBracket, std::string(1, advance()), start));
+        break;
       case '{':
         tokens.push_back(makeToken(TokenKind::LeftBrace, std::string(1, advance()), start));
         break;
@@ -333,6 +339,10 @@ namespace noria {
       return "(";
     case TokenKind::RightParen:
       return ")";
+    case TokenKind::LeftBracket:
+      return "[";
+    case TokenKind::RightBracket:
+      return "]";
     case TokenKind::LeftBrace:
       return "{";
     case TokenKind::RightBrace:
