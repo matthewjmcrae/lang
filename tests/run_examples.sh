@@ -260,6 +260,10 @@ grep -q "typecheck: type 'Point<i32>' is not generic and cannot take type argume
   "${TEST_OUT_DIR}/generic_struct_non_generic_args.stderr"
 grep -q "typecheck: field 'value' of 'Box' expects i32, got bool" \
   "${TEST_OUT_DIR}/generic_struct_field_mismatch.stderr"
+grep -q "typecheck: implementation tag 'arr' cannot be used as a type" \
+  "${TEST_OUT_DIR}/impl_tag_as_type.stderr"
+grep -q "typecheck: type 'Box<i32>' expects 2 type argument(s), got 1" \
+  "${TEST_OUT_DIR}/impl_tag_wrong_arity.stderr"
 
 echo "[noria-tests] phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
@@ -332,6 +336,10 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
     generic_struct_unclosed_type_params.noria)
       expect_compile_failure_contains "${source}" \
         "expected '>' after type parameters"
+      ;;
+    impl_tag_type_param.noria)
+      expect_compile_failure_contains "${source}" \
+        "implementation tag 'arr' cannot be a type parameter"
       ;;
   esac
 done
@@ -559,6 +567,10 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_reuse.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_array_field.noria" 6
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_infer.noria" 42
 grep -c '%Box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria" 3
+grep -c '%Box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
+grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

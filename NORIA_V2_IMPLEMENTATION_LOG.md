@@ -610,3 +610,36 @@ Implementation tags and constraints unsupported. Generic struct literals with ex
 
 Implementation tags (`arr`/`list`/…), or `SourceLocation` file attribution for imported diagnostics.
 
+## Phase 6 — Implementation tags (scaffold)
+
+Baseline commit `006827c`.
+
+### Objective and acceptance
+
+Parse closed implementation tags in generic type-argument lists; represent canonically in `Type`; include in specialization keys/mangling; reject tags as value types; scaffold examples and C++ tests; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`Types.hpp`/`Types.cpp`: `TypeKind::ImplTag`, `ImplementationTag` enum, factories and name helpers. Parser: `parseTypeArgument` recognizes tags in applications; rejects tag names as type parameters. TypeChecker: `allowImplTags` for type-arg validation; rejects standalone tag types; `unifyTypes` for tags. Monomorphize: `tag.<name>` mangling. Codegen: exhaustive-switch guard. Two positive and three negative examples; extended `generics_test.cpp`, `run_examples.sh`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Tags are compile-time only — not runtime types, not LLVM types. Mangling uses `tag.arr` prefix distinct from array `arr.` and struct `st.`. Unknown tag spellings outside the closed set remain ordinary identifier/type errors.
+
+### Tests, sanitizer, results
+
+`just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+Self-reviewed during orchestrator fix-up; no external review round. Warning-clean after removing unused parser variable.
+
+### Limitations and risks
+
+No ADT stdlib bodies, constraints, or tag-selected implementations. Tags recognized in type annotations for rejection diagnostics; struct declarations cannot use tag names as type parameters.
+
+### Next unit
+
+Constraints checking, private stdlib runtime ABI, or `SourceLocation` file attribution for imported diagnostics.
+
+

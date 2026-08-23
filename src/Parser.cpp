@@ -196,6 +196,11 @@ namespace noria {
         throw CompileError(formatDiagnostic(typeParam.location,
                                             "duplicate type parameter '" + typeParam.text + "'"));
       }
+      if (implementationTagFromName(typeParam.text)) {
+        throw CompileError(
+            formatDiagnostic(typeParam.location, "implementation tag '" + typeParam.text +
+                                                     "' cannot be a type parameter"));
+      }
       typeParams.push_back(ast::TypeParameter{typeParam.text, typeParam.location});
 
       if (!match(TokenKind::Comma)) {
@@ -216,7 +221,7 @@ namespace noria {
 
     std::vector<Type> typeArgs;
     while (true) {
-      typeArgs.push_back(parseTypeAnnotation("expected type argument"));
+      typeArgs.push_back(parseTypeArgument("expected type argument"));
       if (!match(TokenKind::Comma)) {
         break;
       }
@@ -806,6 +811,17 @@ namespace noria {
     throw CompileError(formatDiagnostic(peek().location, out.str()));
   }
 
+  Type Parser::parseTypeArgument(std::string_view message) {
+    if (peek().kind == TokenKind::Identifier) {
+      if (const std::optional<ImplementationTag> tag = implementationTagFromName(peek().text)) {
+        advance();
+        return Type::implementationTag(*tag);
+      }
+    }
+
+    return parseTypeAnnotation(message);
+  }
+
   Type Parser::parseTypeAnnotation(std::string_view message) {
     if (peek().kind == TokenKind::LeftBracket) {
       advance();
@@ -828,6 +844,10 @@ namespace noria {
       return Type::boolean();
     if (token.text == "str")
       return Type::str();
+
+    if (const std::optional<ImplementationTag> tag = implementationTagFromName(token.text)) {
+      return Type::implementationTag(*tag);
+    }
 
     if (peek().kind == TokenKind::Less) {
       std::vector<Type> typeArgs = parseTypeArguments();

@@ -54,6 +54,8 @@ namespace noria {
         return 8;
       case TypeKind::Struct:
         throw CompileError("codegen: struct element size is not supported");
+      case TypeKind::ImplTag:
+        throw CompileError("codegen: internal: implementation tag is not a runtime type");
       case TypeKind::TypeParam:
         throw CompileError("internal: unsubstituted type parameter");
       case TypeKind::Void:

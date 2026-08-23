@@ -130,6 +130,8 @@ struct Box<T> {
 
 Use type applications in annotations and struct literals: `Box<i32>`, `Box<i32> { value: 42 }`. When type arguments are omitted from a literal (`Box { value: 42 }`), the compiler infers them from field values. Each concrete application is monomorphized into a specialized struct type such as `Box$s.i32`. Uncalled generic struct templates are not emitted in LLVM IR.
 
+Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time selectors used only inside type-argument lists (for example `Box<i32, arr>`). They are not runtime types and cannot appear as standalone value types. Each tag participates in specialization keys and mangling (`tag.arr`).
+
 ## Variables
 
 Local variables are declared with `let`.

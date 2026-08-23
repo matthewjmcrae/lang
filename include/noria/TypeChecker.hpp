@@ -172,7 +172,8 @@ namespace noria {
     };
 
     void requireKnownType(const Type& type, SourceLocation location,
-                          const std::unordered_set<std::string>* allowedTypeParams = nullptr) const;
+                          const std::unordered_set<std::string>* allowedTypeParams = nullptr,
+                          bool allowImplTags = false) const;
     void unifyTypes(const Type& expected, const Type& actual,
                     std::unordered_map<std::string, Type>& bindings, SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;

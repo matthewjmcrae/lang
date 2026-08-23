@@ -45,6 +45,7 @@ namespace noria {
     std::unique_ptr<ast::Expression> parseUnary();
     std::unique_ptr<ast::Expression> parseCast();
     Type parseTypeAnnotation(std::string_view message);
+    Type parseTypeArgument(std::string_view message);
     std::unique_ptr<ast::Expression> parsePostfix();
     std::unique_ptr<ast::Expression> parsePrimary();
     std::vector<std::unique_ptr<ast::Expression>> parseCallArguments();

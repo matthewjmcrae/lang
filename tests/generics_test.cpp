@@ -204,6 +204,44 @@ fn main() -> i32 {
   expectEqual(noria::mangleType(Type::structType("Box", {Type::i32()})), "st.Box$s.i32",
               "mangle applied struct type");
 
+  expectEqual(noria::mangleType(Type::implementationTag(noria::ImplementationTag::Arr)), "tag.arr",
+              "mangle implementation tag arr");
+  expect(noria::mangleType(Type::implementationTag(noria::ImplementationTag::Arr)) !=
+             noria::mangleType(Type::structType("arr")),
+         "implementation tag arr is distinct from struct arr");
+  expect(noria::mangleType(Type::implementationTag(noria::ImplementationTag::Arr)) !=
+             noria::mangleType(Type::array(Type::i32())),
+         "implementation tag arr is distinct from array i32 mangle prefix");
+
+  expect(noria::mangleSpecialization(
+             "Box", {Type::i32(), Type::implementationTag(noria::ImplementationTag::Arr)}) !=
+             noria::mangleSpecialization(
+                 "Box", {Type::i32(), Type::implementationTag(noria::ImplementationTag::List)}),
+         "distinct implementation tags yield distinct specializations");
+
+  expect(noria::substitute(Type::implementationTag(noria::ImplementationTag::Bst), substitution) ==
+             Type::implementationTag(noria::ImplementationTag::Bst),
+         "substitution leaves implementation tags unchanged");
+
+  constexpr std::string_view implTagDistinctSource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let a: Box<i32, arr> = Box<i32, arr> { value: 1 };
+  let b: Box<i32, list> = Box<i32, list> { value: 2 };
+  return a.value + b.value;
+}
+)";
+
+  const noria::CompileOutput implTagDistinctOutput =
+      noria::compileSource(implTagDistinctSource, noria::StopAfter::Ir);
+  expect(implTagDistinctOutput.llvmIr.find("%Box$s.i32$tag.arr = type") != std::string::npos,
+         "arr-tagged specialization is emitted");
+  expect(implTagDistinctOutput.llvmIr.find("%Box$s.i32$tag.list = type") != std::string::npos,
+         "list-tagged specialization is emitted");
+
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";
     return EXIT_FAILURE;

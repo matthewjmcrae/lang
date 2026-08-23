@@ -528,6 +528,8 @@ namespace noria {
       }
     case TypeKind::Array:
       return "arr." + mangleType(*type.element);
+    case TypeKind::ImplTag:
+      return "tag." + std::string(implementationTagName(type.implTag));
     case TypeKind::TypeParam:
       throw CompileError("internal: cannot mangle unsubstituted type parameter");
     case TypeKind::Void:

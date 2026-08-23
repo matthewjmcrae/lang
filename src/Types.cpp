@@ -25,6 +25,38 @@ namespace noria {
     return type;
   }
 
+  Type Type::implementationTag(ImplementationTag tag) {
+    Type type(TypeKind::ImplTag);
+    type.implTag = tag;
+    return type;
+  }
+
+  std::optional<ImplementationTag> implementationTagFromName(std::string_view name) {
+    if (name == "arr")
+      return ImplementationTag::Arr;
+    if (name == "list")
+      return ImplementationTag::List;
+    if (name == "bst")
+      return ImplementationTag::Bst;
+    if (name == "hashmap")
+      return ImplementationTag::Hashmap;
+    return std::nullopt;
+  }
+
+  std::string_view implementationTagName(ImplementationTag tag) {
+    switch (tag) {
+    case ImplementationTag::Arr:
+      return "arr";
+    case ImplementationTag::List:
+      return "list";
+    case ImplementationTag::Bst:
+      return "bst";
+    case ImplementationTag::Hashmap:
+      return "hashmap";
+    }
+    return "";
+  }
+
   bool Type::operator==(const Type& other) const {
     if (kind != other.kind)
       return false;
@@ -40,6 +72,8 @@ namespace noria {
       return typeArgs == other.typeArgs;
     case TypeKind::TypeParam:
       return typeParamName == other.typeParamName;
+    case TypeKind::ImplTag:
+      return implTag == other.implTag;
     default:
       return true;
     }
@@ -74,6 +108,8 @@ namespace noria {
       }
     case TypeKind::TypeParam:
       return typeParamName;
+    case TypeKind::ImplTag:
+      return std::string(implementationTagName(implTag));
     case TypeKind::Void:
       return "void";
     }
@@ -99,6 +135,8 @@ namespace noria {
       return "%" + type.structName;
     case TypeKind::TypeParam:
       throw CompileError("internal: unsubstituted type parameter");
+    case TypeKind::ImplTag:
+      throw CompileError("internal: implementation tag is not a runtime type");
     case TypeKind::Void:
       return "void";
     }

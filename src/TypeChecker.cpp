@@ -524,7 +524,7 @@ namespace noria {
       }
 
       for (const Type& typeArg : typeArgs) {
-        checker_.requireKnownType(typeArg, literal.location);
+        checker_.requireKnownType(typeArg, literal.location, nullptr, true);
       }
 
       checker_.recordStructSpecialization(literal.structName, typeArgs, literal.location);
@@ -846,12 +846,22 @@ namespace noria {
     return PlaceInfo{visitor.name(), visitor.type()};
   }
 
-  void
-  TypeChecker::requireKnownType(const Type& type, SourceLocation location,
-                                const std::unordered_set<std::string>* allowedTypeParams) const {
+  void TypeChecker::requireKnownType(const Type& type, SourceLocation location,
+                                     const std::unordered_set<std::string>* allowedTypeParams,
+                                     bool allowImplTags) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
         type == Type::str())
       return;
+
+    if (type.kind == TypeKind::ImplTag) {
+      if (allowImplTags) {
+        return;
+      }
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "implementation tag '" +
+                                              std::string(implementationTagName(type.implTag)) +
+                                              "' cannot be used as a type"));
+    }
 
     if (type.kind == TypeKind::TypeParam) {
       if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
@@ -894,7 +904,7 @@ namespace noria {
         }
 
         for (const Type& typeArg : type.typeArgs) {
-          requireKnownType(typeArg, location, allowedTypeParams);
+          requireKnownType(typeArg, location, allowedTypeParams, true);
         }
 
         if (!containsUnboundTypeParam(type)) {
@@ -945,6 +955,15 @@ namespace noria {
                              "expected " + expected.name() + ", got " + actual.name()));
       }
       unifyTypes(*expected.element, *actual.element, bindings, location);
+      return;
+    }
+
+    if (expected.kind == TypeKind::ImplTag) {
+      if (actual.kind != TypeKind::ImplTag || expected.implTag != actual.implTag) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "expected " + expected.name() + ", got " + actual.name()));
+      }
       return;
     }
 

@@ -1,10 +1,19 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace noria {
+
+  enum class ImplementationTag {
+    Arr,
+    List,
+    Bst,
+    Hashmap,
+  };
 
   enum class TypeKind {
     I32,
@@ -14,6 +23,7 @@ namespace noria {
     Array,
     Struct,
     TypeParam,
+    ImplTag,
     Void,
   };
 
@@ -26,6 +36,7 @@ namespace noria {
     std::string structName;        // Struct name
     std::vector<Type> typeArgs;    // Generic struct type arguments
     std::string typeParamName;     // TypeParam name
+    ImplementationTag implTag{};   // ImplTag payload
 
     Type() = default;
     explicit Type(TypeKind kind) : kind(kind) {}
@@ -38,6 +49,7 @@ namespace noria {
     static Type array(Type elementType);
     static Type structType(std::string name, std::vector<Type> typeArgs = {});
     static Type typeParam(std::string name);
+    static Type implementationTag(ImplementationTag tag);
 
     bool operator==(const Type& other) const;
     bool operator!=(const Type& other) const { return !(*this == other); }
@@ -45,6 +57,9 @@ namespace noria {
     // Human-readable name for diagnostics (e.g. "i32", "[bool]", "Point").
     std::string name() const;
   };
+
+  std::optional<ImplementationTag> implementationTagFromName(std::string_view name);
+  std::string_view implementationTagName(ImplementationTag tag);
 
   std::string llvmType(const Type& type);
 
