@@ -10,15 +10,22 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(noria
+add_library(noria_core OBJECT
   src/AstPrinter.cpp
   src/Codegen.cpp
+  src/Compiler.cpp
   src/Diagnostic.cpp
   src/Lexer.cpp
-  src/main.cpp
   src/Parser.cpp
   src/TypeChecker.cpp
   src/Types.cpp
+)
+
+target_include_directories(noria_core PUBLIC include)
+
+add_executable(noria
+  src/main.cpp
+  $<TARGET_OBJECTS:noria_core>
 )
 
 target_include_directories(noria PRIVATE include)
@@ -57,6 +64,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(visitor_smoke_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(compiler_facade_test
+  tests/compiler_facade_test.cpp
+  $<TARGET_OBJECTS:noria_core>
+)
+
+target_include_directories(compiler_facade_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(compiler_facade_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(noria PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -74,3 +92,4 @@ add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
 add_test(NAME type_representation COMMAND type_representation_test)
 add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
+add_test(NAME compiler_facade COMMAND compiler_facade_test)

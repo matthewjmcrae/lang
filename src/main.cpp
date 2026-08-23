@@ -1,9 +1,7 @@
 #include "noria/AstPrinter.hpp"
-#include "noria/Codegen.hpp"
+#include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
-#include "noria/Lexer.hpp"
-#include "noria/Parser.hpp"
-#include "noria/TypeChecker.hpp"
+#include "noria/Token.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -242,30 +240,35 @@ int main(int argc, char** argv) {
     const Options options = parseOptions(argc, argv);
     const std::string source = readFile(options.inputPath);
 
-    noria::Lexer lexer(source);
-    const auto tokens = lexer.lex();
+    noria::StopAfter stopAfter;
+    switch (options.outputMode) {
+    case OutputMode::Tokens:
+      stopAfter = noria::StopAfter::Tokens;
+      break;
+    case OutputMode::Ast:
+      stopAfter = noria::StopAfter::Ast;
+      break;
+    case OutputMode::LlvmIr:
+    case OutputMode::NativeExecutable:
+      stopAfter = noria::StopAfter::Ir;
+      break;
+    }
+
+    noria::CompileOutput output = noria::compileSource(source, stopAfter);
 
     if (options.outputMode == OutputMode::Tokens) {
-      writeOutput(options.outputPath, dumpTokens(tokens));
+      writeOutput(options.outputPath, dumpTokens(output.tokens));
       return 0;
     }
 
-    noria::Parser parser(tokens);
-    const auto module = parser.parseModule();
-
     if (options.outputMode == OutputMode::Ast) {
       std::ostringstream out;
-      noria::printAst(module, out);
+      noria::printAst(output.module, out);
       writeOutput(options.outputPath, out.str());
       return 0;
     }
 
-    noria::TypeChecker checker;
-    checker.check(module);
-
-    noria::LlvmIrTextGenerator generator;
-    const std::string llvmIr =
-        optimizeLlvmIr(generator.generate(module), options.optimizationLevel);
+    const std::string llvmIr = optimizeLlvmIr(output.llvmIr, options.optimizationLevel);
 
     if (options.outputMode == OutputMode::NativeExecutable) {
       buildNativeExecutable(options.outputPath, llvmIr);

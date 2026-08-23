@@ -129,3 +129,35 @@ Extensibility cost: adding `IndexExpression` needs ~16 visitor-propagation edits
 ### Next unit
 
 Phase 2.5, checkpoint 5 — Compiler facade.
+
+## Phase 2.5, checkpoint 5 — Compiler facade
+
+Baseline commit `1edaa93`.
+
+### Objective and acceptance
+
+Add a compiler facade: `compileSource(source, StopAfter)` returning `CompileOutput`; `StopAfter` stages `{Tokens, Ast, Typed, Ir}`. Preserve early exits (Ast skips typecheck; Tokens skips parse); all gates green.
+
+### Files and behavior changed
+
+New `include/noria/Compiler.hpp` and `src/Compiler.cpp`. `main.cpp` retains CLI, file I/O, `optimizeLlvmIr`, and `buildNativeExecutable`. CMake: `noria_core` OBJECT library shared by noria and tests; `compiler_facade_test` in CMake, CTest, and `run_examples.sh`.
+
+### Semantic and architectural decisions
+
+Facade wraps the existing pipeline without changing stage semantics; main remains the CLI driver for I/O, LLVM optimization, and native executable linking.
+
+### Tests, sanitizer, results
+
+All gates green: empty IR/AST/tokens diffs (base5 vs after5); `just test`. Sanitizer skipped — by-value ownership, no codegen/AST ownership change.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: `noria_core` lacks warning/sanitizer compile flags (only `main.cpp` receives them).
+
+### Limitations and risks
+
+OBJECT library compile flags for warnings/sanitizer not yet unified with main target.
+
+### Next unit
+
+Phase 2.5, checkpoint 6 — CodegenContext + IrEmitter.

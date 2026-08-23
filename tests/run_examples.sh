@@ -186,6 +186,7 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/type_representation_test"
 "${BUILD_DIR}/builtin_registry_test"
 "${BUILD_DIR}/visitor_smoke_test"
+"${BUILD_DIR}/compiler_facade_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"
