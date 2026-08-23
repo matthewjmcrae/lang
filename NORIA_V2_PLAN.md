@@ -6,7 +6,7 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 
 ## Current status (as of August 2026)
 
-**Branch:** `mmcrae/v2` — Phases 0–4 are implemented; Phase 5 is next.
+**Branch:** `mmcrae/v2` — Phases 0–5 are implemented; Phase 6 is next.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
@@ -16,12 +16,13 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 | 2.5 — architecture refactor | **Done** | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place |
 | 3 — strings | **Done** | `len`, `s[i]`, `str + str`, escapes; `print(str)` |
 | 4 — arrays | **Done** | `[T]`, literals, `len`, index read/write places |
-| 5 — structs | **Partial** | Decl, construction, field r/w (locals); params/returns pending |
-| 6–9 | **Not started** | Blocked on 5 |
+| 5 — structs | **Done** | Decl, construction, field r/w, by-value params/returns |
+| 6 — generics-modules | **Next** | Imports, generics, monomorphization |
+| 7–9 | **Not started** | Blocked on 6 |
 
-**Regression gate:** `just test` (86 `examples/basic`, 58 `examples/invalid`, 7 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (90 `examples/basic`, 61 `examples/invalid`, 7 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
-**Documentation:** README/SYNTAX updated through Phase 4; keep updating after each feature phase.
+**Documentation:** README/SYNTAX updated through Phase 5; keep updating after each feature phase.
 
 ## Task checklist
 
@@ -31,7 +32,7 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 - [x] **Phase 2.5 — architecture refactor:** Canonical types, full Visitor, Compiler facade, builtin registry, CodegenContext + IrEmitter, postfix + Place foundation. No new language surface; all examples stay green after each checkpoint.
 - [x] **Phase 3 — strings (finish):** Indexing, `len`, concat on top of Phase 2.5 infrastructure.
 - [x] **Phase 4 — arrays:** Array types, literals, indexing, `len`; indexed places via Phase 2.5 Place path.
-- [ ] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
+- [x] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
 - [ ] **Phase 6 — generics-modules:** Add source imports, generic structs/functions, compile-time implementation tags, constraints, and reachable-specialization monomorphization.
 - [ ] **Phase 7 — data-structure-stdlib:** Ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
 - [ ] **Phase 8 — demo-dungeon:** Add `read_char()` input and write a deterministic CLI dungeon game in Noria (`examples/demos/dungeon_cli.noria`) using the standard-library ADTs, with scripted transcript tests.
@@ -220,7 +221,7 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - `just sanitize` on malloc sizing and GEP offsets.
 - Update `SYNTAX.md` arrays section.
 
-## Phase 5 - Structs — NOT STARTED
+## Phase 5 - Structs — DONE
 
 **Builds on Phase 2.5 + 4:** declaration collection pass, struct layout registry, field expressions as postfix `.ident`, Place for field mutation.
 

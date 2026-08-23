@@ -601,9 +601,13 @@ namespace noria {
 
   std::vector<std::unique_ptr<ast::Expression>> Parser::parseCallArguments() {
     std::vector<std::unique_ptr<ast::Expression>> arguments;
+    const bool savedStructLiteralAllowed = structLiteralAllowed_;
+    structLiteralAllowed_ = true;
 
-    if (peek().kind == TokenKind::RightParen)
+    if (peek().kind == TokenKind::RightParen) {
+      structLiteralAllowed_ = savedStructLiteralAllowed;
       return arguments;
+    }
 
     while (true) {
       arguments.push_back(parseExpression());
@@ -611,6 +615,7 @@ namespace noria {
         break;
     }
 
+    structLiteralAllowed_ = savedStructLiteralAllowed;
     return arguments;
   }
 

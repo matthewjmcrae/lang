@@ -481,3 +481,35 @@ No struct params/returns yet. Chained/alternating array+field place roots not fu
 ### Next unit
 
 Phase 5 struct params/returns + promote full `struct_point`.
+
+## Phase 5 — Struct params/returns and Phase 5 closeout
+
+Baseline commit `2566f9a`.
+
+### Objective and acceptance
+
+Close Phase 5 with struct by-value params/returns, regression examples, and docs; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Codegen: `defaultIrValue` returns `zeroinitializer` for structs, `null` for str/array. Parser: `parseCallArguments` restores `structLiteralAllowed_` so struct literals parse as call arguments. Promoted full `struct_point` (exit 7). New basics: `struct_param_by_value` (exit 106), `struct_default_return`, `struct_param_aggregate_fields`, `struct_literal_argument_in_condition`. New invalid: `struct_argument_non_struct`, `struct_argument_type_mismatch`, `struct_return_type_mismatch`. Updated `SYNTAX.md`, `README.md`, `run_examples.sh`. Orchestrator ticks Phase 5 plan checkbox.
+
+### Semantic and architectural decisions
+
+Params/returns already largely worked from prior struct work; this wake locked tests and small fixes. Struct passing remains by-value aggregate copy; callee field mutations do not affect caller locals.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST byte-identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: by-value isolation test expected exit corrected to 106 before commit.
+
+### Limitations and risks
+
+Still no heap structs. Chained array+field place roots partially covered. Struct cycle/duplicate-decl negatives unchanged from prior checkpoint.
+
+### Next unit
+
+Phase 6 — generics/modules; smallest end-to-end slice first.

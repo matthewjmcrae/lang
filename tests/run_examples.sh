@@ -415,6 +415,10 @@ grep -q "typecheck: len expects str or array, got i32" \
 
 echo "[noria-tests] phase 5 struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_point.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_by_value.noria" 106
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_aggregate_fields.noria" 23
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_default_return.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_literal_argument_in_condition.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_copy.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign.noria" 34
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign_nested.noria" 5
@@ -429,6 +433,10 @@ grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
   "${TEST_OUT_DIR}/struct_field_assign.ll"
 grep -q "store i32 [^,]*, ptr %t[0-9]*" "${TEST_OUT_DIR}/struct_field_assign.ll"
 grep -q "alloca %Point" "${TEST_OUT_DIR}/struct_point.ll"
+grep -q "define %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "call %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "store %Point %.*\.param" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "ret %Point zeroinitializer" "${TEST_OUT_DIR}/struct_default_return.ll"
 
 echo "[noria-tests] emit ast examples/basic/struct_point.noria"
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/struct_point.noria" \
@@ -458,6 +466,12 @@ grep -q "typecheck: unknown type 'Nope'" \
   "${TEST_OUT_DIR}/struct_unknown_type.stderr"
 grep -q "typecheck: duplicate struct 'Point'" \
   "${TEST_OUT_DIR}/struct_duplicate_decl.stderr"
+grep -q "typecheck: argument 1 of 'm' expects Point, got Other" \
+  "${TEST_OUT_DIR}/struct_argument_type_mismatch.stderr"
+grep -q "typecheck: argument 1 of 'm' expects Point, got i32" \
+  "${TEST_OUT_DIR}/struct_argument_non_struct.stderr"
+grep -q "typecheck: return type i32 does not match expected Point" \
+  "${TEST_OUT_DIR}/struct_return_type_mismatch.stderr"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

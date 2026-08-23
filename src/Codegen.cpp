@@ -105,6 +105,10 @@ namespace noria {
       return "false";
     if (type == Type::f64())
       return "0.0";
+    if (type.kind == TypeKind::Struct)
+      return "zeroinitializer";
+    if (type.kind == TypeKind::Str || type.kind == TypeKind::Array)
+      return "null";
     return "0";
   }
 

@@ -1,0 +1,19 @@
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+fn make(x: i32, y: i32) -> Point {
+  return Point { x: x, y: y };
+}
+
+fn bump(p: Point) -> i32 {
+  p.x = 100;
+  return p.x + p.y;
+}
+
+fn main() -> i32 {
+  let q: Point = make(1, 5);
+  let bumped: i32 = bump(q);
+  return bumped + q.x;
+}

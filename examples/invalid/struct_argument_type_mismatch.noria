@@ -1,0 +1,16 @@
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+struct Other {
+  z: i32;
+}
+
+fn m(p: Point) -> i32 {
+  return p.x;
+}
+
+fn main() -> i32 {
+  return m(Other { z: 1 });
+}
