@@ -2,6 +2,7 @@
 
 #include "noria/Ast.hpp"
 #include "noria/AstVisitor.hpp"
+#include "noria/IrEmitter.hpp"
 #include "noria/Types.hpp"
 
 #include <memory>
@@ -32,12 +33,18 @@ namespace noria {
       std::vector<Type> parameterTypes;
     };
 
+    struct CodegenContext {
+      std::unordered_map<std::string, FunctionBinding> functions;
+      std::ostringstream globals;
+      int nextStringGlobal = 0;
+    };
+
     using Scope = std::unordered_map<std::string, LocalBinding>;
 
     class StatementVisitor final : public ast::AstVisitor {
     public:
-      StatementVisitor(const LlvmIrTextGenerator& generator, std::ostringstream& out,
-                       int& nextTemporary, int& nextLabel, Type expectedReturnType,
+      StatementVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
+                       CodegenContext& context, Type expectedReturnType,
                        std::vector<Scope>& scopes);
 
       bool returned() const { return returned_; }
@@ -61,9 +68,8 @@ namespace noria {
 
     private:
       const LlvmIrTextGenerator& generator_;
-      std::ostringstream& out_;
-      int& nextTemporary_;
-      int& nextLabel_;
+      IrEmitter& emitter_;
+      CodegenContext& context_;
       Type expectedReturnType_;
       std::vector<Scope>& scopes_;
       bool returned_ = false;
@@ -71,8 +77,8 @@ namespace noria {
 
     class ExpressionVisitor final : public ast::AstVisitor {
     public:
-      ExpressionVisitor(const LlvmIrTextGenerator& generator, std::ostringstream& out,
-                        int& nextTemporary, int& nextLabel, const std::vector<Scope>& scopes);
+      ExpressionVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
+                        CodegenContext& context, const std::vector<Scope>& scopes);
 
       Value result() const { return result_; }
 
@@ -95,9 +101,8 @@ namespace noria {
 
     private:
       const LlvmIrTextGenerator& generator_;
-      std::ostringstream& out_;
-      int& nextTemporary_;
-      int& nextLabel_;
+      IrEmitter& emitter_;
+      CodegenContext& context_;
       const std::vector<Scope>& scopes_;
       Value result_{};
     };
@@ -128,31 +133,26 @@ namespace noria {
       const ast::BinaryExpression* comparison_ = nullptr;
     };
 
-    std::string generateFunction(const ast::Function& function) const;
-    bool generateStatement(const ast::Statement& statement, std::ostringstream& out,
-                           int& nextTemporary, int& nextLabel, Type expectedReturnType,
+    std::string generateFunction(const ast::Function& function, CodegenContext& context) const;
+    bool generateStatement(const ast::Statement& statement, IrEmitter& emitter,
+                           CodegenContext& context, Type expectedReturnType,
                            std::vector<Scope>& scopes) const;
     bool generateStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
-                            std::ostringstream& out, int& nextTemporary, int& nextLabel,
-                            Type expectedReturnType, std::vector<Scope>& scopes) const;
-    std::string generateCondition(const ast::Expression& expression, std::ostringstream& out,
-                                  int& nextTemporary, int& nextLabel,
-                                  const std::vector<Scope>& scopes) const;
-    Value generateExpression(const ast::Expression& expression, std::ostringstream& out,
-                             int& nextTemporary, int& nextLabel,
-                             const std::vector<Scope>& scopes) const;
+                            IrEmitter& emitter, CodegenContext& context, Type expectedReturnType,
+                            std::vector<Scope>& scopes) const;
+    std::string generateCondition(const ast::Expression& expression, IrEmitter& emitter,
+                                  CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value generateExpression(const ast::Expression& expression, IrEmitter& emitter,
+                             CodegenContext& context, const std::vector<Scope>& scopes) const;
 
-    Value generateBinaryExpression(const ast::BinaryExpression& binary, std::ostringstream& out,
-                                   int& nextTemporary, int& nextLabel,
-                                   const std::vector<Scope>& scopes) const;
-    Value generateStringLiteral(const ast::StringLiteral& literal, std::ostringstream& out,
-                                int& nextTemporary) const;
-    Value generateCastExpression(const ast::CastExpression& cast, std::ostringstream& out,
-                                 int& nextTemporary, int& nextLabel,
-                                 const std::vector<Scope>& scopes) const;
-    std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call,
-                                                std::ostringstream& out, int& nextTemporary,
-                                                int& nextLabel,
+    Value generateBinaryExpression(const ast::BinaryExpression& binary, IrEmitter& emitter,
+                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value generateStringLiteral(const ast::StringLiteral& literal, IrEmitter& emitter,
+                                CodegenContext& context) const;
+    Value generateCastExpression(const ast::CastExpression& cast, IrEmitter& emitter,
+                                 CodegenContext& context, const std::vector<Scope>& scopes) const;
+    std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call, IrEmitter& emitter,
+                                                CodegenContext& context,
                                                 const std::vector<Scope>& scopes) const;
 
     std::string defaultIrValue(const Type& type) const;
@@ -161,11 +161,8 @@ namespace noria {
                       LocalBinding binding) const;
     const LocalBinding& lookupLocal(const std::vector<Scope>& scopes,
                                     const std::string& name) const;
-    void collectFunctionBindings(const ast::Module& module) const;
-
-    mutable std::unordered_map<std::string, FunctionBinding> functions_;
-    mutable std::ostringstream moduleGlobals_;
-    mutable int nextStringGlobal_ = 0;
+    std::unordered_map<std::string, FunctionBinding>
+    collectFunctionBindings(const ast::Module& module) const;
   };
 
 } // namespace noria

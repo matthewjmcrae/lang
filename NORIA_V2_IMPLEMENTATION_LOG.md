@@ -161,3 +161,35 @@ OBJECT library compile flags for warnings/sanitizer not yet unified with main ta
 ### Next unit
 
 Phase 2.5, checkpoint 6 — CodegenContext + IrEmitter.
+
+## Phase 2.5, checkpoint 6 — CodegenContext + IrEmitter
+
+Baseline commit `2fdfb32`.
+
+### Objective and acceptance
+
+Extract mutable codegen module state into `CodegenContext` and LLVM IR emission into `IrEmitter`; preserve byte-identical emitted IR; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `include/noria/Runtime.hpp` catalog. New `include/noria/IrEmitter.hpp` and `src/IrEmitter.cpp`: `freshTemp`, `freshLabel`, `emitLoad`/`Store`/`Branch`/`Alloca`, `line`. `CodegenContext` replaces mutable `functions_`, `moduleGlobals_`, `nextStringGlobal_` on the generator. `freshTempCounter()` shares the temp counter for let-slot naming. CMake: `IrEmitter.cpp` in `noria_core`; warning and sanitizer compile flags moved onto `noria_core` (fixes checkpoint 5 gap); sanitizer link added to `compiler_facade_test`.
+
+### Semantic and architectural decisions
+
+Codegen state and IR emission split: `CodegenContext` holds function bindings and module globals; `IrEmitter` owns temp/label allocation and common emit helpers, keeping visitors thin.
+
+### Tests, sanitizer, results
+
+All gates green: empty IR/AST diffs (base6 vs after6); `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: warnings no longer only on `main.cpp`; `freshTempCounter` exposes the internal counter for let-slot naming.
+
+### Limitations and risks
+
+`freshTempCounter` leaks emitter internals; acceptable until postfix/place refactors slot naming.
+
+### Next unit
+
+Phase 2.5, checkpoint 7 — Postfix + Place foundation.

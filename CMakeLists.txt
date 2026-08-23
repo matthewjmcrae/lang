@@ -15,6 +15,7 @@ add_library(noria_core OBJECT
   src/Codegen.cpp
   src/Compiler.cpp
   src/Diagnostic.cpp
+  src/IrEmitter.cpp
   src/Lexer.cpp
   src/Parser.cpp
   src/TypeChecker.cpp
@@ -22,6 +23,18 @@ add_library(noria_core OBJECT
 )
 
 target_include_directories(noria_core PUBLIC include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(noria_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(NORIA_ENABLE_SANITIZERS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(noria_core PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  else()
+    message(FATAL_ERROR "NORIA_ENABLE_SANITIZERS requires Clang or GCC")
+  endif()
+endif()
 
 add_executable(noria
   src/main.cpp
@@ -75,16 +88,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(compiler_facade_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(noria PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
 if(NORIA_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(noria PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     target_link_options(noria PRIVATE -fsanitize=address,undefined)
-  else()
-    message(FATAL_ERROR "NORIA_ENABLE_SANITIZERS requires Clang or GCC")
+    target_link_options(compiler_facade_test PRIVATE -fsanitize=address,undefined)
   endif()
 endif()
 
