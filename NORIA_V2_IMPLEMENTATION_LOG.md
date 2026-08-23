@@ -545,3 +545,35 @@ No user module paths yet; stdlib-only. Import placement and export validation on
 ### Next unit
 
 Phase 6 generics scaffold or `SourceLocation` file attribution for imported diagnostics.
+
+## Phase 6 — Generic functions (inference + monomorphization)
+
+Baseline commit `8c540da`.
+
+### Objective and acceptance
+
+Add `fn f<T>(...)` with call-site type inference; monomorphize reachable specializations between typecheck and codegen; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Parser/AST: `typeParams` on `Function`. TypeChecker: infer type args from arguments/returns; record `SpecializationRequest` with `enclosingFunction` rewrite key. New `Monomorphize.hpp`/`Monomorphize.cpp`: `substitute`, kind-prefixed `mangleType` (`s.i32` vs `st.Point`), `expandSpecializations`, `rewriteGenericCallSites`. `Compiler.cpp`: iterative expand→retypecheck loop. Codegen skips template functions. `tests/generics_test.cpp`; six `examples/basic/generic_*` and eight negatives; updated `SYNTAX.md`, `run_examples.sh`.
+
+### Semantic and architectural decisions
+
+Reachable monomorphization only: TypeChecker collects requests; post-check expansion clones concrete functions and rewrites callee strings to mangled names. Kind-prefixed mangling avoids scalar/struct name collisions.
+
+### Tests, sanitizer, results
+
+Preexisting IR/AST byte-identical. `just test`; `just sanitize` green.
+
+### Review findings and resolutions
+
+First review BLOCKED on mangling collision (`i32` vs struct `i32`); fixed with kind prefixes. Re-review APPROVED. Non-blocking: recursive cross-type calls; fixed with expansion caps (`kMaxSpecializationRounds`/`kMaxSpecializations`).
+
+### Limitations and risks
+
+Generic structs, implementation tags, and constraints unsupported. No explicit type arguments at call sites yet.
+
+### Next unit
+
+Generic structs / implementation tags, or `SourceLocation` file attribution for imported diagnostics.

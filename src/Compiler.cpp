@@ -4,6 +4,7 @@
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/ModuleResolver.hpp"
+#include "noria/Monomorphize.hpp"
 #include "noria/Parser.hpp"
 #include "noria/TypeChecker.hpp"
 
@@ -23,6 +24,35 @@ namespace noria {
 
       TypeChecker checker;
       checker.check(output.module);
+
+      constexpr std::size_t kMaxSpecializationRounds = 8;
+      constexpr std::size_t kMaxSpecializations = 64;
+      std::size_t totalSpecializations = 0;
+
+      for (std::size_t round = 0; round < kMaxSpecializationRounds; ++round) {
+        if (checker.specializationRequests().empty()) {
+          break;
+        }
+
+        const std::vector<SpecializationRequest> requests = checker.specializationRequests();
+        checker.clearSpecializationRequests();
+
+        totalSpecializations += expandSpecializations(output.module, requests);
+        if (totalSpecializations > kMaxSpecializations) {
+          throw CompileError(formatDiagnostic(requests.front().callSiteLocation,
+                                              DiagnosticStage::TypeCheck,
+                                              "recursive generic specialization"));
+        }
+
+        checker.check(output.module);
+      }
+
+      if (!checker.specializationRequests().empty()) {
+        throw CompileError(
+            formatDiagnostic(checker.specializationRequests().front().callSiteLocation,
+                             DiagnosticStage::TypeCheck, "recursive generic specialization"));
+      }
+
       if (stopAfter == StopAfter::Typed) {
         return output;
       }

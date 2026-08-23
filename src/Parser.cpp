@@ -6,6 +6,8 @@
 #include <charconv>
 #include <optional>
 #include <sstream>
+#include <unordered_set>
+#include <utility>
 
 namespace noria {
 
@@ -161,18 +163,51 @@ namespace noria {
   ast::Function Parser::parseFunction() {
     const Token& fnToken = expect(TokenKind::Fn, "expected function declaration");
     const Token& name = expect(TokenKind::Identifier, "expected function name");
+
+    ast::Function function;
+    function.name = name.text;
+    function.location = fnToken.location;
+
+    if (peek().kind == TokenKind::Less) {
+      advance();
+      if (peek().kind == TokenKind::Greater) {
+        throw CompileError(formatDiagnostic(
+            peek().location, "generic function requires at least one type parameter"));
+      }
+
+      std::unordered_set<std::string> seenTypeParams;
+      while (true) {
+        const Token& typeParam = expect(TokenKind::Identifier, "expected type parameter name");
+        if (!seenTypeParams.insert(typeParam.text).second) {
+          throw CompileError(formatDiagnostic(typeParam.location,
+                                              "duplicate type parameter '" + typeParam.text + "'"));
+        }
+        function.typeParams.push_back(ast::TypeParameter{typeParam.text, typeParam.location});
+
+        if (!match(TokenKind::Comma)) {
+          break;
+        }
+      }
+
+      expect(TokenKind::Greater, "expected '>' after type parameters");
+    }
+
+    const std::unordered_set<std::string> savedTypeParams = std::move(typeParamsInScope_);
+    typeParamsInScope_.clear();
+    for (const auto& typeParam : function.typeParams) {
+      typeParamsInScope_.insert(typeParam.name);
+    }
+
     expect(TokenKind::LeftParen, "expected '(' after function name");
     auto parameters = parseFunctionParameters();
     expect(TokenKind::RightParen, "expected ')' after function parameters");
     expect(TokenKind::Arrow, "expected return type arrow");
 
-    ast::Function function;
-    function.name = name.text;
     function.parameters = std::move(parameters);
     function.returnType = parseTypeAnnotation("expected return type");
-    function.location = fnToken.location;
-
     function.body = parseBlock();
+
+    typeParamsInScope_ = std::move(savedTypeParams);
 
     return function;
   }
@@ -708,6 +743,10 @@ namespace noria {
     }
 
     const Token& token = expect(TokenKind::Identifier, message);
+
+    if (typeParamsInScope_.contains(token.text)) {
+      return Type::typeParam(token.text);
+    }
 
     if (token.text == "i32")
       return Type::i32();

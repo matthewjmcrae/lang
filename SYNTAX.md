@@ -100,6 +100,24 @@ fn factorial(n: i32) -> i32 {
 }
 ```
 
+## Generic Functions
+
+Functions may declare one or more type parameters in angle brackets after the name:
+
+```noria
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  return id(7);
+}
+```
+
+Type parameters are bare identifiers with no bounds or defaults. At a call site, concrete type arguments are inferred from argument types only (`id(7)` specializes to `i32`). Explicit type application (turbofish) is not supported. If a type parameter cannot be inferred from arguments — for example, when it appears only in the return type — the compiler reports a type error.
+
+Each distinct specialization is monomorphized into a concrete function with a deterministic mangled name such as `id$s.i32` (type kinds are encoded: scalars as `s.i32`, structs as `st.Point`). Calling the same generic twice with the same type reuses one specialization. Generic structs, implementation tags, and constraints are not supported in the current compiler.
+
 ## Variables
 
 Local variables are declared with `let`.
@@ -634,7 +652,6 @@ fn main() -> i32 {
 Noria does not currently support:
 
 - imports or modules
-- generics
 - container stdlib
 - `break` or `continue`
 - `for` loops

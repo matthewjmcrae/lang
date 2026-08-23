@@ -1,0 +1,12 @@
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let a: i32 = id(1);
+  let b: bool = id(true);
+  if b {
+    return a;
+  }
+  return 0;
+}

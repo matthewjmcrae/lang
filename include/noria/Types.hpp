@@ -12,6 +12,7 @@ namespace noria {
     Str,
     Array,
     Struct,
+    TypeParam,
     Void,
   };
 
@@ -22,6 +23,7 @@ namespace noria {
     TypeKind kind = TypeKind::I32;
     std::shared_ptr<Type> element; // Array element type
     std::string structName;        // Struct name
+    std::string typeParamName;     // TypeParam name
 
     Type() = default;
     explicit Type(TypeKind kind) : kind(kind) {}
@@ -33,6 +35,7 @@ namespace noria {
     static Type voidType() { return Type(TypeKind::Void); }
     static Type array(Type elementType);
     static Type structType(std::string name);
+    static Type typeParam(std::string name);
 
     bool operator==(const Type& other) const;
     bool operator!=(const Type& other) const { return !(*this == other); }

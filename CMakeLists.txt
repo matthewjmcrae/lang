@@ -18,6 +18,7 @@ add_library(noria_core OBJECT
   src/IrEmitter.cpp
   src/Lexer.cpp
   src/ModuleResolver.cpp
+  src/Monomorphize.cpp
   src/Parser.cpp
   src/TypeChecker.cpp
   src/Types.cpp
@@ -108,9 +109,27 @@ if(NORIA_ENABLE_SANITIZERS)
   endif()
 endif()
 
+add_executable(generics_test
+  tests/generics_test.cpp
+  $<TARGET_OBJECTS:noria_core>
+)
+
+target_include_directories(generics_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(generics_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(NORIA_ENABLE_SANITIZERS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_link_options(generics_test PRIVATE -fsanitize=address,undefined)
+  endif()
+endif()
+
 add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
 add_test(NAME type_representation COMMAND type_representation_test)
 add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
 add_test(NAME compiler_facade COMMAND compiler_facade_test)
 add_test(NAME module_resolver COMMAND module_resolver_test)
+add_test(NAME generics COMMAND generics_test)

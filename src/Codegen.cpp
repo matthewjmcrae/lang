@@ -54,6 +54,8 @@ namespace noria {
         return 8;
       case TypeKind::Struct:
         throw CompileError("codegen: struct element size is not supported");
+      case TypeKind::TypeParam:
+        throw CompileError("internal: unsubstituted type parameter");
       case TypeKind::Void:
         break;
       }
@@ -73,6 +75,9 @@ namespace noria {
 
     std::ostringstream functions;
     for (const auto& function : module.functions) {
+      if (!function.typeParams.empty()) {
+        continue;
+      }
       functions << generateFunction(function, context) << "\n";
     }
 
@@ -930,6 +935,10 @@ namespace noria {
     std::unordered_map<std::string, FunctionBinding> functions;
 
     for (const auto& function : module.functions) {
+      if (!function.typeParams.empty()) {
+        continue;
+      }
+
       FunctionBinding binding;
       binding.returnType = function.returnType;
       for (const auto& parameter : function.parameters) {

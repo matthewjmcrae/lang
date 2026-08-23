@@ -272,7 +272,18 @@ namespace noria {
 
     void printFunction(const ast::Function& function, std::ostream& out, int indent) {
       printIndent(out, indent);
-      out << "Function " << function.name << "(";
+      out << "Function " << function.name;
+      if (!function.typeParams.empty()) {
+        out << "<";
+        for (std::size_t index{}; index < function.typeParams.size(); ++index) {
+          if (index != 0) {
+            out << ", ";
+          }
+          out << function.typeParams[index].name;
+        }
+        out << ">";
+      }
+      out << "(";
 
       for (std::size_t index{}; index < function.parameters.size(); ++index) {
         if (index != 0)

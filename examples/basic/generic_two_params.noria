@@ -1,0 +1,7 @@
+fn first<A, B>(a: A, b: B) -> A {
+  return a;
+}
+
+fn main() -> i32 {
+  return first(7, true);
+}

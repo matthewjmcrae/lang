@@ -3,11 +3,13 @@
 #include "noria/Ast.hpp"
 #include "noria/AstVisitor.hpp"
 #include "noria/Builtins.hpp"
+#include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace noria {
@@ -20,6 +22,12 @@ namespace noria {
   class TypeChecker {
   public:
     void check(const ast::Module& module);
+
+    const std::vector<SpecializationRequest>& specializationRequests() const {
+      return specializationRequests_;
+    }
+
+    void clearSpecializationRequests() { specializationRequests_.clear(); }
 
   private:
     class StatementVisitor final : public ast::AstVisitor {
@@ -157,7 +165,10 @@ namespace noria {
       bool isCallExpression_ = false;
     };
 
-    void requireKnownType(const Type& type, SourceLocation location) const;
+    void requireKnownType(const Type& type, SourceLocation location,
+                          const std::unordered_set<std::string>* allowedTypeParams = nullptr) const;
+    void unifyTypes(const Type& expected, const Type& actual,
+                    std::unordered_map<std::string, Type>& bindings, SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;
 
     struct StructFieldInfo {
@@ -190,6 +201,9 @@ namespace noria {
     Type lookupLocal(const std::string& name, SourceLocation location) const;
 
     std::unordered_map<std::string, FunctionSignature> functions_;
+    std::unordered_map<std::string, const ast::Function*> genericFunctions_;
+    std::vector<SpecializationRequest> specializationRequests_;
+    std::string currentFunctionName_;
     std::unordered_map<std::string, StructInfo> structs_;
     std::vector<Scope> scopes_;
   };

@@ -5,6 +5,8 @@
 #include "noria/Types.hpp"
 
 #include <span>
+#include <unordered_set>
+#include <vector>
 
 namespace noria {
 
@@ -49,6 +51,7 @@ namespace noria {
     std::span<const Token> tokens_;
     std::size_t index_ = 0;
     bool structLiteralAllowed_ = true;
+    std::unordered_set<std::string> typeParamsInScope_;
   };
 
 } // namespace noria

@@ -1,0 +1,8 @@
+fn make<T>() -> T {
+  let x: i32 = 1;
+  return x;
+}
+
+fn main() -> i32 {
+  return make();
+}

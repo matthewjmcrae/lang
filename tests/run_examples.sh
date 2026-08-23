@@ -188,6 +188,7 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/visitor_smoke_test"
 "${BUILD_DIR}/compiler_facade_test"
 "${BUILD_DIR}/module_resolver_test"
+"${BUILD_DIR}/generics_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   expect_compile_failure "${source}"
@@ -238,6 +239,18 @@ echo "[noria-tests] phase 3 string length diagnostics"
 grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/len_wrong_type.stderr"
 
+echo "[noria-tests] phase 6 generic diagnostics"
+grep -q "typecheck: function 'id' expects 1 argument(s), got 2" \
+  "${TEST_OUT_DIR}/generic_wrong_arity.stderr"
+grep -q "typecheck: cannot infer type parameter 'T'" \
+  "${TEST_OUT_DIR}/generic_uninferable.stderr"
+grep -q "typecheck: unknown type 'T'" \
+  "${TEST_OUT_DIR}/generic_unresolved_type_param.stderr"
+grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
+  "${TEST_OUT_DIR}/generic_conflicting_inference.stderr"
+grep -q "typecheck: arithmetic operator requires matching numeric operands, got bool and i32" \
+  "${TEST_OUT_DIR}/generic_instantiation_body_error.stderr"
+
 echo "[noria-tests] phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
   "${TEST_OUT_DIR}/index_non_str_base.stderr"
@@ -285,6 +298,18 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
     field_access_statement.noria)
       expect_compile_failure_contains "${source}" \
         "8:3: expected statement"
+      ;;
+    generic_empty_type_params.noria)
+      expect_compile_failure_contains "${source}" \
+        "generic function requires at least one type parameter"
+      ;;
+    generic_duplicate_type_param.noria)
+      expect_compile_failure_contains "${source}" \
+        "duplicate type parameter 'T'"
+      ;;
+    generic_unclosed_type_params.noria)
+      expect_compile_failure_contains "${source}" \
+        "expected '>' after type parameters"
       ;;
   esac
 done
@@ -494,6 +519,15 @@ grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | gre
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
   -o "${TEST_OUT_DIR}/import_math.ast"
 grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
+
+echo "[noria-tests] phase 6 generic acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_instantiations.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_reuse_same_type.noria" 3
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_params.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_array_param.noria" 10
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_with_comparison.noria" 42
+grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_same_type.ll" | grep -q "^1$"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

@@ -195,11 +195,11 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (93 programs).
+Passing examples live in `examples/basic` (99 programs).
 
-Negative type-checking examples live in `examples/invalid` (61 programs).
+Negative type-checking examples live in `examples/invalid` (66 programs).
 
-Lexer and parser failure examples live in `examples/invalid_syntax` (10 programs).
+Lexer and parser failure examples live in `examples/invalid_syntax` (13 programs).
 
 Design sketches and superseded stubs live in `examples/future`.
 
@@ -222,7 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- multi-segment / non-`std` imports and generics (basic `import std::module::{names};` works)
+- generic structs, implementation tags (`arr`/`list`/…), and constraints (generic functions with inference work)
 - container stdlib
 - `break` or `continue`
 - `for` loops

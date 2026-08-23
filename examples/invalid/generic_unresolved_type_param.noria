@@ -1,0 +1,7 @@
+fn f(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  return f(1);
+}

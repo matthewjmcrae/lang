@@ -1,5 +1,7 @@
 #include "noria/Types.hpp"
 
+#include "noria/Diagnostic.hpp"
+
 #include <utility>
 
 namespace noria {
@@ -16,6 +18,12 @@ namespace noria {
     return type;
   }
 
+  Type Type::typeParam(std::string name) {
+    Type type(TypeKind::TypeParam);
+    type.typeParamName = std::move(name);
+    return type;
+  }
+
   bool Type::operator==(const Type& other) const {
     if (kind != other.kind)
       return false;
@@ -27,6 +35,8 @@ namespace noria {
       return *element == *other.element;
     case TypeKind::Struct:
       return structName == other.structName;
+    case TypeKind::TypeParam:
+      return typeParamName == other.typeParamName;
     default:
       return true;
     }
@@ -46,6 +56,8 @@ namespace noria {
       return "[" + (element ? element->name() : std::string{"?"}) + "]";
     case TypeKind::Struct:
       return structName.empty() ? std::string{"<struct>"} : structName;
+    case TypeKind::TypeParam:
+      return typeParamName;
     case TypeKind::Void:
       return "void";
     }
@@ -66,6 +78,8 @@ namespace noria {
       return "ptr";
     case TypeKind::Struct:
       return "%" + type.structName;
+    case TypeKind::TypeParam:
+      throw CompileError("internal: unsubstituted type parameter");
     case TypeKind::Void:
       return "void";
     }

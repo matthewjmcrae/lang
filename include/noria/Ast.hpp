@@ -264,6 +264,11 @@ namespace noria::ast {
     SourceLocation location;
   };
 
+  struct TypeParameter {
+    std::string name;
+    SourceLocation location;
+  };
+
   struct StructField {
     std::string name;
     Type type;
@@ -280,6 +285,7 @@ namespace noria::ast {
     std::string name;
     Type returnType;
     SourceLocation location;
+    std::vector<TypeParameter> typeParams;
     std::vector<Parameter> parameters;
     std::vector<std::unique_ptr<Statement>> body;
   };

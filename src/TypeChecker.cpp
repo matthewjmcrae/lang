@@ -2,6 +2,7 @@
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
+#include "noria/Monomorphize.hpp"
 
 #include <sstream>
 #include <unordered_set>
@@ -321,33 +322,73 @@ namespace noria {
       return;
     }
 
-    const auto function = checker_.functions_.find(call.callee);
+    const auto concreteFunction = checker_.functions_.find(call.callee);
+    if (concreteFunction != checker_.functions_.end()) {
+      if (call.arguments.size() != concreteFunction->second.parameterTypes.size()) {
+        std::ostringstream out;
+        out << "function '" << call.callee << "' expects "
+            << concreteFunction->second.parameterTypes.size() << " argument(s), got "
+            << call.arguments.size();
+        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
+      }
 
-    if (function == checker_.functions_.end()) {
+      for (std::size_t index{}; index < call.arguments.size(); ++index) {
+        const Type actual = checker_.checkRvalue(*call.arguments[index]);
+        const Type expected = concreteFunction->second.parameterTypes[index];
+        if (!checker_.isAssignable(expected, actual)) {
+          std::ostringstream out;
+          out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
+              << expected.name() << ", got " << actual.name();
+          throw CompileError(formatDiagnostic(call.arguments[index]->location,
+                                              DiagnosticStage::TypeCheck, out.str()));
+        }
+      }
+
+      result_ = concreteFunction->second.returnType;
+      return;
+    }
+
+    const auto genericFunction = checker_.genericFunctions_.find(call.callee);
+    if (genericFunction == checker_.genericFunctions_.end()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           "unknown function '" + call.callee + "'"));
     }
 
-    if (call.arguments.size() != function->second.parameterTypes.size()) {
+    const ast::Function& templated = *genericFunction->second;
+    if (call.arguments.size() != templated.parameters.size()) {
       std::ostringstream out;
-      out << "function '" << call.callee << "' expects " << function->second.parameterTypes.size()
+      out << "function '" << call.callee << "' expects " << templated.parameters.size()
           << " argument(s), got " << call.arguments.size();
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
     }
 
+    std::unordered_map<std::string, Type> bindings;
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type actual = checker_.checkRvalue(*call.arguments[index]);
-      const Type expected = function->second.parameterTypes[index];
-      if (!checker_.isAssignable(expected, actual)) {
-        std::ostringstream out;
-        out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
-            << expected.name() << ", got " << actual.name();
-        throw CompileError(formatDiagnostic(call.arguments[index]->location,
-                                            DiagnosticStage::TypeCheck, out.str()));
-      }
+      checker_.unifyTypes(templated.parameters[index].type, actual, bindings,
+                          call.arguments[index]->location);
     }
 
-    result_ = function->second.returnType;
+    std::vector<Type> typeArgs;
+    typeArgs.reserve(templated.typeParams.size());
+    for (const auto& typeParam : templated.typeParams) {
+      const auto bound = bindings.find(typeParam.name);
+      if (bound == bindings.end()) {
+        throw CompileError(
+            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                             "cannot infer type parameter '" + typeParam.name + "'"));
+      }
+      typeArgs.push_back(bound->second);
+    }
+
+    Substitution substitution;
+    for (const auto& typeParam : templated.typeParams) {
+      substitution.emplace(typeParam.name, bindings.at(typeParam.name));
+    }
+
+    checker_.specializationRequests_.push_back(
+        SpecializationRequest{call.callee, typeArgs, call.location, checker_.currentFunctionName_});
+    result_ = substitute(templated.returnType, substitution);
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
@@ -673,17 +714,28 @@ namespace noria {
     return PlaceInfo{visitor.name(), visitor.type()};
   }
 
-  void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {
+  void
+  TypeChecker::requireKnownType(const Type& type, SourceLocation location,
+                                const std::unordered_set<std::string>* allowedTypeParams) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
         type == Type::str())
       return;
+
+    if (type.kind == TypeKind::TypeParam) {
+      if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
+        return;
+      }
+      throw CompileError(
+          formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                           "unresolved type parameter '" + type.typeParamName + "'"));
+    }
 
     if (type.kind == TypeKind::Array) {
       if (!type.element) {
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                             "unknown type '" + type.name() + "'"));
       }
-      requireKnownType(*type.element, location);
+      requireKnownType(*type.element, location, allowedTypeParams);
       return;
     }
 
@@ -697,6 +749,42 @@ namespace noria {
 
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                         "unknown type '" + type.name() + "'"));
+  }
+
+  void TypeChecker::unifyTypes(const Type& expected, const Type& actual,
+                               std::unordered_map<std::string, Type>& bindings,
+                               SourceLocation location) const {
+    if (expected.kind == TypeKind::TypeParam) {
+      const auto existing = bindings.find(expected.typeParamName);
+      if (existing == bindings.end()) {
+        bindings.emplace(expected.typeParamName, actual);
+        return;
+      }
+
+      if (existing->second != actual) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "conflicting types " + existing->second.name() +
+                                                " and " + actual.name() + " for type parameter '" +
+                                                expected.typeParamName + "'"));
+      }
+      return;
+    }
+
+    if (expected.kind == TypeKind::Array) {
+      if (actual.kind != TypeKind::Array || !expected.element || !actual.element) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "expected " + expected.name() + ", got " + actual.name()));
+      }
+      unifyTypes(*expected.element, *actual.element, bindings, location);
+      return;
+    }
+
+    if (!isAssignable(expected, actual)) {
+      throw CompileError(
+          formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                           "expected " + expected.name() + ", got " + actual.name()));
+    }
   }
 
   const TypeChecker::StructInfo& TypeChecker::lookupStruct(const std::string& name,
@@ -782,19 +870,25 @@ namespace noria {
 
   void TypeChecker::check(const ast::Module& module) {
     functions_.clear();
+    genericFunctions_.clear();
+    specializationRequests_.clear();
     scopes_.clear();
 
     collectStructDecls(module);
     collectFunctionSignatures(module);
 
     for (const auto& function : module.functions) {
-      checkFunction(function);
+      if (function.typeParams.empty()) {
+        checkFunction(function);
+      }
     }
   }
 
   void TypeChecker::checkFunction(const ast::Function& function) {
     scopes_.clear();
     pushScope();
+
+    currentFunctionName_ = function.name;
 
     requireKnownType(function.returnType, function.location);
     const Type expectedReturnType = function.returnType;
@@ -910,10 +1004,24 @@ namespace noria {
 
   void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
     for (const auto& function : module.functions) {
-
-      if (functions_.contains(function.name)) {
+      if (functions_.contains(function.name) || genericFunctions_.contains(function.name)) {
         throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                                             "duplicate function '" + function.name + "'"));
+      }
+
+      if (!function.typeParams.empty()) {
+        std::unordered_set<std::string> allowedTypeParams;
+        for (const auto& typeParam : function.typeParams) {
+          allowedTypeParams.insert(typeParam.name);
+        }
+
+        requireKnownType(function.returnType, function.location, &allowedTypeParams);
+        for (const auto& parameter : function.parameters) {
+          requireKnownType(parameter.type, parameter.location, &allowedTypeParams);
+        }
+
+        genericFunctions_.emplace(function.name, &function);
+        continue;
       }
 
       FunctionSignature signature;
