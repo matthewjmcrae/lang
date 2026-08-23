@@ -1,0 +1,25 @@
+---
+description: Regression and acceptance testing for Noria changes
+globs: "{include/noria/**/*.hpp,src/**/*.cpp,tests/**/*,examples/**/*.noria,CMakeLists.txt}"
+alwaysApply: false
+---
+
+# Testing Language Changes
+
+Derive expected behavior from the intended language semantics, not from whatever the current compiler happens to emit.
+
+- Add valid programs to `examples/basic/`; every file there must compile successfully.
+- Add static-semantic failures to `examples/invalid/`; they must fail with a `typecheck:` diagnostic.
+- Add lexer/parser failures to `examples/invalid_syntax/`; assert the source location and useful diagnostic text.
+- Keep design sketches and unsupported syntax in `examples/future/`; files there are not passing tests.
+- For observable behavior, update `tests/run_examples.sh` with an exact native exit-code or stdout assertion. Add a neighboring `.expected` file for multiline output.
+- Use a C++ test target for isolated representation or internal logic that cannot be proved through a compiled Noria program, and register it with CTest.
+- Cover both success and misuse for each feature. Include precedence, nesting, lexical scope, boundary values, and interactions with existing features where relevant.
+- Keep diagnostics assertions specific enough to protect the contract without coupling tests to unrelated wording.
+
+# Verification
+
+- Run the narrowest useful check while developing, then run `just test` before handoff.
+- Use `just sanitize` when changes affect AST ownership, string/global storage, native execution, allocation, or LLVM pointer arithmetic.
+- `just test` is the regression gate: it configures and builds, compiles all positive examples, checks all negative examples, runs native behavior checks, and runs C++ test binaries.
+- Do not mark a feature complete while any existing example regresses or documentation still describes the old syntax or semantics.

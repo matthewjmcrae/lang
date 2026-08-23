@@ -1,0 +1,29 @@
+---
+description: End-to-end invariants for Noria compiler changes
+globs: "{include/noria/**/*.hpp,src/**/*.cpp}"
+alwaysApply: false
+---
+
+# Compiler Pipeline Invariants
+
+Treat a language feature as end-to-end work. Check every affected layer:
+
+1. Tokens and lexing in `Token.hpp` / `Lexer.cpp`.
+2. Owned AST nodes with `SourceLocation` in `Ast.hpp`, plus `AstPrinter.cpp`.
+3. Parser precedence and associativity in `Parser.hpp` / `Parser.cpp`.
+4. Static semantics and lexical scopes in `TypeChecker`.
+5. Typed textual LLVM IR emission in `Codegen`.
+6. Positive, negative, runtime, and documentation coverage.
+
+- Preserve stage boundaries: parsing builds syntax, type checking rejects invalid programs, and codegen assumes checked input while still failing clearly on impossible states.
+- Keep `Type` and codegen's `IrType` mappings aligned when adding a type. Update equality, names used by diagnostics, parsing, LLVM spelling, defaults, and builtins together.
+- Keep builtin signatures and behavior synchronized between type checking and code generation.
+- Preserve AST ownership with `std::unique_ptr`; do not introduce shared ownership without a demonstrated need.
+- Preserve lexical shadowing with a scope stack. Enter and leave matching scopes in both type checking and code generation.
+- Keep precedence as explicit parser levels. Logical `&&` and `||` must short-circuit through control flow, not eager value evaluation.
+
+# Diagnostics
+
+- User-facing lexer, parser, and type errors throw `CompileError` with the relevant token or AST `SourceLocation`.
+- Keep stage labels (`lexer:`, parser wording, `typecheck:`) and `line:column` information consistent.
+- Let `main` own final `noria: error:` rendering and nonzero exit status; lower stages should not print diagnostics directly.
