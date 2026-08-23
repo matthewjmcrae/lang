@@ -45,34 +45,6 @@ namespace noria {
     }
   } // namespace
 
-  LlvmIrTextGenerator::IrType LlvmIrTextGenerator::IrType::array(IrType elementType) {
-    IrType type(IrTypeKind::Array);
-    type.element = std::make_shared<IrType>(std::move(elementType));
-    return type;
-  }
-
-  LlvmIrTextGenerator::IrType LlvmIrTextGenerator::IrType::structType(std::string name) {
-    IrType type(IrTypeKind::Struct);
-    type.structName = std::move(name);
-    return type;
-  }
-
-  bool LlvmIrTextGenerator::IrType::operator==(const IrType& other) const {
-    if (kind != other.kind)
-      return false;
-
-    switch (kind) {
-    case IrTypeKind::Array:
-      if (!element || !other.element)
-        return element == other.element;
-      return *element == *other.element;
-    case IrTypeKind::Struct:
-      return structName == other.structName;
-    default:
-      return true;
-    }
-  }
-
   // main flow
   // gen() -> genFunction() + push scope (pop when done)-> genStatement() -> push scope if needed ->
   // genStatement() ->.... ->pop scope
@@ -109,90 +81,90 @@ namespace noria {
 #endif
 
     preamble += "declare i32 @printf(ptr, ...)\n"
-                  "declare i32 @puts(ptr)\n"
-                  "declare i32 @putchar(i32)\n"
-                  "declare double @llvm.sqrt.f64(double)\n"
-                  "declare double @llvm.pow.f64(double, double)\n"
-                  "@.fmt.float = private unnamed_addr constant [4 x i8] c\"%g\\0A\\00\"\n\n"
-                  "define void @noria_print_int(i32 %value) {\n"
-                  "entry:\n"
-                  "  %is_zero = icmp eq i32 %value, 0\n"
-                  "  br i1 %is_zero, label %zero, label %check_sign\n"
-                  "zero:\n"
-                  "  call i32 @putchar(i32 48)\n"
-                  "  call i32 @putchar(i32 10)\n"
-                  "  ret void\n"
-                  "check_sign:\n"
-                  "  %is_neg = icmp slt i32 %value, 0\n"
-                  "  br i1 %is_neg, label %negate, label %digits\n"
-                  "negate:\n"
-                  "  call i32 @putchar(i32 45)\n"
-                  "  %abs = sub i32 0, %value\n"
-                  "  br label %digits\n"
-                  "digits:\n"
-                  "  %n = phi i32 [ %value, %check_sign ], [ %abs, %negate ]\n"
-                  "  %v = alloca i32\n"
-                  "  store i32 %n, ptr %v\n"
-                  "  %pos = alloca i32\n"
-                  "  store i32 0, ptr %pos\n"
-                  "  %buf = alloca [12 x i8]\n"
-                  "  br label %extract\n"
-                  "extract:\n"
-                  "  %cur = load i32, ptr %v\n"
-                  "  %done = icmp eq i32 %cur, 0\n"
-                  "  br i1 %done, label %print, label %push\n"
-                  "push:\n"
-                  "  %digit = urem i32 %cur, 10\n"
-                  "  %p = load i32, ptr %pos\n"
-                  "  %ch = add i32 %digit, 48\n"
-                  "  %slot = getelementptr [12 x i8], ptr %buf, i32 0, i32 %p\n"
-                  "  %byte = trunc i32 %ch to i8\n"
-                  "  store i8 %byte, ptr %slot\n"
-                  "  %pnext = add i32 %p, 1\n"
-                  "  store i32 %pnext, ptr %pos\n"
-                  "  %next = udiv i32 %cur, 10\n"
-                  "  store i32 %next, ptr %v\n"
-                  "  br label %extract\n"
-                  "print:\n"
-                  "  %count = load i32, ptr %pos\n"
-                  "  %idx = alloca i32\n"
-                  "  store i32 %count, ptr %idx\n"
-                  "  br label %print_loop\n"
-                  "print_loop:\n"
-                  "  %i = load i32, ptr %idx\n"
-                  "  %more = icmp ugt i32 %i, 0\n"
-                  "  br i1 %more, label %print_one, label %newline\n"
-                  "print_one:\n"
-                  "  %i1 = sub i32 %i, 1\n"
-                  "  %cp = getelementptr [12 x i8], ptr %buf, i32 0, i32 %i1\n"
-                  "  %loaded = load i8, ptr %cp\n"
-                  "  %c = zext i8 %loaded to i32\n"
-                  "  call i32 @putchar(i32 %c)\n"
-                  "  store i32 %i1, ptr %idx\n"
-                  "  br label %print_loop\n"
-                  "newline:\n"
-                  "  call i32 @putchar(i32 10)\n"
-                  "  ret void\n"
-                  "}\n\n";
+                "declare i32 @puts(ptr)\n"
+                "declare i32 @putchar(i32)\n"
+                "declare double @llvm.sqrt.f64(double)\n"
+                "declare double @llvm.pow.f64(double, double)\n"
+                "@.fmt.float = private unnamed_addr constant [4 x i8] c\"%g\\0A\\00\"\n\n"
+                "define void @noria_print_int(i32 %value) {\n"
+                "entry:\n"
+                "  %is_zero = icmp eq i32 %value, 0\n"
+                "  br i1 %is_zero, label %zero, label %check_sign\n"
+                "zero:\n"
+                "  call i32 @putchar(i32 48)\n"
+                "  call i32 @putchar(i32 10)\n"
+                "  ret void\n"
+                "check_sign:\n"
+                "  %is_neg = icmp slt i32 %value, 0\n"
+                "  br i1 %is_neg, label %negate, label %digits\n"
+                "negate:\n"
+                "  call i32 @putchar(i32 45)\n"
+                "  %abs = sub i32 0, %value\n"
+                "  br label %digits\n"
+                "digits:\n"
+                "  %n = phi i32 [ %value, %check_sign ], [ %abs, %negate ]\n"
+                "  %v = alloca i32\n"
+                "  store i32 %n, ptr %v\n"
+                "  %pos = alloca i32\n"
+                "  store i32 0, ptr %pos\n"
+                "  %buf = alloca [12 x i8]\n"
+                "  br label %extract\n"
+                "extract:\n"
+                "  %cur = load i32, ptr %v\n"
+                "  %done = icmp eq i32 %cur, 0\n"
+                "  br i1 %done, label %print, label %push\n"
+                "push:\n"
+                "  %digit = urem i32 %cur, 10\n"
+                "  %p = load i32, ptr %pos\n"
+                "  %ch = add i32 %digit, 48\n"
+                "  %slot = getelementptr [12 x i8], ptr %buf, i32 0, i32 %p\n"
+                "  %byte = trunc i32 %ch to i8\n"
+                "  store i8 %byte, ptr %slot\n"
+                "  %pnext = add i32 %p, 1\n"
+                "  store i32 %pnext, ptr %pos\n"
+                "  %next = udiv i32 %cur, 10\n"
+                "  store i32 %next, ptr %v\n"
+                "  br label %extract\n"
+                "print:\n"
+                "  %count = load i32, ptr %pos\n"
+                "  %idx = alloca i32\n"
+                "  store i32 %count, ptr %idx\n"
+                "  br label %print_loop\n"
+                "print_loop:\n"
+                "  %i = load i32, ptr %idx\n"
+                "  %more = icmp ugt i32 %i, 0\n"
+                "  br i1 %more, label %print_one, label %newline\n"
+                "print_one:\n"
+                "  %i1 = sub i32 %i, 1\n"
+                "  %cp = getelementptr [12 x i8], ptr %buf, i32 0, i32 %i1\n"
+                "  %loaded = load i8, ptr %cp\n"
+                "  %c = zext i8 %loaded to i32\n"
+                "  call i32 @putchar(i32 %c)\n"
+                "  store i32 %i1, ptr %idx\n"
+                "  br label %print_loop\n"
+                "newline:\n"
+                "  call i32 @putchar(i32 10)\n"
+                "  ret void\n"
+                "}\n\n";
     return preamble;
   }
 
-  std::string LlvmIrTextGenerator::defaultIrValue(IrType type) const {
-    if (type == IrType::boolean())
+  std::string LlvmIrTextGenerator::defaultIrValue(const Type& type) const {
+    if (type == Type::boolean())
       return "false";
-    if (type == IrType::f64())
+    if (type == Type::f64())
       return "0.0";
     return "0";
   }
 
   std::string LlvmIrTextGenerator::generateFunction(const ast::Function& function) const {
-    const IrType returnType = parseIrType(function.returnType);
+    const Type returnType = function.returnType;
 
     std::ostringstream out;
     out << "define " << llvmType(returnType) << " @" << function.name << "(";
     for (std::size_t index{}; index < function.parameters.size(); ++index) {
       const auto& parameter = function.parameters[index];
-      const IrType parameterType = parseIrType(parameter.typeName);
+      const Type parameterType = parameter.type;
 
       if (index != 0)
         out << ", ";
@@ -208,7 +180,7 @@ namespace noria {
     scopes.emplace_back(); // scope is an unordered_map, create an empty scope
 
     for (const auto& parameter : function.parameters) {
-      const IrType parameterType = parseIrType(parameter.typeName);
+      const Type parameterType = parameter.type;
       if (!declareLocal(scopes, parameter.name,
                         LocalBinding{"%" + parameter.name, parameterType})) {
         throw CompileError("codegen: duplicate parameter '" + parameter.name + "'");
@@ -234,7 +206,7 @@ namespace noria {
 
   bool LlvmIrTextGenerator::generateStatements(
       const std::vector<std::unique_ptr<ast::Statement>>& statements, std::ostringstream& out,
-      int& nextTemporary, int& nextLabel, IrType expectedReturnType,
+      int& nextTemporary, int& nextLabel, Type expectedReturnType,
       std::vector<Scope>& scopes) const {
 
     for (const auto& statement : statements) {
@@ -247,11 +219,11 @@ namespace noria {
 
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement,
                                               std::ostringstream& out, int& nextTemporary,
-                                              int& nextLabel, IrType expectedReturnType,
+                                              int& nextLabel, Type expectedReturnType,
                                               std::vector<Scope>& scopes) const {
 
     if (const auto* letStatement = dynamic_cast<const ast::LetStatement*>(&statement)) {
-      const IrType localType = parseIrType(letStatement->typeName);
+      const Type localType = letStatement->type;
       const std::string slot = "%" + letStatement->name + ".slot" + std::to_string(nextTemporary++);
 
       if (!declareLocal(scopes, letStatement->name, LocalBinding{slot, localType})) {
@@ -371,17 +343,16 @@ namespace noria {
 
   LlvmIrTextGenerator::Value
   LlvmIrTextGenerator::generateStringLiteral(const ast::StringLiteral& literal,
-                                             std::ostringstream& out,
-                                             int& nextTemporary) const {
+                                             std::ostringstream& out, int& nextTemporary) const {
     const std::string globalName = "@.str." + std::to_string(nextStringGlobal_++);
     const std::size_t length = literal.value.size() + 1;
-    moduleGlobals_ << globalName << " = private unnamed_addr constant [" << length
-                   << " x i8] c\"" << escapeForLlvmString(literal.value) << "\\00\"\n";
+    moduleGlobals_ << globalName << " = private unnamed_addr constant [" << length << " x i8] c\""
+                   << escapeForLlvmString(literal.value) << "\\00\"\n";
 
     const std::string result = "%t" + std::to_string(nextTemporary++);
-    out << "  " << result << " = getelementptr inbounds [" << length << " x i8], ptr "
-        << globalName << ", i32 0, i32 0\n";
-    return Value{result, IrType::str()};
+    out << "  " << result << " = getelementptr inbounds [" << length << " x i8], ptr " << globalName
+        << ", i32 0, i32 0\n";
+    return Value{result, Type::str()};
   }
 
   LlvmIrTextGenerator::Value LlvmIrTextGenerator::generateCastExpression(
@@ -389,31 +360,31 @@ namespace noria {
       const std::vector<Scope>& scopes) const {
     const Value source =
         generateExpression(*cast.expression, out, nextTemporary, nextLabel, scopes);
-    const IrType targetType = parseIrType(cast.targetTypeName);
+    const Type targetType = cast.targetType;
 
     if (source.type == targetType)
       return source;
 
     const std::string result = "%t" + std::to_string(nextTemporary++);
 
-    if (source.type == IrType::i32() && targetType == IrType::f64()) {
+    if (source.type == Type::i32() && targetType == Type::f64()) {
       out << "  " << result << " = sitofp i32 " << source.text << " to double\n";
-      return Value{result, IrType::f64()};
+      return Value{result, Type::f64()};
     }
 
-    if (source.type == IrType::f64() && targetType == IrType::i32()) {
+    if (source.type == Type::f64() && targetType == Type::i32()) {
       out << "  " << result << " = fptosi double " << source.text << " to i32\n";
-      return Value{result, IrType::i32()};
+      return Value{result, Type::i32()};
     }
 
-    if (source.type == IrType::boolean() && targetType == IrType::i32()) {
+    if (source.type == Type::boolean() && targetType == Type::i32()) {
       out << "  " << result << " = zext i1 " << source.text << " to i32\n";
-      return Value{result, IrType::i32()};
+      return Value{result, Type::i32()};
     }
 
-    if (source.type == IrType::i32() && targetType == IrType::boolean()) {
+    if (source.type == Type::i32() && targetType == Type::boolean()) {
       out << "  " << result << " = icmp ne i32 " << source.text << ", 0\n";
-      return Value{result, IrType::boolean()};
+      return Value{result, Type::boolean()};
     }
 
     throw CompileError("codegen: unsupported cast");
@@ -430,21 +401,21 @@ namespace noria {
 
     if (name == "println") {
       out << "  call i32 @putchar(i32 10)\n";
-      return Value{"", IrType::voidType()};
+      return Value{"", Type::voidType()};
     }
 
     if (name == "print") {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call i32 @puts(ptr " << argument.text << ")\n";
-      return Value{"", IrType::voidType()};
+      return Value{"", Type::voidType()};
     }
 
     if (name == "print_int") {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call void @noria_print_int(i32 " << argument.text << ")\n";
-      return Value{"", IrType::voidType()};
+      return Value{"", Type::voidType()};
     }
 
     if (name == "print_float") {
@@ -454,14 +425,14 @@ namespace noria {
       out << "  " << formatPointer
           << " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0\n";
       out << "  call i32 @printf(ptr " << formatPointer << ", double " << argument.text << ")\n";
-      return Value{"", IrType::voidType()};
+      return Value{"", Type::voidType()};
     }
 
     if (name == "print_char") {
       const Value argument =
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       out << "  call i32 @putchar(i32 " << argument.text << ")\n";
-      return Value{"", IrType::voidType()};
+      return Value{"", Type::voidType()};
     }
 
     if (name == "sqrt") {
@@ -469,7 +440,7 @@ namespace noria {
           generateExpression(*call.arguments[0], out, nextTemporary, nextLabel, scopes);
       const std::string result = "%t" + std::to_string(nextTemporary++);
       out << "  " << result << " = call double @llvm.sqrt.f64(double " << argument.text << ")\n";
-      return Value{result, IrType::f64()};
+      return Value{result, Type::f64()};
     }
 
     if (name == "pow") {
@@ -480,7 +451,7 @@ namespace noria {
       const std::string result = "%t" + std::to_string(nextTemporary++);
       out << "  " << result << " = call double @llvm.pow.f64(double " << base.text << ", double "
           << exponent.text << ")\n";
-      return Value{result, IrType::f64()};
+      return Value{result, Type::f64()};
     }
 
     return std::nullopt;
@@ -495,10 +466,9 @@ namespace noria {
       if (isComparison(binary->op))
         return generateBinaryExpression(*binary, out, nextTemporary, nextLabel, scopes).text;
 
-    const Value value =
-        generateExpression(expression, out, nextTemporary, nextLabel, scopes);
+    const Value value = generateExpression(expression, out, nextTemporary, nextLabel, scopes);
 
-    if (value.type == IrType::boolean())
+    if (value.type == Type::boolean())
       return value.text;
 
     const std::string result = "%t" + std::to_string(nextTemporary++);
@@ -512,7 +482,7 @@ namespace noria {
                                           int& nextLabel, const std::vector<Scope>& scopes) const {
 
     if (const auto* integer = dynamic_cast<const ast::IntegerLiteral*>(&expression))
-      return Value{std::to_string(integer->value), IrType::i32()};
+      return Value{std::to_string(integer->value), Type::i32()};
 
     if (const auto* floating = dynamic_cast<const ast::FloatLiteral*>(&expression)) {
       std::ostringstream literal;
@@ -522,14 +492,14 @@ namespace noria {
           text.find('E') == std::string::npos) {
         text += ".0";
       }
-      return Value{text, IrType::f64()};
+      return Value{text, Type::f64()};
     }
 
     if (const auto* stringLiteral = dynamic_cast<const ast::StringLiteral*>(&expression))
       return generateStringLiteral(*stringLiteral, out, nextTemporary);
 
     if (const auto* boolean = dynamic_cast<const ast::BoolLiteral*>(&expression))
-      return Value{boolean->value ? "true" : "false", IrType::boolean()};
+      return Value{boolean->value ? "true" : "false", Type::boolean()};
 
     if (const auto* unary = dynamic_cast<const ast::UnaryExpression*>(&expression)) {
       const Value operand =
@@ -538,18 +508,18 @@ namespace noria {
 
       switch (unary->op) {
       case ast::UnaryOperator::Negate:
-        if (operand.type == IrType::f64()) {
+        if (operand.type == Type::f64()) {
           out << "  " << result << " = fneg double " << operand.text << "\n";
-          return Value{result, IrType::f64()};
+          return Value{result, Type::f64()};
         }
         out << "  " << result << " = sub i32 0, " << operand.text << "\n";
-        return Value{result, IrType::i32()};
+        return Value{result, Type::i32()};
       case ast::UnaryOperator::Not:
         out << "  " << result << " = xor i1 " << operand.text << ", true\n";
-        return Value{result, IrType::boolean()};
+        return Value{result, Type::boolean()};
       case ast::UnaryOperator::BitNot:
         out << "  " << result << " = xor i32 " << operand.text << ", -1\n";
-        return Value{result, IrType::i32()};
+        return Value{result, Type::i32()};
       }
     }
 
@@ -579,8 +549,7 @@ namespace noria {
       arguments.reserve(call->arguments.size());
 
       for (const auto& argument : call->arguments) {
-        arguments.push_back(
-            generateExpression(*argument, out, nextTemporary, nextLabel, scopes));
+        arguments.push_back(generateExpression(*argument, out, nextTemporary, nextLabel, scopes));
       }
 
       const std::string result = "%t" + std::to_string(nextTemporary++);
@@ -599,22 +568,18 @@ namespace noria {
     throw CompileError("codegen: unsupported expression");
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateBinaryExpression(const ast::BinaryExpression& binary,
-                                                std::ostringstream& out, int& nextTemporary,
-                                                int& nextLabel,
-                                                const std::vector<Scope>& scopes) const {
+  LlvmIrTextGenerator::Value LlvmIrTextGenerator::generateBinaryExpression(
+      const ast::BinaryExpression& binary, std::ostringstream& out, int& nextTemporary,
+      int& nextLabel, const std::vector<Scope>& scopes) const {
 
     if (binary.op == ast::BinaryOperator::And || binary.op == ast::BinaryOperator::Or) {
-      const Value left =
-          generateExpression(*binary.left, out, nextTemporary, nextLabel, scopes);
+      const Value left = generateExpression(*binary.left, out, nextTemporary, nextLabel, scopes);
       const int labelId = nextLabel++;
       const std::string shortCircuitLabel =
           (binary.op == ast::BinaryOperator::And ? "and.short" : "or.short") +
           std::to_string(labelId);
       const std::string rhsLabel =
-          (binary.op == ast::BinaryOperator::And ? "and.rhs" : "or.rhs") +
-          std::to_string(labelId);
+          (binary.op == ast::BinaryOperator::And ? "and.rhs" : "or.rhs") + std::to_string(labelId);
       const std::string mergeLabel =
           (binary.op == ast::BinaryOperator::And ? "and.end" : "or.end") + std::to_string(labelId);
       const std::string shortCircuitValue =
@@ -631,15 +596,14 @@ namespace noria {
       out << "  br label %" << mergeLabel << "\n";
 
       out << rhsLabel << ":\n";
-      const Value right =
-          generateExpression(*binary.right, out, nextTemporary, nextLabel, scopes);
+      const Value right = generateExpression(*binary.right, out, nextTemporary, nextLabel, scopes);
       out << "  br label %" << mergeLabel << "\n";
 
       out << mergeLabel << ":\n";
       const std::string result = "%t" + std::to_string(nextTemporary++);
-      out << "  " << result << " = phi i1 [ " << shortCircuitValue << ", %"
-          << shortCircuitLabel << " ], [ " << right.text << ", %" << rhsLabel << " ]\n";
-      return Value{result, IrType::boolean()};
+      out << "  " << result << " = phi i1 [ " << shortCircuitValue << ", %" << shortCircuitLabel
+          << " ], [ " << right.text << ", %" << rhsLabel << " ]\n";
+      return Value{result, Type::boolean()};
     }
 
     const Value left = generateExpression(*binary.left, out, nextTemporary, nextLabel, scopes);
@@ -647,61 +611,26 @@ namespace noria {
     const std::string result = "%t" + std::to_string(nextTemporary++);
 
     if (isComparison(binary.op)) {
-      if (left.type == IrType::f64() && right.type == IrType::f64()) {
-        out << "  " << result << " = fcmp " << llvmFloatComparisonPredicate(binary.op)
-            << " double " << left.text << ", " << right.text << "\n";
-        return Value{result, IrType::boolean()};
+      if (left.type == Type::f64() && right.type == Type::f64()) {
+        out << "  " << result << " = fcmp " << llvmFloatComparisonPredicate(binary.op) << " double "
+            << left.text << ", " << right.text << "\n";
+        return Value{result, Type::boolean()};
       }
 
       out << "  " << result << " = icmp " << llvmIntegerComparisonPredicate(binary.op) << " i32 "
           << left.text << ", " << right.text << "\n";
-      return Value{result, IrType::boolean()};
+      return Value{result, Type::boolean()};
     }
 
-    if (left.type == IrType::f64() && right.type == IrType::f64()) {
+    if (left.type == Type::f64() && right.type == Type::f64()) {
       out << "  " << result << " = " << llvmFloatInstruction(binary.op) << " double " << left.text
           << ", " << right.text << "\n";
-      return Value{result, IrType::f64()};
+      return Value{result, Type::f64()};
     }
 
     out << "  " << result << " = " << llvmIntegerInstruction(binary.op) << " i32 " << left.text
         << ", " << right.text << "\n";
-    return Value{result, IrType::i32()};
-  }
-
-  LlvmIrTextGenerator::IrType LlvmIrTextGenerator::parseIrType(const std::string& typeName) const {
-    if (typeName == "i32")
-      return IrType::i32();
-
-    if (typeName == "f64")
-      return IrType::f64();
-
-    if (typeName == "bool")
-      return IrType::boolean();
-
-    if (typeName == "str")
-      return IrType::str();
-
-    throw CompileError("codegen: unknown type '" + typeName + "'");
-  }
-
-  std::string LlvmIrTextGenerator::llvmType(IrType type) const {
-    switch (type.kind) {
-    case IrTypeKind::I32:
-      return "i32";
-    case IrTypeKind::F64:
-      return "double";
-    case IrTypeKind::Bool:
-      return "i1";
-    case IrTypeKind::Str:
-    case IrTypeKind::Array:
-    case IrTypeKind::Struct:
-      return "ptr";
-    case IrTypeKind::Void:
-      return "void";
-    }
-
-    return "";
+    return Value{result, Type::i32()};
   }
 
   bool LlvmIrTextGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
@@ -735,9 +664,9 @@ namespace noria {
 
     for (const auto& function : module.functions) {
       FunctionBinding binding;
-      binding.returnType = parseIrType(function.returnType);
+      binding.returnType = function.returnType;
       for (const auto& parameter : function.parameters) {
-        binding.parameterTypes.push_back(parseIrType(parameter.typeName));
+        binding.parameterTypes.push_back(parameter.type);
       }
       functions_.emplace(function.name, std::move(binding));
     }

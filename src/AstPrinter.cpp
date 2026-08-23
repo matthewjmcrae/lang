@@ -124,10 +124,10 @@ namespace noria {
         if (index != 0)
           out << ", ";
 
-        out << function.parameters[index].name << ": " << function.parameters[index].typeName;
+        out << function.parameters[index].name << ": " << function.parameters[index].type.name();
       }
 
-      out << ") -> " << function.returnType << "\n";
+      out << ") -> " << function.returnType.name() << "\n";
       printBlock("Block", function.body, out, indent + 1);
     }
 
@@ -154,7 +154,7 @@ namespace noria {
 
       if (const auto* let = dynamic_cast<const ast::LetStatement*>(&statement)) {
         printIndent(out, indent);
-        out << "Let " << let->name << ": " << let->typeName << "\n";
+        out << "Let " << let->name << ": " << let->type.name() << "\n";
         printExpression(*let->initializer, out, indent + 1);
         return;
       }
@@ -252,7 +252,7 @@ namespace noria {
 
       if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression)) {
         printIndent(out, indent);
-        out << "Cast " << castExpression->targetTypeName << "\n";
+        out << "Cast " << castExpression->targetType.name() << "\n";
         printExpression(*castExpression->expression, out, indent + 1);
         return;
       }
@@ -275,4 +275,3 @@ namespace noria {
   } // namespace
 
 } // namespace noria
-

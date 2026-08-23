@@ -1,4 +1,4 @@
-#include "noria/TypeChecker.hpp"
+#include "noria/Types.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -22,6 +22,14 @@ namespace {
     }
   }
 
+  void expectLlvm(const noria::Type& type, const std::string& expected) {
+    if (noria::llvmType(type) != expected) {
+      std::cerr << "FAIL: expected llvm type '" << expected << "', got '" << noria::llvmType(type)
+                << "'\n";
+      ++failures;
+    }
+  }
+
 } // namespace
 
 int main() {
@@ -38,6 +46,14 @@ int main() {
   expectName(Type::array(Type::str()), "[str]");
   expectName(Type::structType("Point"), "Point");
   expectName(Type::structType(""), "<struct>");
+
+  expectLlvm(Type::i32(), "i32");
+  expectLlvm(Type::f64(), "double");
+  expectLlvm(Type::boolean(), "i1");
+  expectLlvm(Type::voidType(), "void");
+  expectLlvm(Type::str(), "ptr");
+  expectLlvm(Type::array(Type::i32()), "ptr");
+  expectLlvm(Type::structType("Point"), "ptr");
 
   expect(Type::i32() == Type::i32(), "i32 equals i32");
   expect(Type::f64() == Type::f64(), "f64 equals f64");

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noria/Ast.hpp"
+#include "noria/Types.hpp"
 
 #include <memory>
 #include <string>
@@ -8,42 +9,6 @@
 #include <vector>
 
 namespace noria {
-
-  enum class TypeKind {
-    I32,
-    F64,
-    Bool,
-    Str,
-    Array,
-    Struct,
-    Void,
-  };
-
-  // Kind + payload type representation. Scalars (I32/F64/Bool/Str/Void) only use
-  // `kind`; Array carries its element type and Struct carries its name. Later
-  // phases add behaviour for the non-scalar kinds without reshaping callers.
-  struct Type {
-    TypeKind kind = TypeKind::I32;
-    std::shared_ptr<Type> element; // Array element type
-    std::string structName;        // Struct name
-
-    Type() = default;
-    explicit Type(TypeKind kind) : kind(kind) {}
-
-    static Type i32() { return Type(TypeKind::I32); }
-    static Type f64() { return Type(TypeKind::F64); }
-    static Type boolean() { return Type(TypeKind::Bool); }
-    static Type str() { return Type(TypeKind::Str); }
-    static Type voidType() { return Type(TypeKind::Void); }
-    static Type array(Type elementType);
-    static Type structType(std::string name);
-
-    bool operator==(const Type& other) const;
-    bool operator!=(const Type& other) const { return !(*this == other); }
-
-    // Human-readable name for diagnostics (e.g. "i32", "[bool]", "Point").
-    std::string name() const;
-  };
 
   struct FunctionSignature {
     Type returnType;
@@ -55,8 +20,7 @@ namespace noria {
     void check(const ast::Module& module);
 
   private:
-    Type parseTypeName(const std::string& typeName, SourceLocation location) const;
-    std::string typeName(Type type) const;
+    void requireKnownType(const Type& type, SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;
 
     void collectFunctionSignatures(const ast::Module& module);
@@ -78,4 +42,3 @@ namespace noria {
   };
 
 } // namespace noria
-

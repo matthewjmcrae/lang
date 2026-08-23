@@ -14,53 +14,12 @@ namespace noria {
     }
   } // namespace
 
-  Type Type::array(Type elementType) {
-    Type type(TypeKind::Array);
-    type.element = std::make_shared<Type>(std::move(elementType));
-    return type;
-  }
+  void TypeChecker::requireKnownType(const Type& type, SourceLocation location) const {
+    if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
+        type == Type::str())
+      return;
 
-  Type Type::structType(std::string name) {
-    Type type(TypeKind::Struct);
-    type.structName = std::move(name);
-    return type;
-  }
-
-  bool Type::operator==(const Type& other) const {
-    if (kind != other.kind)
-      return false;
-
-    switch (kind) {
-    case TypeKind::Array:
-      if (!element || !other.element)
-        return element == other.element;
-      return *element == *other.element;
-    case TypeKind::Struct:
-      return structName == other.structName;
-    default:
-      return true;
-    }
-  }
-
-  std::string Type::name() const {
-    switch (kind) {
-    case TypeKind::I32:
-      return "i32";
-    case TypeKind::F64:
-      return "f64";
-    case TypeKind::Bool:
-      return "bool";
-    case TypeKind::Str:
-      return "str";
-    case TypeKind::Array:
-      return "[" + (element ? element->name() : std::string{"?"}) + "]";
-    case TypeKind::Struct:
-      return structName.empty() ? std::string{"<struct>"} : structName;
-    case TypeKind::Void:
-      return "void";
-    }
-
-    return "<unknown>";
+    throw CompileError(atLocation(location, "typecheck: unknown type '" + type.name() + "'"));
   }
 
   // main flow
@@ -83,10 +42,12 @@ namespace noria {
     scopes_.clear();
     pushScope();
 
-    const Type expectedReturnType = parseTypeName(function.returnType, function.location);
+    requireKnownType(function.returnType, function.location);
+    const Type expectedReturnType = function.returnType;
 
     for (const auto& parameter : function.parameters) {
-      const Type parameterType = parseTypeName(parameter.typeName, parameter.location);
+      requireKnownType(parameter.type, parameter.location);
+      const Type parameterType = parameter.type;
 
       if (!declareLocal(parameter.name, parameterType)) {
         throw CompileError(atLocation(parameter.location,
@@ -113,7 +74,8 @@ namespace noria {
   bool TypeChecker::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
 
     if (const auto* letStatement = dynamic_cast<const ast::LetStatement*>(&statement)) {
-      const Type declaredType = parseTypeName(letStatement->typeName, letStatement->location);
+      requireKnownType(letStatement->type, letStatement->location);
+      const Type declaredType = letStatement->type;
       const Type initializerType = checkExpression(*letStatement->initializer);
 
       if (!declareLocal(letStatement->name, declaredType)) {
@@ -125,8 +87,8 @@ namespace noria {
       if (!isAssignable(declaredType, initializerType)) {
         throw CompileError(atLocation(letStatement->initializer->location,
                                       "typecheck: cannot initialize '" + letStatement->name +
-                                          "' of type " + typeName(declaredType) + " with " +
-                                          typeName(initializerType)));
+                                          "' of type " + declaredType.name() + " with " +
+                                          initializerType.name()));
       }
 
       return false;
@@ -140,9 +102,9 @@ namespace noria {
 
       if (!isAssignable(targetType, valueType)) {
         throw CompileError(atLocation(assignmentStatement->rhs->location,
-                                      "typecheck: cannot assign " + typeName(valueType) +
+                                      "typecheck: cannot assign " + valueType.name() +
                                           " to variable '" + assignmentStatement->lhs +
-                                          "' of type " + typeName(targetType)));
+                                          "' of type " + targetType.name()));
       }
 
       return false;
@@ -154,9 +116,8 @@ namespace noria {
 
       if (!isAssignable(expectedReturnType, returnType)) {
         throw CompileError(atLocation(returnStatement->expression->location,
-                                      "typecheck: return type " + typeName(returnType) +
-                                          " does not match expected " +
-                                          typeName(expectedReturnType)));
+                                      "typecheck: return type " + returnType.name() +
+                                          " does not match expected " + expectedReturnType.name()));
       }
       return true;
     }
@@ -166,7 +127,7 @@ namespace noria {
       if (conditionType != Type::boolean()) {
         throw CompileError(
             atLocation(ifStatement->condition->location,
-                       "typecheck: if condition must be bool, got " + typeName(conditionType)));
+                       "typecheck: if condition must be bool, got " + conditionType.name()));
       }
 
       pushScope();
@@ -185,7 +146,7 @@ namespace noria {
       if (conditionType != Type::boolean()) {
         throw CompileError(
             atLocation(whileStatement->condition->location,
-                       "typecheck: while condition must be bool, got " + typeName(conditionType)));
+                       "typecheck: while condition must be bool, got " + conditionType.name()));
       }
 
       pushScope();
@@ -222,7 +183,7 @@ namespace noria {
       const Type argType = checkExpression(*call.arguments[0]);
       if (argType != Type::str())
         throw CompileError(atLocation(call.arguments[0]->location,
-                                      "typecheck: print expects str, got " + typeName(argType)));
+                                      "typecheck: print expects str, got " + argType.name()));
       return Type::voidType();
     }
 
@@ -232,7 +193,7 @@ namespace noria {
       const Type argType = checkExpression(*call.arguments[0]);
       if (argType != Type::i32())
         throw CompileError(atLocation(call.arguments[0]->location,
-                                      "typecheck: print_int expects i32, got " + typeName(argType)));
+                                      "typecheck: print_int expects i32, got " + argType.name()));
       return Type::voidType();
     }
 
@@ -242,7 +203,7 @@ namespace noria {
       const Type argType = checkExpression(*call.arguments[0]);
       if (argType != Type::f64())
         throw CompileError(atLocation(call.arguments[0]->location,
-                                      "typecheck: print_float expects f64, got " + typeName(argType)));
+                                      "typecheck: print_float expects f64, got " + argType.name()));
       return Type::voidType();
     }
 
@@ -252,7 +213,7 @@ namespace noria {
       const Type argType = checkExpression(*call.arguments[0]);
       if (argType != Type::i32())
         throw CompileError(atLocation(call.arguments[0]->location,
-                                      "typecheck: print_char expects i32, got " + typeName(argType)));
+                                      "typecheck: print_char expects i32, got " + argType.name()));
       return Type::voidType();
     }
 
@@ -268,7 +229,7 @@ namespace noria {
       const Type argType = checkExpression(*call.arguments[0]);
       if (argType != Type::f64())
         throw CompileError(atLocation(call.arguments[0]->location,
-                                      "typecheck: sqrt expects f64, got " + typeName(argType)));
+                                      "typecheck: sqrt expects f64, got " + argType.name()));
       return Type::f64();
     }
 
@@ -279,8 +240,8 @@ namespace noria {
       const Type expType = checkExpression(*call.arguments[1]);
       if (baseType != Type::f64() || expType != Type::f64())
         throw CompileError(atLocation(call.location, "typecheck: pow expects f64 arguments, got " +
-                                                          typeName(baseType) + " and " +
-                                                          typeName(expType)));
+                                                         baseType.name() + " and " +
+                                                         expType.name()));
       return Type::f64();
     }
 
@@ -311,9 +272,9 @@ namespace noria {
       case ast::BinaryOperator::And:
       case ast::BinaryOperator::Or:
         if (left != Type::boolean() || right != Type::boolean()) {
-          throw CompileError(atLocation(
-              binary->location, "typecheck: logical operator requires bool operands, got " +
-                                    typeName(left) + " and " + typeName(right)));
+          throw CompileError(atLocation(binary->location,
+                                        "typecheck: logical operator requires bool operands, got " +
+                                            left.name() + " and " + right.name()));
         }
         return Type::boolean();
       case ast::BinaryOperator::Add:
@@ -324,9 +285,10 @@ namespace noria {
           return Type::f64();
         if (left == Type::i32() && right == Type::i32())
           return Type::i32();
-        throw CompileError(atLocation(
-            binary->location, "typecheck: arithmetic operator requires matching numeric operands, got " +
-                                  typeName(left) + " and " + typeName(right)));
+        throw CompileError(
+            atLocation(binary->location,
+                       "typecheck: arithmetic operator requires matching numeric operands, got " +
+                           left.name() + " and " + right.name()));
       case ast::BinaryOperator::Modulo:
       case ast::BinaryOperator::BitAnd:
       case ast::BinaryOperator::BitOr:
@@ -334,9 +296,9 @@ namespace noria {
       case ast::BinaryOperator::Shl:
       case ast::BinaryOperator::Shr:
         if (left != Type::i32() || right != Type::i32()) {
-          throw CompileError(atLocation(
-              binary->location, "typecheck: integer operator requires i32 operands, got " +
-                                    typeName(left) + " and " + typeName(right)));
+          throw CompileError(atLocation(binary->location,
+                                        "typecheck: integer operator requires i32 operands, got " +
+                                            left.name() + " and " + right.name()));
         }
         return Type::i32();
       case ast::BinaryOperator::Less:
@@ -347,9 +309,9 @@ namespace noria {
       case ast::BinaryOperator::NotEqual:
         if (left == right && (left == Type::i32() || left == Type::f64()))
           return Type::boolean();
-        throw CompileError(
-            atLocation(binary->location, "typecheck: comparison requires matching numeric operands, got " +
-                                             typeName(left) + " and " + typeName(right)));
+        throw CompileError(atLocation(
+            binary->location, "typecheck: comparison requires matching numeric operands, got " +
+                                  left.name() + " and " + right.name()));
       }
     }
 
@@ -360,21 +322,21 @@ namespace noria {
       case ast::UnaryOperator::Negate:
         if (operandType == Type::i32() || operandType == Type::f64())
           return operandType;
-        throw CompileError(atLocation(unary->location,
-                                     "typecheck: unary negation requires numeric operand, got " +
-                                         typeName(operandType)));
+        throw CompileError(
+            atLocation(unary->location, "typecheck: unary negation requires numeric operand, got " +
+                                            operandType.name()));
       case ast::UnaryOperator::BitNot:
         if (operandType != Type::i32()) {
-          throw CompileError(atLocation(unary->location,
-                                       "typecheck: unary operator requires i32 operand, got " +
-                                           typeName(operandType)));
+          throw CompileError(
+              atLocation(unary->location, "typecheck: unary operator requires i32 operand, got " +
+                                              operandType.name()));
         }
         return Type::i32();
       case ast::UnaryOperator::Not:
         if (operandType != Type::boolean()) {
-          throw CompileError(atLocation(unary->location,
-                                       "typecheck: logical not requires bool operand, got " +
-                                           typeName(operandType)));
+          throw CompileError(
+              atLocation(unary->location, "typecheck: logical not requires bool operand, got " +
+                                              operandType.name()));
         }
         return Type::boolean();
       }
@@ -382,8 +344,8 @@ namespace noria {
 
     if (const auto* castExpression = dynamic_cast<const ast::CastExpression*>(&expression)) {
       const Type sourceType = checkExpression(*castExpression->expression);
-      const Type targetType =
-          parseTypeName(castExpression->targetTypeName, castExpression->location);
+      requireKnownType(castExpression->targetType, castExpression->location);
+      const Type targetType = castExpression->targetType;
 
       if (sourceType == targetType)
         return targetType;
@@ -397,9 +359,9 @@ namespace noria {
       if (sourceType == Type::i32() && targetType == Type::boolean())
         return Type::boolean();
 
-      throw CompileError(atLocation(castExpression->location, "typecheck: cannot cast " +
-                                                                    typeName(sourceType) + " to " +
-                                                                    typeName(targetType)));
+      throw CompileError(
+          atLocation(castExpression->location,
+                     "typecheck: cannot cast " + sourceType.name() + " to " + targetType.name()));
     }
 
     if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
@@ -427,7 +389,7 @@ namespace noria {
         if (!isAssignable(expected, actual)) {
           std::ostringstream out;
           out << "typecheck: argument " << (index + 1) << " of '" << call->callee << "' expects "
-              << typeName(expected) << ", got " << typeName(actual);
+              << expected.name() << ", got " << actual.name();
           throw CompileError(atLocation(call->arguments[index]->location, out.str()));
         }
       }
@@ -462,26 +424,6 @@ namespace noria {
     throw CompileError(atLocation(location, "typecheck: unknown local variable '" + name + "'"));
   }
 
-  Type TypeChecker::parseTypeName(const std::string& typeName, SourceLocation location) const {
-    if (typeName == "i32")
-      return Type::i32();
-
-    if (typeName == "f64")
-      return Type::f64();
-
-    if (typeName == "bool")
-      return Type::boolean();
-
-    if (typeName == "str")
-      return Type::str();
-
-    throw CompileError(atLocation(location, "typecheck: unknown type '" + typeName + "'"));
-  }
-
-  std::string TypeChecker::typeName(Type type) const {
-    return type.name();
-  }
-
   bool TypeChecker::isAssignable(Type expected, Type actual) const {
     return expected == actual;
   }
@@ -495,10 +437,12 @@ namespace noria {
       }
 
       FunctionSignature signature;
-      signature.returnType = parseTypeName(function.returnType, function.location);
+      requireKnownType(function.returnType, function.location);
+      signature.returnType = function.returnType;
 
       for (const auto& parameter : function.parameters) {
-        signature.parameterTypes.push_back(parseTypeName(parameter.typeName, parameter.location));
+        requireKnownType(parameter.type, parameter.location);
+        signature.parameterTypes.push_back(parameter.type);
       }
 
       functions_.emplace(function.name, std::move(signature));

@@ -31,12 +31,11 @@ namespace noria {
     auto parameters = parseFunctionParameters();
     expect(TokenKind::RightParen, "expected ')' after function parameters");
     expect(TokenKind::Arrow, "expected return type arrow");
-    const Token& returnType = expect(TokenKind::Identifier, "expected return type");
 
     ast::Function function;
     function.name = name.text;
     function.parameters = std::move(parameters);
-    function.returnType = returnType.text;
+    function.returnType = parseTypeAnnotation("expected return type");
     function.location = fnToken.location;
 
     function.body = parseBlock();
@@ -54,9 +53,8 @@ namespace noria {
     while (true) {
       const Token& name = expect(TokenKind::Identifier, "expected parameter name");
       expect(TokenKind::Colon, "expected ':' after parameter name");
-      const Token& typeName = expect(TokenKind::Identifier, "expected parameter type");
-
-      parameters.push_back(ast::Parameter{name.text, typeName.text, name.location});
+      parameters.push_back(
+          ast::Parameter{name.text, parseTypeAnnotation("expected parameter type"), name.location});
 
       if (!match(TokenKind::Comma)) {
         // parameters tokens are either identifiers colons typenames or commas, comma is the only
@@ -95,12 +93,12 @@ namespace noria {
       const Token& letToken = advance();
       const Token& name = expect(TokenKind::Identifier, "expected identifier");
       expect(TokenKind::Colon, "expected ':' after variable name");
-      const Token& typeName = expect(TokenKind::Identifier, "expected variable type");
+      Type variableType = parseTypeAnnotation("expected variable type");
       expect(TokenKind::Equal, "expected '=' after variable type");
       auto initializer = parseExpression();
       expect(TokenKind::Semicolon, "expected ';' after variable declaration");
-      return std::make_unique<ast::LetStatement>(name.text, typeName.text, std::move(initializer),
-                                                 letToken.location);
+      return std::make_unique<ast::LetStatement>(name.text, std::move(variableType),
+                                                 std::move(initializer), letToken.location);
     }
 
     const Token& lhs = peek();
@@ -334,9 +332,10 @@ namespace noria {
     auto expression = parsePrimary();
 
     while (match(TokenKind::As)) {
-      const Token& typeName = expect(TokenKind::Identifier, "expected cast target type");
-      expression = std::make_unique<ast::CastExpression>(std::move(expression), typeName.text,
-                                                         typeName.location);
+      const SourceLocation typeLocation = peek().location;
+      Type targetType = parseTypeAnnotation("expected cast target type");
+      expression = std::make_unique<ast::CastExpression>(std::move(expression),
+                                                         std::move(targetType), typeLocation);
     }
 
     return expression;
@@ -450,6 +449,21 @@ namespace noria {
     std::ostringstream out;
     out << message << ", got '" << peek().text << "' (" << tokenKindName(peek().kind) << ")";
     throw CompileError(atLocation(peek(), out.str()));
+  }
+
+  Type Parser::parseTypeAnnotation(std::string_view message) {
+    const Token& token = expect(TokenKind::Identifier, message);
+
+    if (token.text == "i32")
+      return Type::i32();
+    if (token.text == "f64")
+      return Type::f64();
+    if (token.text == "bool")
+      return Type::boolean();
+    if (token.text == "str")
+      return Type::str();
+
+    return Type::structType(token.text);
   }
 
   ast::BinaryOperator Parser::binaryOperatorFromToken(TokenKind kind) const {

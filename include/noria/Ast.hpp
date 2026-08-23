@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Token.hpp"
+#include "noria/Types.hpp"
 
 namespace noria::ast {
 
@@ -24,8 +25,7 @@ namespace noria::ast {
   };
 
   struct FloatLiteral final : Expression {
-    FloatLiteral(double value, SourceLocation location)
-        : Expression(location), value(value) {}
+    FloatLiteral(double value, SourceLocation location) : Expression(location), value(value) {}
 
     double value;
   };
@@ -79,13 +79,12 @@ namespace noria::ast {
   };
 
   struct CastExpression final : Expression {
-    CastExpression(std::unique_ptr<Expression> expression, std::string targetTypeName,
-                   SourceLocation location)
+    CastExpression(std::unique_ptr<Expression> expression, Type targetType, SourceLocation location)
         : Expression(location), expression(std::move(expression)),
-          targetTypeName(std::move(targetTypeName)) {}
+          targetType(std::move(targetType)) {}
 
     std::unique_ptr<Expression> expression;
-    std::string targetTypeName;
+    Type targetType;
   };
 
   struct BinaryExpression final : Expression {
@@ -129,13 +128,13 @@ namespace noria::ast {
   };
 
   struct LetStatement final : Statement {
-    LetStatement(std::string name, std::string typeName, std::unique_ptr<Expression> initializer,
+    LetStatement(std::string name, Type type, std::unique_ptr<Expression> initializer,
                  SourceLocation location)
-        : Statement(location), name(std::move(name)), typeName(std::move(typeName)),
+        : Statement(location), name(std::move(name)), type(std::move(type)),
           initializer(std::move(initializer)) {}
 
     std::string name;
-    std::string typeName;
+    Type type;
     std::unique_ptr<Expression> initializer;
   };
 
@@ -177,13 +176,13 @@ namespace noria::ast {
 
   struct Parameter {
     std::string name;
-    std::string typeName;
+    Type type;
     SourceLocation location;
   };
 
   struct Function {
     std::string name;
-    std::string returnType;
+    Type returnType;
     SourceLocation location;
     std::vector<Parameter> parameters;
     std::vector<std::unique_ptr<Statement>> body;

@@ -2,6 +2,7 @@
 
 #include "noria/Ast.hpp"
 #include "noria/Token.hpp"
+#include "noria/Types.hpp"
 
 #include <span>
 
@@ -36,6 +37,7 @@ namespace noria {
     std::unique_ptr<ast::Expression> parseMultiplication();
     std::unique_ptr<ast::Expression> parseUnary();
     std::unique_ptr<ast::Expression> parseCast();
+    Type parseTypeAnnotation(std::string_view message);
     std::unique_ptr<ast::Expression> parsePrimary();
     std::vector<std::unique_ptr<ast::Expression>> parseCallArguments();
     ast::BinaryOperator binaryOperatorFromToken(TokenKind kind) const;

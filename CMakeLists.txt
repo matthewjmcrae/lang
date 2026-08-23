@@ -17,13 +17,14 @@ add_executable(noria
   src/main.cpp
   src/Parser.cpp
   src/TypeChecker.cpp
+  src/Types.cpp
 )
 
 target_include_directories(noria PRIVATE include)
 
 add_executable(type_representation_test
   tests/type_representation_test.cpp
-  src/TypeChecker.cpp
+  src/Types.cpp
 )
 
 target_include_directories(type_representation_test PRIVATE include)
