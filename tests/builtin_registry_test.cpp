@@ -94,6 +94,13 @@ int main() {
   expect(rtStoreDescriptor->id == BuiltinId::RtStore, "__rt_store id");
   expect(rtStoreDescriptor->parameters[2] == TypeKind::TypeParam, "__rt_store witness value kind");
 
+  const BuiltinSignature* rtTrapDescriptor = lookupBuiltin("__rt_trap");
+  expect(rtTrapDescriptor != nullptr, "lookup __rt_trap");
+  expect(rtTrapDescriptor->id == BuiltinId::RtTrap, "__rt_trap id");
+  expect(rtTrapDescriptor->visibility == noria::Visibility::Internal, "__rt_trap visibility");
+  expect(rtTrapDescriptor->parameters[0] == TypeKind::Str, "__rt_trap parameter kind");
+  expect(rtTrapDescriptor->returnKind == TypeKind::Void, "__rt_trap return kind");
+
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
 

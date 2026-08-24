@@ -39,6 +39,32 @@ fn sequence_push<T>(s: Sequence<T, arr>, value: T) -> Sequence<T, arr> {
 }
 
 fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T {
+  let len: i32 = load_i32_at(s.handle, 0);
+  if index < 0 || index >= len {
+    __rt_trap("sequence_get: index out of bounds\n");
+  }
   let data: __rt_ptr = load_ptr_at(s.handle, 1);
   return load_at(data, index);
+}
+
+fn sequence_set<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr> {
+  let len: i32 = load_i32_at(s.handle, 0);
+  if index < 0 || index >= len {
+    __rt_trap("sequence_set: index out of bounds\n");
+  }
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let set0: i32 = store_at(data, index, value);
+  return s;
+}
+
+fn sequence_pop<T>(s: Sequence<T, arr>) -> T {
+  let len: i32 = load_i32_at(s.handle, 0);
+  if len <= 0 {
+    __rt_trap("sequence_pop: empty sequence\n");
+  }
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let last_index: i32 = len - 1;
+  let value: T = load_at(data, last_index);
+  let pop0: i32 = store_i32_at(s.handle, 0, len - 1);
+  return value;
 }

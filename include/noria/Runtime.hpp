@@ -114,4 +114,51 @@ namespace noria::runtime {
       "  ret void\n"
       "}\n\n";
 
+  inline std::string_view runtimeTrapDefinition() {
+#if defined(__APPLE__) && defined(__aarch64__)
+    return "define private void @\"__noria.rt.trap\"(ptr %msg) {\n"
+           "entry:\n"
+           "  %len = call i64 @strlen(ptr %msg)\n"
+           "  call void asm sideeffect \"svc #0x80\", "
+           "\"{x16},{x0},{x1},{x2},~{memory}\" (i64 536870916, i64 2, ptr %msg, i64 %len)\n"
+           "  call void asm sideeffect \"svc #0x80\", \"{x16},{x0},~{memory}\" (i64 536870913, "
+           "i64 70)\n"
+           "  unreachable\n"
+           "}\n\n";
+#elif defined(__APPLE__) && defined(__x86_64__)
+    return "define private void @\"__noria.rt.trap\"(ptr %msg) {\n"
+           "entry:\n"
+           "  %len = call i64 @strlen(ptr %msg)\n"
+           "  call void asm sideeffect \"syscall\", "
+           "\"{ax},{di},{si},{dx},~{rcx},~{r11},~{memory}\" (i64 536870916, i64 2, ptr %msg, i64 "
+           "%len)\n"
+           "  call void asm sideeffect \"syscall\", \"{ax},{di},~{rcx},~{r11},~{memory}\" (i64 "
+           "536870913, i64 70)\n"
+           "  unreachable\n"
+           "}\n\n";
+#elif defined(__linux__) && defined(__aarch64__)
+    return "define private void @\"__noria.rt.trap\"(ptr %msg) {\n"
+           "entry:\n"
+           "  %len = call i64 @strlen(ptr %msg)\n"
+           "  call void asm sideeffect \"svc #0\", \"{x8},{x0},{x1},{x2},~{memory}\" (i64 64, "
+           "i64 2, ptr %msg, i64 %len)\n"
+           "  call void asm sideeffect \"svc #0\", \"{x8},{x0},~{memory}\" (i64 93, i64 70)\n"
+           "  unreachable\n"
+           "}\n\n";
+#elif defined(__linux__) && defined(__x86_64__)
+    return "define private void @\"__noria.rt.trap\"(ptr %msg) {\n"
+           "entry:\n"
+           "  %len = call i64 @strlen(ptr %msg)\n"
+           "  call void asm sideeffect \"syscall\", "
+           "\"{ax},{di},{si},{dx},~{rcx},~{r11},~{memory}\" (i64 1, i64 2, ptr %msg, i64 %len)\n"
+           "  call void asm sideeffect \"syscall\", \"{ax},{di},~{rcx},~{r11},~{memory}\" (i64 60, "
+           "i64 "
+           "70)\n"
+           "  unreachable\n"
+           "}\n\n";
+#else
+    return "";
+#endif
+  }
+
 } // namespace noria::runtime

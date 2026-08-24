@@ -1,0 +1,7 @@
+import std::sequence::{Sequence, sequence_new, sequence_pop};
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  let v: i32 = sequence_pop(s);
+  return 0;
+}

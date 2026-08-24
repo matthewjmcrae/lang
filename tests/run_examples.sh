@@ -93,6 +93,43 @@ run_native_exit_test() {
   fi
 }
 
+run_native_failure_test() {
+  local source="$1"
+  local expected_exit="$2"
+  local expected_stderr="${3:-}"
+  local name
+  name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
+  local executable="${TEST_OUT_DIR}/${name}"
+  local stderr_file="${TEST_OUT_DIR}/${name}.runtime.stderr"
+
+  if ! command -v clang >/dev/null 2>&1; then
+    echo "[noria-tests] skip native failure ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+
+  echo "[noria-tests] native failure ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
+  clang "${llvm_ir}" -o "${executable}"
+
+  set +e
+  if [[ -n "${expected_stderr}" ]]; then
+    "${executable}" >/dev/null 2>"${stderr_file}"
+  else
+    "${executable}"
+  fi
+  local actual_exit="$?"
+  set -e
+
+  if [[ "${actual_exit}" != "${expected_exit}" ]]; then
+    echo "[noria-tests] expected exit ${expected_exit}, got ${actual_exit} for ${source}" >&2
+    exit 1
+  fi
+
+  if [[ -n "${expected_stderr}" ]]; then
+    grep -q "${expected_stderr}" "${stderr_file}"
+  fi
+}
+
 run_native_stdout_test() {
   local source="$1"
   local expected_file="$2"
@@ -598,6 +635,12 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
 echo "[noria-tests] phase 7 sequence acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_pop_set.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_growth_mutation.noria" 51
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_pop_empty.noria" 70 \
+  "sequence_pop: empty sequence"
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_get_oob.noria" 70 \
+  "sequence_get: index out of bounds"
 grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
 grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
 
@@ -606,6 +649,10 @@ grep -q "typecheck: cannot initialize 's' of type Sequence<i32, list> with Seque
   "${TEST_OUT_DIR}/sequence_list_unsupported.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
+grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside the standard library" \
+  "${TEST_OUT_DIR}/use_private_rt_trap.stderr"
+grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
+  "${TEST_OUT_DIR}/sequence_set_type_mismatch.stderr"
 grep -q "typecheck: __rt_sizeof requires a scalar element type, got Point" \
   "${TEST_OUT_DIR}/sequence_struct_element.stderr"
 

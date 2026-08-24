@@ -132,6 +132,9 @@ namespace noria {
 
     preamble += "\n";
     preamble += runtime::runtimeDefinitions;
+    const std::string_view trapDefinition = runtime::runtimeTrapDefinition();
+    if (!trapDefinition.empty())
+      preamble += trapDefinition;
     return preamble;
   }
 
@@ -917,6 +920,11 @@ namespace noria {
       const std::string elementPointer =
           emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
       emitter.line("store i32 " + value.text + ", ptr " + elementPointer);
+      return Value{"", Type::voidType()};
+    }
+    case BuiltinId::RtTrap: {
+      const Value message = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      emitter.line("call void @\"__noria.rt.trap\"(ptr " + message.text + ")");
       return Value{"", Type::voidType()};
     }
     }

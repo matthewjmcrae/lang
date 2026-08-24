@@ -93,7 +93,9 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | `sequence_new` | `fn sequence_new<T>(sample: T) -> Sequence<T, arr>` | Geometric initial capacity; `sample` seeds element type inference |
 | `sequence_len` | `fn sequence_len<T>(s: Sequence<T, arr>) -> i32` | Current length |
 | `sequence_push` | `fn sequence_push<T>(s: Sequence<T, arr>, value: T) -> Sequence<T, arr>` | Grow/reallocate when full; returns updated handle |
-| `sequence_get` | `fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T` | Load element at index |
+| `sequence_get` | `fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T` | Load element at index; traps on out-of-bounds |
+| `sequence_set` | `fn sequence_set<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr>` | Store element at index; traps on out-of-bounds |
+| `sequence_pop` | `fn sequence_pop<T>(s: Sequence<T, arr>) -> T` | Remove and return last element; traps on empty |
 
 `list` and other implementation tags are not implemented yet; selecting them is a compile-time error.
 

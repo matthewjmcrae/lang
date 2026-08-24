@@ -222,7 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- container stdlib ADT bodies beyond the initial `Sequence<T, arr>` scaffold (`sequence_new`, `sequence_len`, `sequence_push`, `sequence_get` in `std::sequence`; `list`, `Dictionary`, and `Set` bodies are not implemented yet)
+- container stdlib ADT bodies beyond the initial `Sequence<T, arr>` scaffold (`sequence_new`, `sequence_len`, `sequence_push`, `sequence_get`, `sequence_set`, `sequence_pop` in `std::sequence`; `list`, `Dictionary`, and `Set` bodies are not implemented yet)
 - `break` or `continue`
 - `for` loops
 - type inference

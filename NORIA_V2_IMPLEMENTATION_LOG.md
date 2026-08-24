@@ -866,4 +866,36 @@ APPROVED after blocking transitive `std::internal::rt` leak via public imports a
 
 Sequence list impl, or remaining Sequence API (pop/set/insert/remove/bounds), then Dictionary.
 
+## Phase 7 — Sequence pop/set and runtime trap
+
+Baseline commit `bac8e8c`. Review: APPROVED after x86_64 asm constraint fix (and earlier stderr/namespace rounds). Gates: all green including sanitizer.
+
+### Objective and acceptance
+
+Add `sequence_set`/`sequence_pop` to `Sequence<T, arr>`; introduce stdlib-only `__rt_trap` with platform runtime abort (stderr message, exit 70); preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`stdlib/sequence.noria`: `sequence_set`, `sequence_pop`; bounds/empty checks call `__rt_trap`. `Builtins.hpp`: internal `RtTrap`. `Runtime.hpp`: `runtimeTrapDefinition()` per macOS/Linux arm64/x86_64. `Codegen.cpp`: emit trap in preamble; map `RtTrap` to `@__noria.rt.trap`. Examples: `sequence_pop_set`, `sequence_growth_mutation`, `sequence_pop_empty`, `sequence_get_oob`; invalid `sequence_set_type_mismatch`, `use_private_rt_trap`. Updated `run_examples.sh`, `builtin_registry_test.cpp`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Trap is stdlib-internal — user code cannot call `__rt_trap`. Abort is compile-time inline asm (write stderr + exit 70), not libc. `sequence_set`/`sequence_pop` follow existing handle-mutation pattern; OOB/empty are runtime failures.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Native failure tests assert exit 70 and trap message substrings on stderr.
+
+### Review findings and resolutions
+
+APPROVED after x86_64 syscall inline-asm clobber constraints fixed (~{rcx},~{r11}). Earlier rounds fixed trap symbol namespace (`__noria.rt.trap`) and stderr contract in failure tests.
+
+### Limitations and risks
+
+Trap only on supported macOS/Linux triples. No insert/remove; `Sequence<T, list>` still unsupported. No ownership/release; pop does not shrink capacity.
+
+### Next unit
+
+`sequence_insert`/`sequence_remove`, or `Sequence<T, list>`, then Dictionary.
+
 
