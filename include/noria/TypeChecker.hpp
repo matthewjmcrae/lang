@@ -220,7 +220,7 @@ namespace noria {
 
     SymbolOrigins symbolOrigins_;
     std::unordered_map<std::string, FunctionSignature> functions_;
-    std::unordered_map<std::string, const ast::Function*> genericFunctions_;
+    std::unordered_map<std::string, std::vector<const ast::Function*>> genericFunctions_;
     std::unordered_map<std::string, const ast::StructDecl*> genericStructs_;
     std::vector<SpecializationRequest> specializationRequests_;
     mutable std::vector<StructSpecializationRequest> structSpecializationRequests_;

@@ -56,6 +56,7 @@ namespace noria {
     Shr,
     Percent,
     As,
+    Impl,
     Unknown,
   };
 

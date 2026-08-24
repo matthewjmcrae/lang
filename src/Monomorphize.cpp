@@ -4,6 +4,7 @@
 #include "noria/Diagnostic.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <unordered_set>
 
@@ -16,6 +17,15 @@ namespace noria {
         return false;
       }
       return left.line == right.line && left.column == right.column;
+    }
+
+    std::optional<ImplementationTag> findImplTag(const std::vector<Type>& typeArgs) {
+      for (const Type& typeArg : typeArgs) {
+        if (typeArg.kind == TypeKind::ImplTag) {
+          return typeArg.implTag;
+        }
+      }
+      return std::nullopt;
     }
 
     bool locationLess(const SourceLocation& left, const SourceLocation& right) {
@@ -311,9 +321,21 @@ namespace noria {
       std::string currentFunction_;
     };
 
-    const ast::Function* findTemplateFunction(const ast::Module& module, std::string_view name) {
+    const ast::Function* findTemplateFunction(const ast::Module& module, std::string_view name,
+                                              std::optional<ImplementationTag> implTag) {
       for (const auto& function : module.functions) {
-        if (function.name == name && !function.typeParams.empty()) {
+        if (function.name != name || function.typeParams.empty()) {
+          continue;
+        }
+
+        if (implTag) {
+          if (function.implTag && *function.implTag == *implTag) {
+            return &function;
+          }
+          continue;
+        }
+
+        if (!function.implTag) {
           return &function;
         }
       }
@@ -370,8 +392,31 @@ namespace noria {
       return specialized;
     }
 
+    bool containsUnboundTypeParam(const Type& type) {
+      if (type.kind == TypeKind::TypeParam) {
+        return true;
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return containsUnboundTypeParam(*type.element);
+      }
+
+      if (type.kind == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArgs) {
+          if (containsUnboundTypeParam(typeArg)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
     Type rewriteAppliedStructType(const Type& type) {
       if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
+        if (containsUnboundTypeParam(type)) {
+          return type;
+        }
         return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
       }
 
@@ -504,14 +549,16 @@ namespace noria {
 
       ast::Function specialized;
       specialized.name = mangleSpecialization(templated.name, typeArgs);
-      specialized.returnType = substituteType(templated.returnType, substitution);
+      specialized.returnType =
+          rewriteAppliedStructType(substituteType(templated.returnType, substitution));
       specialized.location = templated.location;
       specialized.typeParams = {};
 
       specialized.parameters.reserve(templated.parameters.size());
       for (const auto& parameter : templated.parameters) {
         specialized.parameters.push_back(ast::Parameter{
-            parameter.name, substituteType(parameter.type, substitution), parameter.location});
+            parameter.name, rewriteAppliedStructType(substituteType(parameter.type, substitution)),
+            parameter.location});
       }
 
       CloneVisitor cloner(templated.name, typeArgs, substitution);
@@ -602,7 +649,8 @@ namespace noria {
         continue;
       }
 
-      const ast::Function* templated = findTemplateFunction(module, request.templateName);
+      const ast::Function* templated =
+          findTemplateFunction(module, request.templateName, findImplTag(request.typeArgs));
       if (templated == nullptr) {
         throw CompileError(
             formatDiagnostic(request.callSiteLocation, DiagnosticStage::TypeCheck,

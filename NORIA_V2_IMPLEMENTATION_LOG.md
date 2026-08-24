@@ -738,4 +738,36 @@ No buffer/node primitives yet. No ownership model; leak-on-exit unchanged. Harml
 
 Phase 7 — ADT stdlib bodies.
 
+## Phase 6 — Tag-selected generic definitions
+
+Baseline commit `68e2c6b`. Review: APPROVED after family-aware import fix (`takeFunctionFamily`).
+
+### Objective and acceptance
+
+Add `fn ... impl tag` generic function families; select the body at specialization from the inferred implementation tag in type arguments; validate family consistency; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Lexer: `Impl` token. AST: `Function.implTag`. Parser: `impl tag` clause on generic functions. TypeChecker: `selectGenericImplementation`, duplicate/mixed-tag and cross-tag signature checks. Monomorphize: tag-aware template lookup. ModuleResolver: `takeFunctionFamily` merges all tagged bodies on import. `stdlib/impl_family.noria`; `generic_impl_select_tag`, `import_impl_family`; seven negatives; extended `generics_test.cpp`, `module_resolver_test.cpp`, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Tagged overloads share one public name; the tag is inferred from type arguments (e.g. `Box<i32, arr>`). A single untagged body remains valid; mixing tagged and untagged bodies is rejected. Imports merge entire implementation families, not one overload.
+
+### Tests, sanitizer, results
+
+`just test`; `just sanitize` green. 110 preexisting AST/IR byte-identical.
+
+### Review findings and resolutions
+
+APPROVED after import fix: single-name import previously dropped sibling tagged implementations; fixed with `takeFunctionFamily`.
+
+### Limitations and risks
+
+No monomorph cache dedup; recursive specialization cycles only partially capped. No explicit tag at call sites.
+
+### Next unit
+
+Monomorphization cache/dedup + recursive specialization cycles (still Phase 6), not Phase 7 yet.
+
 

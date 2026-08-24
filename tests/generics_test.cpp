@@ -242,6 +242,33 @@ fn main() -> i32 {
   expect(implTagDistinctOutput.llvmIr.find("%Box$s.i32$tag.list = type") != std::string::npos,
          "list-tagged specialization is emitted");
 
+  constexpr std::string_view implSelectSource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> i32 impl arr {
+  return 1;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> i32 impl list {
+  return 2;
+}
+
+fn main() -> i32 {
+  let a: Box<i32, arr> = Box<i32, arr> { value: 1 };
+  let b: Box<i32, list> = Box<i32, list> { value: 2 };
+  return kind(a) + kind(b);
+}
+)";
+
+  const noria::CompileOutput implSelectOutput =
+      noria::compileSource(implSelectSource, noria::StopAfter::Ir);
+  expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.arr") == 1,
+         "arr-tagged kind specialization is emitted");
+  expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.list") == 1,
+         "list-tagged kind specialization is emitted");
+
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";
     return EXIT_FAILURE;

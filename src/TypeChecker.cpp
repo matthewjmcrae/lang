@@ -22,6 +22,66 @@ namespace noria {
       throw CompileError("typecheck: internal error: statement visited by expression visitor");
     }
 
+    bool sameGenericPublicApi(const ast::Function& left, const ast::Function& right) {
+      if (left.typeParams.size() != right.typeParams.size()) {
+        return false;
+      }
+      for (std::size_t index{}; index < left.typeParams.size(); ++index) {
+        if (left.typeParams[index].name != right.typeParams[index].name) {
+          return false;
+        }
+      }
+      if (left.parameters.size() != right.parameters.size()) {
+        return false;
+      }
+      for (std::size_t index{}; index < left.parameters.size(); ++index) {
+        if (left.parameters[index].type != right.parameters[index].type) {
+          return false;
+        }
+      }
+      return left.returnType == right.returnType;
+    }
+
+    std::optional<ImplementationTag> findImplTag(const std::vector<Type>& typeArgs) {
+      for (const Type& typeArg : typeArgs) {
+        if (typeArg.kind == TypeKind::ImplTag) {
+          return typeArg.implTag;
+        }
+      }
+      return std::nullopt;
+    }
+
+    const ast::Function*
+    selectGenericImplementation(const std::vector<const ast::Function*>& family,
+                                std::optional<ImplementationTag> callTag,
+                                std::string_view functionName, SourceLocation location) {
+      if (family.empty()) {
+        return nullptr;
+      }
+
+      if (family.size() == 1 && !family.front()->implTag) {
+        return family.front();
+      }
+
+      if (!callTag) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "cannot select implementation of '" + std::string(functionName) +
+                                 "' without an implementation tag in inferred type arguments"));
+      }
+
+      for (const ast::Function* candidate : family) {
+        if (candidate->implTag && *candidate->implTag == *callTag) {
+          return candidate;
+        }
+      }
+
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "no implementation of '" + std::string(functionName) +
+                                              "' for tag '" +
+                                              std::string(implementationTagName(*callTag)) + "'"));
+    }
+
     bool containsUnboundTypeParam(const Type& type) {
       if (type.kind == TypeKind::TypeParam) {
         return true;
@@ -390,10 +450,11 @@ namespace noria {
                                           "unknown function '" + call.callee + "'"));
     }
 
-    const ast::Function& templated = *genericFunction->second;
-    if (call.arguments.size() != templated.parameters.size()) {
+    const std::vector<const ast::Function*>& family = genericFunction->second;
+    const ast::Function& signature = *family.front();
+    if (call.arguments.size() != signature.parameters.size()) {
       std::ostringstream out;
-      out << "function '" << call.callee << "' expects " << templated.parameters.size()
+      out << "function '" << call.callee << "' expects " << signature.parameters.size()
           << " argument(s), got " << call.arguments.size();
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
     }
@@ -401,13 +462,13 @@ namespace noria {
     std::unordered_map<std::string, Type> bindings;
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type actual = checker_.checkRvalue(*call.arguments[index]);
-      checker_.unifyTypes(templated.parameters[index].type, actual, bindings,
+      checker_.unifyTypes(signature.parameters[index].type, actual, bindings,
                           call.arguments[index]->location);
     }
 
     std::vector<Type> typeArgs;
-    typeArgs.reserve(templated.typeParams.size());
-    for (const auto& typeParam : templated.typeParams) {
+    typeArgs.reserve(signature.typeParams.size());
+    for (const auto& typeParam : signature.typeParams) {
       const auto bound = bindings.find(typeParam.name);
       if (bound == bindings.end()) {
         throw CompileError(
@@ -417,15 +478,18 @@ namespace noria {
       typeArgs.push_back(bound->second);
     }
 
+    const ast::Function* selected =
+        selectGenericImplementation(family, findImplTag(typeArgs), call.callee, call.location);
+
     Substitution substitution;
-    for (const auto& typeParam : templated.typeParams) {
+    for (const auto& typeParam : selected->typeParams) {
       substitution.emplace(typeParam.name, bindings.at(typeParam.name));
     }
 
     checker_.checkSpecializationConstraints(call.callee, typeArgs, call.location);
     checker_.specializationRequests_.push_back(
         SpecializationRequest{call.callee, typeArgs, call.location, checker_.currentFunctionName_});
-    result_ = substitute(templated.returnType, substitution);
+    result_ = substitute(selected->returnType, substitution);
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
@@ -1387,6 +1451,58 @@ namespace noria {
 
   void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
     for (const auto& function : module.functions) {
+      if (!function.typeParams.empty()) {
+        const auto existing = genericFunctions_.find(function.name);
+        if (existing != genericFunctions_.end()) {
+          for (const ast::Function* candidate : existing->second) {
+            if (function.implTag && candidate->implTag &&
+                *function.implTag == *candidate->implTag) {
+              throw CompileError(
+                  formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                   "duplicate implementation '" +
+                                       std::string(implementationTagName(*function.implTag)) +
+                                       "' for generic function '" + function.name + "'"));
+            }
+            if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate->implTag)) {
+              throw CompileError(
+                  formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                   "generic function '" + function.name +
+                                       "' mixes tagged and untagged implementations"));
+            }
+            if (!function.implTag && !candidate->implTag) {
+              throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                                  "duplicate function '" + function.name + "'"));
+            }
+          }
+        } else if (functions_.contains(function.name)) {
+          throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                              "duplicate function '" + function.name + "'"));
+        }
+
+        const auto origin = symbolOrigins_.functions.find(function.name);
+        const bool allowInternal =
+            origin != symbolOrigins_.functions.end() && isStdlibOrigin(origin->second);
+        if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
+          throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                              "name '" + function.name + "' is reserved"));
+        }
+
+        std::unordered_set<std::string> allowedTypeParams;
+        for (const auto& typeParam : function.typeParams) {
+          allowedTypeParams.insert(typeParam.name);
+        }
+
+        requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
+                         allowInternal);
+        for (const auto& parameter : function.parameters) {
+          requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
+                           allowInternal);
+        }
+
+        genericFunctions_[function.name].push_back(&function);
+        continue;
+      }
+
       if (functions_.contains(function.name) || genericFunctions_.contains(function.name)) {
         throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                                             "duplicate function '" + function.name + "'"));
@@ -1400,23 +1516,6 @@ namespace noria {
                                             "name '" + function.name + "' is reserved"));
       }
 
-      if (!function.typeParams.empty()) {
-        std::unordered_set<std::string> allowedTypeParams;
-        for (const auto& typeParam : function.typeParams) {
-          allowedTypeParams.insert(typeParam.name);
-        }
-
-        requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
-                         allowInternal);
-        for (const auto& parameter : function.parameters) {
-          requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
-                           allowInternal);
-        }
-
-        genericFunctions_.emplace(function.name, &function);
-        continue;
-      }
-
       FunctionSignature signature;
       requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
       signature.returnType = function.returnType;
@@ -1427,6 +1526,21 @@ namespace noria {
       }
 
       functions_.emplace(function.name, std::move(signature));
+    }
+
+    for (const auto& [name, family] : genericFunctions_) {
+      if (family.size() <= 1) {
+        continue;
+      }
+
+      const ast::Function& reference = *family.front();
+      for (std::size_t index = 1; index < family.size(); ++index) {
+        if (!sameGenericPublicApi(reference, *family[index])) {
+          throw CompileError(formatDiagnostic(family[index]->location, DiagnosticStage::TypeCheck,
+                                              "implementation signature of '" + name +
+                                                  "' does not match other implementations"));
+        }
+      }
     }
   }
 

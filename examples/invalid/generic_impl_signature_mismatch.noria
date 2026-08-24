@@ -1,0 +1,15 @@
+struct Box<T, I> {
+  value: T;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> i32 impl arr {
+  return 1;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> f64 impl list {
+  return 1.0;
+}
+
+fn main() -> i32 {
+  return 0;
+}

@@ -277,6 +277,14 @@ grep -q "typecheck: implementation tag 'bst' requires '<' for key type str" \
   "${TEST_OUT_DIR}/generic_bst_key_unordered.stderr"
 grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64; V2 hashes i32, bool, str" \
   "${TEST_OUT_DIR}/generic_hashmap_key_unhashable.stderr"
+grep -q "typecheck: no implementation of 'kind' for tag 'list'" \
+  "${TEST_OUT_DIR}/generic_impl_missing_tag.stderr"
+grep -q "typecheck: implementation signature of 'kind' does not match other implementations" \
+  "${TEST_OUT_DIR}/generic_impl_signature_mismatch.stderr"
+grep -q "typecheck: generic function 'kind' mixes tagged and untagged implementations" \
+  "${TEST_OUT_DIR}/generic_impl_mixed_tagged.stderr"
+grep -q "typecheck: cannot select implementation of 'kind' without an implementation tag in inferred type arguments" \
+  "${TEST_OUT_DIR}/generic_impl_untagged_call.stderr"
 
 echo "[noria-tests] phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
@@ -353,6 +361,14 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
     impl_tag_type_param.noria)
       expect_compile_failure_contains "${source}" \
         "implementation tag 'arr' cannot be a type parameter"
+      ;;
+    generic_impl_unknown_tag.noria)
+      expect_compile_failure_contains "${source}" \
+        "unknown implementation tag 'bogus'"
+      ;;
+    generic_impl_on_non_generic.noria)
+      expect_compile_failure_contains "${source}" \
+        "impl clause requires a generic function"
       ;;
   esac
 done
@@ -565,6 +581,9 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/import_math.noria" 25
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_two_names.noria" 17
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_twice_same_module.noria" 25
 grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | grep -q "^1$"
+run_native_exit_test "${ROOT_DIR}/examples/basic/import_impl_family.noria" 3
+grep -c 'define i32 @kind$s.i32$tag.arr' "${TEST_OUT_DIR}/import_impl_family.ll" | grep -q "^1$"
+grep -c 'define i32 @kind$s.i32$tag.list' "${TEST_OUT_DIR}/import_impl_family.ll" | grep -q "^1$"
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
   -o "${TEST_OUT_DIR}/import_math.ast"
 grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
@@ -607,9 +626,12 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_infer.noria" 42
 grep -c '%Box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria" 3
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_select_tag.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_tag_constraint_ok.noria" 43
 grep -c '%Box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
+grep -c 'define i32 @kind$s.i32$tag.arr' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
+grep -c 'define i32 @kind$s.i32$tag.list' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
 
 echo "[noria-tests] direct build examples/basic/factorial.noria"
 run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"

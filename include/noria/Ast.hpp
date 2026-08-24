@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -291,6 +292,7 @@ namespace noria::ast {
     std::vector<TypeParameter> typeParams;
     std::vector<Parameter> parameters;
     std::vector<std::unique_ptr<Statement>> body;
+    std::optional<ImplementationTag> implTag;
   };
 
   struct ImportedName {

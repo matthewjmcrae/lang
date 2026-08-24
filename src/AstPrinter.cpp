@@ -314,7 +314,11 @@ namespace noria {
         out << function.parameters[index].name << ": " << function.parameters[index].type.name();
       }
 
-      out << ") -> " << function.returnType.name() << "\n";
+      out << ") -> " << function.returnType.name();
+      if (function.implTag) {
+        out << " impl " << implementationTagName(*function.implTag);
+      }
+      out << "\n";
       printBlock("Block", function.body, out, indent + 1);
     }
 

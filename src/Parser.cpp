@@ -256,6 +256,23 @@ namespace noria {
 
     function.parameters = std::move(parameters);
     function.returnType = parseTypeAnnotation("expected return type");
+
+    if (peek().kind == TokenKind::Impl) {
+      if (function.typeParams.empty()) {
+        throw CompileError(
+            formatDiagnostic(peek().location, "impl clause requires a generic function"));
+      }
+
+      expect(TokenKind::Impl, "expected 'impl' clause");
+      const Token& tagToken = expect(TokenKind::Identifier, "expected implementation tag name");
+      const std::optional<ImplementationTag> tag = implementationTagFromName(tagToken.text);
+      if (!tag) {
+        throw CompileError(formatDiagnostic(tagToken.location,
+                                            "unknown implementation tag '" + tagToken.text + "'"));
+      }
+      function.implTag = *tag;
+    }
+
     function.body = parseBlock();
 
     typeParamsInScope_ = std::move(savedTypeParams);

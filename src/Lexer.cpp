@@ -199,7 +199,7 @@ namespace noria {
         {"fn", TokenKind::Fn},         {"import", TokenKind::Import}, {"struct", TokenKind::Struct},
         {"return", TokenKind::Return}, {"let", TokenKind::Let},       {"if", TokenKind::If},
         {"else", TokenKind::Else},     {"while", TokenKind::While},   {"as", TokenKind::As},
-        {"true", TokenKind::True},     {"false", TokenKind::False},
+        {"impl", TokenKind::Impl},     {"true", TokenKind::True},     {"false", TokenKind::False},
     };
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
@@ -418,6 +418,8 @@ namespace noria {
       return "%";
     case TokenKind::As:
       return "as";
+    case TokenKind::Impl:
+      return "impl";
     case TokenKind::Unknown:
       return "unknown";
     }

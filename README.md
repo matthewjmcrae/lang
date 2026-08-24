@@ -197,9 +197,9 @@ Expected result:
 
 Passing examples live in `examples/basic` (99 programs).
 
-Negative type-checking examples live in `examples/invalid` (66 programs).
+Negative type-checking examples live in `examples/invalid` (70 programs).
 
-Lexer and parser failure examples live in `examples/invalid_syntax` (13 programs).
+Lexer and parser failure examples live in `examples/invalid_syntax` (15 programs).
 
 Design sketches and superseded stubs live in `examples/future`.
 
@@ -222,7 +222,7 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- container stdlib (implementation tags `arr`/`list`/`bst`/`hashmap` parse in type arguments and enforce key constraints at specialization time)
+- container stdlib ADT bodies (tag-selected generic function implementations and implementation-tag constraints are supported; full Sequence/Dictionary/Set bodies are not)
 - `break` or `continue`
 - `for` loops
 - type inference

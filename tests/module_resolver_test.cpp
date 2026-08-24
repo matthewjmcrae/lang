@@ -215,6 +215,34 @@ fn main() -> i32 { return exported(); }
   expect(originResolved.symbolOrigins.structs.at("exported") == "",
          "root struct keeps empty origin when name matches import");
 
+  MemoryModuleSourceProvider familyProvider;
+  familyProvider.addModule("std::impl_family", R"(
+fn kind<T, I>(b: Box<T, I>) -> i32 impl arr {
+  return 1;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> i32 impl list {
+  return 2;
+}
+)");
+  const noria::ResolvedProgram familyResolved = noria::resolveImports(
+      parseModule(R"(
+import std::impl_family::{kind};
+
+struct Box<T, I> {
+  value: T;
+}
+
+fn main() -> i32 {
+  return 0;
+}
+)"),
+      noria::CompileOptions{}, familyProvider);
+  expect(countFunction(familyResolved.module, "kind") == 2,
+         "importing a name merges every tagged implementation");
+  expect(familyResolved.symbolOrigins.functions.at("kind") == "std::impl_family",
+         "imported tagged family keeps stdlib origin");
+
   if (failures != 0) {
     std::cerr << failures << " module resolver test failure(s)\n";
     return EXIT_FAILURE;

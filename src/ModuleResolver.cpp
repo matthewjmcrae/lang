@@ -73,16 +73,22 @@ namespace noria {
       return std::nullopt;
     }
 
-    ast::Function takeFunction(ast::Module& module, const std::string& name) {
-      for (auto iterator = module.functions.begin(); iterator != module.functions.end();
-           ++iterator) {
+    std::vector<ast::Function> takeFunctionFamily(ast::Module& module, const std::string& name) {
+      std::vector<ast::Function> family;
+      for (auto iterator = module.functions.begin(); iterator != module.functions.end();) {
         if (iterator->name == name) {
-          ast::Function moved = std::move(*iterator);
-          module.functions.erase(iterator);
-          return moved;
+          family.push_back(std::move(*iterator));
+          iterator = module.functions.erase(iterator);
+          continue;
         }
+        ++iterator;
       }
-      throw CompileError("internal error: missing function '" + name + "'");
+
+      if (family.empty()) {
+        throw CompileError("internal error: missing function '" + name + "'");
+      }
+
+      return family;
     }
 
     ast::StructDecl takeStruct(ast::Module& module, const std::string& name) {
@@ -189,7 +195,9 @@ namespace noria {
                              "duplicate symbol '" + importedName.name + "'");
         }
 
-        merged.functions.push_back(takeFunction(sourceModule, importedName.name));
+        for (ast::Function& function : takeFunctionFamily(sourceModule, importedName.name)) {
+          merged.functions.push_back(std::move(function));
+        }
         symbolOrigins.functions.emplace(importedName.name, modulePath);
         return;
       }
