@@ -939,6 +939,35 @@ namespace noria {
       emitter.line(result + " = icmp eq ptr " + left.text + ", " + right.text);
       return Value{result, Type::boolean()};
     }
+    case BuiltinId::RtHash: {
+      const Type witness =
+          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+      const Value key = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const std::string result = emitter.freshTemp();
+      if (witness == Type::i32()) {
+        const std::string mixed = emitter.freshTemp();
+        emitter.line(mixed + " = mul i32 " + key.text + ", 2654435761");
+        const std::string masked = emitter.freshTemp();
+        emitter.line(masked + " = and i32 " + mixed + ", 2147483647");
+        return Value{masked, Type::i32()};
+      }
+      if (witness == Type::boolean()) {
+        emitter.line(result + " = zext i1 " + key.text + " to i32");
+        return Value{result, Type::i32()};
+      }
+      if (witness == Type::str()) {
+        emitter.line(result + " = call i32 @noria_hash_str(ptr " + key.text + ")");
+        return Value{result, Type::i32()};
+      }
+      throw CompileError("codegen: __rt_hash unsupported witness type " + witness.name());
+    }
+    case BuiltinId::RtByteOffset: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value bytes = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = getelementptr i8, ptr " + pointer.text + ", i32 " + bytes.text);
+      return Value{result, Type::rawPtr()};
+    }
     }
 
     return std::nullopt;

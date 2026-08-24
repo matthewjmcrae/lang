@@ -57,3 +57,11 @@ fn null_ptr() -> __rt_ptr {
 fn ptr_eq(a: __rt_ptr, b: __rt_ptr) -> bool {
   return __rt_ptr_eq(a, b);
 }
+
+fn hash_of<T>(key: T) -> i32 {
+  return __rt_hash(key);
+}
+
+fn byte_offset(p: __rt_ptr, bytes: i32) -> __rt_ptr {
+  return __rt_byte_offset(p, bytes);
+}

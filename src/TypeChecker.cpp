@@ -1489,6 +1489,22 @@ namespace noria {
       return Type::i32();
     }
 
+    if (descriptor.id == BuiltinId::RtHash) {
+      const Type witness = resolveWitnessType(call.location);
+      if (!supportsOperation(witness, RequiredOperation::Hash)) {
+        throw CompileError(formatDiagnostic(
+            call.location, DiagnosticStage::TypeCheck,
+            "__rt_hash requires a hashable key type (i32, bool, str), got " + witness.name()));
+      }
+      const Type value = checkRvalue(*call.arguments[0]);
+      if (value != witness) {
+        throw CompileError(
+            formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
+                             "__rt_hash expects " + witness.name() + ", got " + value.name()));
+      }
+      return Type::i32();
+    }
+
     if (descriptor.id == BuiltinId::RtLoad) {
       const Type pointer = checkRvalue(*call.arguments[0]);
       const Type index = checkRvalue(*call.arguments[1]);

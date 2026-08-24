@@ -668,17 +668,26 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_get_oob.noria"
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_insert_get.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_contains_remove.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_get_or.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_insert_get.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_contains_remove.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_get_or.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_resize.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_tombstone.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/dictionary_get_missing.noria" 70 \
   "dictionary_get: key not found"
 grep -c '%Dictionary$s.i32$s.i32$tag.bst = type' "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
 grep -c 'define %Dictionary$s.i32$s.i32$tag.bst @dictionary_new$s.i32$s.i32$tag.bst' \
   "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
+grep -c '%Dictionary$s.i32$s.i32$tag.hashmap = type' \
+  "${TEST_OUT_DIR}/dictionary_hashmap_insert_get.ll" | grep -q "^1$"
+grep -c 'define %Dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$tag.hashmap' \
+  "${TEST_OUT_DIR}/dictionary_hashmap_insert_get.ll" | grep -q "^1$"
 
 echo "[noria-tests] phase 7 sequence diagnostics"
 grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
   "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
-grep -q "typecheck: no implementation of 'dictionary_new' for tag 'hashmap'" \
-  "${TEST_OUT_DIR}/dictionary_hashmap_unsupported.stderr"
+grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64" \
+  "${TEST_OUT_DIR}/dictionary_hashmap_key_unhashable.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside the standard library" \

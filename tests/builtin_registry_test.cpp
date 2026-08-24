@@ -115,6 +115,21 @@ int main() {
   expect(rtPtrEqDescriptor->parameters[1] == TypeKind::RawPtr, "__rt_ptr_eq right kind");
   expect(rtPtrEqDescriptor->returnKind == TypeKind::Bool, "__rt_ptr_eq return kind");
 
+  const BuiltinSignature* rtHashDescriptor = lookupBuiltin("__rt_hash");
+  expect(rtHashDescriptor != nullptr, "lookup __rt_hash");
+  expect(rtHashDescriptor->id == BuiltinId::RtHash, "__rt_hash id");
+  expect(rtHashDescriptor->arity == 1, "__rt_hash arity");
+  expect(rtHashDescriptor->parameters[0] == TypeKind::TypeParam, "__rt_hash witness kind");
+  expect(rtHashDescriptor->returnKind == TypeKind::I32, "__rt_hash return kind");
+
+  const BuiltinSignature* rtByteOffsetDescriptor = lookupBuiltin("__rt_byte_offset");
+  expect(rtByteOffsetDescriptor != nullptr, "lookup __rt_byte_offset");
+  expect(rtByteOffsetDescriptor->id == BuiltinId::RtByteOffset, "__rt_byte_offset id");
+  expect(rtByteOffsetDescriptor->arity == 2, "__rt_byte_offset arity");
+  expect(rtByteOffsetDescriptor->parameters[0] == TypeKind::RawPtr, "__rt_byte_offset pointer kind");
+  expect(rtByteOffsetDescriptor->parameters[1] == TypeKind::I32, "__rt_byte_offset bytes kind");
+  expect(rtByteOffsetDescriptor->returnKind == TypeKind::RawPtr, "__rt_byte_offset return kind");
+
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
 

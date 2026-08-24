@@ -128,21 +128,31 @@ fn main() -> i32 {
 }
 ```
 
-## Dictionary (bst)
+## Dictionary (bst and hashmap)
 
-`std::dictionary` exports a generic `Dictionary<K, V, I>` struct and a tag-selected `impl bst` operation family. Keys require `<` and `==`; `hashmap` is deferred.
+`std::dictionary` exports a generic `Dictionary<K, V, I>` struct and tag-selected operation families. `bst` keys require `<` and `==`; `hashmap` keys require `==` and V2 `hash` (`i32`, `bool`, `str`).
 
-| Operation | Signature | bst |
-| --- | --- | --- |
-| `dictionary_new` | `fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I>` | Empty tree; samples seed type inference |
-| `dictionary_len` | `fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32` | O(1) |
-| `dictionary_insert` | `fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> Dictionary<K, V, I>` | Upsert; O(h) |
-| `dictionary_contains` | `fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool` | O(h) |
-| `dictionary_get` | `fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key |
-| `dictionary_get_or` | `fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V` | O(h) |
-| `dictionary_remove` | `fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key |
+| Operation | Signature | bst | hashmap |
+| --- | --- | --- | --- |
+| `dictionary_new` | `fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I>` | Empty tree; samples seed type inference | Empty table (cap 8); samples seed type inference |
+| `dictionary_len` | `fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32` | O(1) | O(1) |
+| `dictionary_insert` | `fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> Dictionary<K, V, I>` | Upsert; O(h) | Upsert; O(1) avg; resize at 75% load |
+| `dictionary_contains` | `fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool` | O(h) | O(1) avg |
+| `dictionary_get` | `fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key | O(1) avg; traps on missing key |
+| `dictionary_get_or` | `fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V` | O(h) | O(1) avg |
+| `dictionary_remove` | `fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key | O(1) avg; tombstone; traps on missing key |
 
-Internal runtime helpers `null_ptr` and `ptr_eq` in `std::internal::rt` support empty-child checks on `__rt_ptr`.
+Internal runtime helpers `null_ptr`, `ptr_eq`, `hash_of`, and `byte_offset` in `std::internal::rt` support dictionary implementations.
+
+```noria
+import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  d = dictionary_insert(d, 10, 100);
+  return dictionary_get(d, 10);
+}
+```
 
 ```noria
 import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_new};

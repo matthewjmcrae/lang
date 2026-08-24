@@ -32,6 +32,8 @@ namespace noria {
     RtTrap,
     RtNull,
     RtPtrEq,
+    RtHash,
+    RtByteOffset,
   };
 
   enum class Visibility { Public, Internal };
@@ -48,7 +50,7 @@ namespace noria {
     MismatchStyle style;
   };
 
-  inline constexpr std::array<BuiltinSignature, 21> builtinSignatures{{
+  inline constexpr std::array<BuiltinSignature, 23> builtinSignatures{{
       {BuiltinId::Print,
        "print",
        Visibility::Public,
@@ -195,6 +197,20 @@ namespace noria {
        2,
        {TypeKind::RawPtr, TypeKind::RawPtr, TypeKind::Void},
        TypeKind::Bool,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtHash,
+       "__rt_hash",
+       Visibility::Internal,
+       1,
+       {TypeKind::TypeParam, TypeKind::Void, TypeKind::Void},
+       TypeKind::I32,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtByteOffset,
+       "__rt_byte_offset",
+       Visibility::Internal,
+       2,
+       {TypeKind::RawPtr, TypeKind::I32, TypeKind::Void},
+       TypeKind::RawPtr,
        MismatchStyle::PerArgument},
   }};
 

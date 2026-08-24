@@ -34,7 +34,7 @@ namespace noria::runtime {
 #endif
   }
 
-  constexpr std::array<std::string_view, 11> runtimeDeclarations = {
+  constexpr std::array<std::string_view, 12> runtimeDeclarations = {
       "declare i32 @printf(ptr, ...)\n",
       "declare i32 @puts(ptr)\n",
       "declare i32 @putchar(i32)\n",
@@ -112,6 +112,35 @@ namespace noria::runtime {
       "newline:\n"
       "  call i32 @putchar(i32 10)\n"
       "  ret void\n"
+      "}\n\n"
+      "define i32 @noria_hash_str(ptr %s) {\n"
+      "entry:\n"
+      "  %len64 = call i64 @strlen(ptr %s)\n"
+      "  %len = trunc i64 %len64 to i32\n"
+      "  %hash = alloca i32\n"
+      "  store i32 5381, ptr %hash\n"
+      "  %idx = alloca i32\n"
+      "  store i32 0, ptr %idx\n"
+      "  br label %loop\n"
+      "loop:\n"
+      "  %i = load i32, ptr %idx\n"
+      "  %done = icmp sge i32 %i, %len\n"
+      "  br i1 %done, label %finish, label %body\n"
+      "body:\n"
+      "  %cp = getelementptr i8, ptr %s, i32 %i\n"
+      "  %byte = load i8, ptr %cp\n"
+      "  %ch = zext i8 %byte to i32\n"
+      "  %cur = load i32, ptr %hash\n"
+      "  %scaled = mul i32 %cur, 33\n"
+      "  %next = add i32 %scaled, %ch\n"
+      "  store i32 %next, ptr %hash\n"
+      "  %i1 = add i32 %i, 1\n"
+      "  store i32 %i1, ptr %idx\n"
+      "  br label %loop\n"
+      "finish:\n"
+      "  %raw = load i32, ptr %hash\n"
+      "  %masked = and i32 %raw, 2147483647\n"
+      "  ret i32 %masked\n"
       "}\n\n";
 
   inline std::string_view runtimeTrapDefinition() {

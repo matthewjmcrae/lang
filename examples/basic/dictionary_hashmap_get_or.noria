@@ -1,0 +1,18 @@
+import std::dictionary::{Dictionary, dictionary_get, dictionary_get_or, dictionary_insert,
+                         dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  d = dictionary_insert(d, 1, 10);
+  d = dictionary_insert(d, 3, 30);
+  if dictionary_get_or(d, 1, 0) != 10 {
+    return 1;
+  }
+  if dictionary_get_or(d, 2, 99) != 99 {
+    return 2;
+  }
+  if dictionary_get(d, 3) != 30 {
+    return 3;
+  }
+  return 0;
+}

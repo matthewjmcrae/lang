@@ -1026,4 +1026,36 @@ APPROVED.
 
 Dictionary hashmap.
 
+## Phase 7 — Dictionary hashmap
+
+Baseline commit `42c8779`. Review: APPROVED.
+
+### Objective and acceptance
+
+Ship `Dictionary<K, V, hashmap>` with tag-selected `impl hashmap` bodies for new/len/insert/contains/get/get_or/remove; open addressing with tombstones and resize; internal `__rt_hash` for i32/bool/str keys; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `stdlib/internal/dictionary_hashmap.noria`: slot layout (status/key/value), linear probing, tombstones, 75%-load rehash/double. `stdlib/dictionary.noria`: hashmap impl family. `Builtins.hpp`/`Codegen.cpp`/`Runtime.hpp`: internal `__rt_hash`; `rt.noria`: `hash_of`, `byte_offset`. TypeChecker gates hash witness types. Examples: insert/get, get_or, contains/remove, resize, tombstone; negative `dictionary_hashmap_key_unhashable` replaces unsupported stub. Updated `run_examples.sh`, `builtin_registry_test.cpp`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Hashmap mirrors BST dictionary API: opaque handle, copy aliases storage, upsert on insert, trap on missing get/remove. Keys require `==` plus V2 hash; probing uses `hash_of` modulo capacity.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Preexisting IR/AST byte-identical.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+No full dictionary release/ownership. String hash is djb2-style over bytes; no collision diagnostics. Table full after rehash still traps.
+
+### Next unit
+
+Set.
+
 
