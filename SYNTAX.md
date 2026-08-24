@@ -84,22 +84,24 @@ Standard-library container implementations may use an internal pointer type and 
 
 These names are reserved with the `__rt_` prefix. User code cannot import `std::internal::*` modules, annotate variables with `__rt_ptr`, or call internal runtime builtins. Public stdlib modules such as `std::memory` expose safe entry points instead.
 
-## Sequence (arr scaffold)
+## Sequence (arr and list)
 
-`std::sequence` exports a generic `Sequence<T, I>` struct and `arr`-backed operations for the first V2 ADT slice:
+`std::sequence` exports a generic `Sequence<T, I>` struct and tag-selected `impl arr` / `impl list` operation families:
 
-| Operation | Signature (arr) | Notes |
-| --- | --- | --- |
-| `sequence_new` | `fn sequence_new<T>(sample: T) -> Sequence<T, arr>` | Geometric initial capacity; `sample` seeds element type inference |
-| `sequence_len` | `fn sequence_len<T>(s: Sequence<T, arr>) -> i32` | Current length |
-| `sequence_push` | `fn sequence_push<T>(s: Sequence<T, arr>, value: T) -> Sequence<T, arr>` | Grow/reallocate when full; returns updated handle |
-| `sequence_get` | `fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T` | Load element at index; traps on out-of-bounds |
-| `sequence_set` | `fn sequence_set<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr>` | Store element at index; traps on out-of-bounds |
-| `sequence_pop` | `fn sequence_pop<T>(s: Sequence<T, arr>) -> T` | Remove and return last element; traps on empty |
-| `sequence_insert` | `fn sequence_insert<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr>` | Insert at index in `[0, len]`; append when `index == len`; traps otherwise |
-| `sequence_remove` | `fn sequence_remove<T>(s: Sequence<T, arr>, index: i32) -> T` | Remove and return element at index in `[0, len)`; traps on out-of-bounds |
+| Operation | Signature | arr | list |
+| --- | --- | --- | --- |
+| `sequence_new` | `fn sequence_new<T, I>(sample: T) -> Sequence<T, I>` | Geometric initial capacity; `sample` seeds element type inference | Circular sentinel doubly linked list; empty list |
+| `sequence_len` | `fn sequence_len<T, I>(s: Sequence<T, I>) -> i32` | O(1) | O(1) |
+| `sequence_push` | `fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I>` | O(1) amortized; grow/reallocate when full | O(1); append before sentinel |
+| `sequence_get` | `fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
+| `sequence_set` | `fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
+| `sequence_pop` | `fn sequence_pop<T, I>(s: Sequence<T, I>) -> T` | O(1); remove last; traps on empty | O(1); remove last before sentinel; traps on empty |
+| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | Insert at index in `[0, len]`; traps otherwise | arr only |
+| `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | Remove at index in `[0, len)`; traps otherwise | arr only |
 
-`list` and other implementation tags are not implemented yet; selecting them is a compile-time error.
+Callers select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`). A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint.
+
+`bst` and other implementation tags are not implemented yet; selecting them is a compile-time error.
 
 ```noria
 import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
@@ -108,6 +110,20 @@ fn main() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
   s = sequence_push(s, 10);
   s = sequence_push(s, 20);
+  return sequence_get(s, 0) + sequence_get(s, 1);
+}
+```
+
+```noria
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  s = sequence_push(s, 10);
+  s = sequence_push(s, 20);
+  if sequence_len(s) != 2 {
+    return 1;
+  }
   return sequence_get(s, 0) + sequence_get(s, 1);
 }
 ```
@@ -160,7 +176,7 @@ fn main() -> i32 {
 }
 ```
 
-Type parameters are bare identifiers with no bounds or defaults. At a call site, concrete type arguments are inferred from argument types only (`id(7)` specializes to `i32`). Explicit type application (turbofish) is not supported. If a type parameter cannot be inferred from arguments — for example, when it appears only in the return type — the compiler reports a type error.
+Type parameters are bare identifiers with no bounds or defaults. At a call site, concrete type arguments are inferred from argument types (`id(7)` specializes to `i32`). When the call is the root of a `let` initializer, the binding's declared type also seeds still-unbound type parameters (for example `let s: Sequence<i32, list> = sequence_new(0)`). Nested expressions under that root — call arguments, casts, struct fields, and similar — do not inherit the declared type. Explicit type application (turbofish) is not supported. If a type parameter cannot be inferred, the compiler reports a type error.
 
 Each distinct specialization is monomorphized into a concrete function with a deterministic mangled name such as `id$s.i32` (type kinds are encoded: scalars as `s.i32`, structs as `st.Point`). Calling the same generic twice with the same type reuses one specialization, including when the same concrete specialization is requested from multiple import paths.
 

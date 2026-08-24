@@ -930,4 +930,36 @@ Duplicated growth between push and insert. `Sequence<T, list>` still unsupported
 
 Sequence list impl, or Dictionary.
 
+## Phase 7 — Sequence\<T, list\> scaffold
+
+Baseline commit `493d50f`. Review: APPROVED after expected-type plumbing (root-only checkRvalue expected type; prior ambient hint rejected). Gates: all green including sanitizer.
+
+### Objective and acceptance
+
+Add `Sequence<T, list>` with tag-selected `impl list` bodies for new/len/push/get/set/pop; seed impl-tag inference from a `let` binding's declared type on the root initializer only; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`stdlib/sequence.noria`: circular sentinel doubly linked list; arr families generalized to `<T, I>`. TypeChecker: optional expected type on `checkRvalue`; `seedUnboundTypeParamsFromExpectedType` unifies call return with let-declared type at the let root. Examples: `sequence_list_push_get`, `sequence_list_pop_set`, `sequence_arr_list_conformance`, and related failure cases; negatives `sequence_list_insert_unsupported`, `sequence_bst_unsupported`; removed stale `sequence_list_unsupported`. Extended `generics_test.cpp`, `run_examples.sh`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+List nodes store prev/next pointers plus payload; sentinel holds length. Expected-type seeding applies only to the root initializer call — nested calls, casts, struct fields, and array elements do not inherit the binding's declared type.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Preexisting IR/AST byte-identical.
+
+### Review findings and resolutions
+
+APPROVED after expected-type plumbing fix: root-only `checkRvalue` expected type; prior ambient-hint propagation to nested expressions rejected.
+
+### Limitations and risks
+
+List insert/remove unsupported. Pop frees one node only; no full sequence release or ownership model. arr-only insert/remove unchanged.
+
+### Next unit
+
+List insert/remove, or Dictionary.
+
 

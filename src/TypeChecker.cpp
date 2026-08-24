@@ -125,7 +125,7 @@ namespace noria {
     checker_.requireKnownType(letStatement.type, letStatement.location, nullptr, false,
                               checker_.isStdlibContext());
     const Type declaredType = letStatement.type;
-    const Type initializerType = checker_.checkRvalue(*letStatement.initializer);
+    const Type initializerType = checker_.checkRvalue(*letStatement.initializer, declaredType);
 
     if (!checker_.declareLocal(letStatement.name, declaredType)) {
       throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
@@ -260,7 +260,9 @@ namespace noria {
     unsupportedExpressionInStatementVisitor();
   }
 
-  TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker) : checker_(checker) {}
+  TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker,
+                                                    std::optional<Type> expectedType)
+      : checker_(checker), expectedType_(std::move(expectedType)) {}
 
   void TypeChecker::ExpressionVisitor::visit(const ast::IntegerLiteral&) {
     result_ = Type::i32();
@@ -483,6 +485,8 @@ namespace noria {
     }
 
     checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
+    checker_.seedUnboundTypeParamsFromExpectedType(bindings, signature.returnType, expectedType_,
+                                                   call.location);
 
     std::vector<Type> typeArgs;
     typeArgs.reserve(signature.typeParams.size());
@@ -1617,13 +1621,24 @@ namespace noria {
     }
   }
 
+  void TypeChecker::seedUnboundTypeParamsFromExpectedType(
+      std::unordered_map<std::string, Type>& bindings, const Type& returnType,
+      const std::optional<Type>& expectedType, SourceLocation location) const {
+    if (!expectedType) {
+      return;
+    }
+
+    unifyTypes(returnType, *expectedType, bindings, location);
+  }
+
   void TypeChecker::registerFunctionSpecialization(std::string mangledName,
                                                    std::vector<Type> typeArgs) {
     functionSpecializationTypeArgs_.emplace(std::move(mangledName), std::move(typeArgs));
   }
 
-  Type TypeChecker::checkRvalue(const ast::Expression& expression) {
-    ExpressionVisitor visitor(*this);
+  Type TypeChecker::checkRvalue(const ast::Expression& expression,
+                                std::optional<Type> expectedType) {
+    ExpressionVisitor visitor(*this, std::move(expectedType));
     expression.accept(visitor);
     return visitor.result();
   }

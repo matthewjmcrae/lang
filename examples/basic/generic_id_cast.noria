@@ -1,0 +1,8 @@
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let x: f64 = id(1) as f64;
+  return x as i32;
+}

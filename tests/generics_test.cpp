@@ -272,6 +272,138 @@ fn main() -> i32 {
   expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.list") == 1,
          "list-tagged kind specialization is emitted");
 
+  constexpr std::string_view letHintSource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn box_new<T, I>(sample: T) -> Box<T, I> impl arr {
+  return Box<T, I> { value: sample };
+}
+
+fn box_new<T, I>(sample: T) -> Box<T, I> impl list {
+  return Box<T, I> { value: sample };
+}
+
+fn main() -> i32 {
+  let b: Box<i32, list> = box_new(0);
+  return b.value;
+}
+)";
+
+  const noria::CompileOutput letHintOutput =
+      noria::compileSource(letHintSource, noria::StopAfter::Ir);
+  expect(countDefines(letHintOutput.llvmIr, "box_new$s.i32$tag.list") == 1,
+         "let-declared type seeds list constructor specialization");
+  expect(letHintOutput.llvmIr.find("box_new$s.i32$tag.arr") == std::string::npos,
+         "let-declared type does not select arr constructor specialization");
+
+  constexpr std::string_view letHintIdentitySource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let b: Box<i32, list> = id(Box<i32, list> { value: 1 });
+  return b.value;
+}
+)";
+
+  const noria::CompileOutput letHintIdentityOutput =
+      noria::compileSource(letHintIdentitySource, noria::StopAfter::Ir);
+  expect(countDefines(letHintIdentityOutput.llvmIr, "id$st.Box$s.i32$tag.list") == 1,
+         "let-declared type does not append impl tag to untagged generic identity");
+  expect(letHintIdentityOutput.llvmIr.find("id$st.Box$s.i32$tag.list$tag.") == std::string::npos,
+         "let-declared type does not double-append impl tags");
+
+  constexpr std::string_view letHintNestedCallSource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn make<T, I>(sample: T) -> Box<T, I> impl list {
+  return Box<T, I> { value: sample };
+}
+
+fn main() -> i32 {
+  let s: Box<i32, list> = make(id(0));
+  return s.value;
+}
+)";
+
+  const noria::CompileOutput letHintNestedCallOutput =
+      noria::compileSource(letHintNestedCallSource, noria::StopAfter::Ir);
+  expect(countDefines(letHintNestedCallOutput.llvmIr, "make$s.i32$tag.list") == 1,
+         "let-declared type seeds outer constructor through nested call");
+  expect(countDefines(letHintNestedCallOutput.llvmIr, "id$s.i32") == 1,
+         "nested generic call is not unified with let-declared outer type");
+  expect(letHintNestedCallOutput.llvmIr.find("id$st.Box$s.i32$tag.list") == std::string::npos,
+         "nested id is not specialized to let-declared outer type");
+
+  constexpr std::string_view letHintCastSource = R"(
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let x: f64 = id(1) as f64;
+  return x as i32;
+}
+)";
+
+  const noria::CompileOutput letHintCastOutput =
+      noria::compileSource(letHintCastSource, noria::StopAfter::Ir);
+  expect(countDefines(letHintCastOutput.llvmIr, "id$s.i32") == 1,
+         "generic call under cast infers from argument, not let-declared type");
+  expect(letHintCastOutput.llvmIr.find("id$s.f64") == std::string::npos,
+         "generic call under cast is not specialized to let-declared f64");
+
+  constexpr std::string_view letHintStructFieldSource = R"(
+struct Box<T> {
+  value: T;
+}
+
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let b: Box<i32> = Box<i32> { value: id(1) };
+  return b.value;
+}
+)";
+
+  const noria::CompileOutput letHintStructFieldOutput =
+      noria::compileSource(letHintStructFieldSource, noria::StopAfter::Ir);
+  expect(countDefines(letHintStructFieldOutput.llvmIr, "id$s.i32") == 1,
+         "generic call in struct field infers from argument, not let-declared type");
+  expect(letHintStructFieldOutput.llvmIr.find("id$st.Box$s.i32") == std::string::npos,
+         "generic call in struct field is not specialized to let-declared Box");
+
+  constexpr std::string_view letHintArrayElemSource = R"(
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let xs: [i32] = [id(1)];
+  return xs[0];
+}
+)";
+
+  const noria::CompileOutput letHintArrayElemOutput =
+      noria::compileSource(letHintArrayElemSource, noria::StopAfter::Ir);
+  expect(countDefines(letHintArrayElemOutput.llvmIr, "id$s.i32") == 1,
+         "generic call in array element infers from argument, not let-declared type");
+
   noria::SpecializationCache cache;
   noria::ast::Module seededModule;
   noria::ast::Function existing;

@@ -648,11 +648,23 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_insert_oob.noria" 7
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_remove_oob.noria" 70 \
   "sequence_remove: index out of bounds"
 grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
-grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32$tag.arr' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_push_get.noria" 40
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_pop_set.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_arr_list_conformance.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_nested_id.noria" 0
+grep -c '%Sequence$s.i32$tag.list = type' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
+grep -c 'define %Sequence$s.i32$tag.list @sequence_new$s.i32$tag.list' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_pop_empty.noria" 70 \
+  "sequence_pop: empty sequence"
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_get_oob.noria" 70 \
+  "sequence_get: index out of bounds"
 
 echo "[noria-tests] phase 7 sequence diagnostics"
-grep -q "typecheck: cannot initialize 's' of type Sequence<i32, list> with Sequence<i32, arr>" \
-  "${TEST_OUT_DIR}/sequence_list_unsupported.stderr"
+grep -q "typecheck: no implementation of 'sequence_insert' for tag 'list'" \
+  "${TEST_OUT_DIR}/sequence_list_insert_unsupported.stderr"
+grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
+  "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside the standard library" \
@@ -739,6 +751,8 @@ grep -q "std::dupexport:5:1: import: duplicate function 'dup'" "${DUPEXPORT_STDE
 
 echo "[noria-tests] phase 6 generic acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_cast.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_struct_field.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_instantiations.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_reuse_same_type.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_reuse_two_paths.noria" 3

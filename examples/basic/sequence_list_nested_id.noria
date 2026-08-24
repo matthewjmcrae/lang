@@ -1,6 +1,7 @@
+import std::generic_id::{id};
 import std::sequence::{Sequence, sequence_new};
 
 fn main() -> i32 {
-  let s: Sequence<i32, list> = sequence_new(0);
+  let s: Sequence<i32, list> = sequence_new(id(0));
   return 0;
 }

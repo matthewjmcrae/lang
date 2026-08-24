@@ -8,6 +8,7 @@
 #include "noria/Types.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -74,7 +75,7 @@ namespace noria {
 
     class ExpressionVisitor final : public ast::AstVisitor {
     public:
-      explicit ExpressionVisitor(TypeChecker& checker);
+      ExpressionVisitor(TypeChecker& checker, std::optional<Type> expectedType);
 
       Type result() const { return result_; }
 
@@ -101,6 +102,7 @@ namespace noria {
 
     private:
       TypeChecker& checker_;
+      std::optional<Type> expectedType_;
       Type result_;
     };
 
@@ -210,11 +212,16 @@ namespace noria {
                          Type expectedReturnType);
     bool checkStatement(const ast::Statement& statement, Type expectedReturnType);
     PlaceInfo checkPlace(const ast::Expression& place);
-    Type checkRvalue(const ast::Expression& expression);
+    Type checkRvalue(const ast::Expression& expression,
+                     std::optional<Type> expectedType = std::nullopt);
     Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
     Type resolveWitnessType(SourceLocation location) const;
     void seedUnboundTypeParamsFromCaller(std::unordered_map<std::string, Type>& bindings,
                                          const std::vector<ast::TypeParameter>& typeParams) const;
+    void seedUnboundTypeParamsFromExpectedType(std::unordered_map<std::string, Type>& bindings,
+                                               const Type& returnType,
+                                               const std::optional<Type>& expectedType,
+                                               SourceLocation location) const;
     using Scope = std::unordered_map<std::string, Type>;
     void pushScope();
     void popScope();

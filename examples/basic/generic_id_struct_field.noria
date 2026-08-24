@@ -1,0 +1,12 @@
+struct Box<T> {
+  value: T;
+}
+
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn main() -> i32 {
+  let b: Box<i32> = Box<i32> { value: id(1) };
+  return b.value;
+}
