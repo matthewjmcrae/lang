@@ -1,0 +1,17 @@
+fn main() -> i32 {
+  let a: bool = true;
+  let b: bool = false;
+  if a != true {
+    return 1;
+  }
+  if b == true {
+    return 2;
+  }
+  if a == b {
+    return 3;
+  }
+  if !(a != b) {
+    return 4;
+  }
+  return 0;
+}

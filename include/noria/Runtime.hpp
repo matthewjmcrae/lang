@@ -41,6 +41,7 @@ namespace noria::runtime {
       "declare double @llvm.sqrt.f64(double)\n",
       "declare double @llvm.pow.f64(double, double)\n",
       "declare i64 @strlen(ptr)\n",
+      "declare i32 @strcmp(ptr, ptr)\n",
       "declare ptr @malloc(i64)\n",
       "declare ptr @realloc(ptr, i64)\n",
       "declare void @free(ptr)\n",

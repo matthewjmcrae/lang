@@ -31,6 +31,7 @@ namespace noria {
     struct LocalBinding {
       std::string slot;
       Type type;
+      bool byteBuffer = false;
     };
 
     struct FunctionBinding {
@@ -207,9 +208,24 @@ namespace noria {
     LocalBinding generatePlace(const ast::Expression& place, IrEmitter& emitter,
                                CodegenContext& context, const std::vector<Scope>& scopes) const;
     std::string emitArrayElementPointer(const Value& base, const Value& indexValue,
-                                        const Type& elementType, IrEmitter& emitter) const;
+                                        const Type& elementType, IrEmitter& emitter,
+                                        CodegenContext& context) const;
     std::string emitRawBufferElementPointer(const Value& base, const Value& indexValue,
                                             const Type& elementType, IrEmitter& emitter) const;
+    std::string emitBufferLoad(const Type& type, const std::string& pointer,
+                               IrEmitter& emitter) const;
+    void emitBufferStore(const Type& type, const std::string& value, const std::string& pointer,
+                         IrEmitter& emitter) const;
+    std::string emitCStringPointer(std::string_view text, IrEmitter& emitter,
+                                   CodegenContext& context) const;
+    void emitRuntimeTrap(IrEmitter& emitter, CodegenContext& context,
+                         std::string_view message) const;
+    void emitNullPointerCheck(const std::string& pointer, IrEmitter& emitter,
+                              CodegenContext& context) const;
+    std::string emitCheckedMalloc(const std::string& size64, IrEmitter& emitter,
+                                  CodegenContext& context) const;
+    void emitBoundsCheck(const std::string& length64, const Value& indexValue, IrEmitter& emitter,
+                         CodegenContext& context, std::string_view message) const;
     Value generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
                          CodegenContext& context, const std::vector<Scope>& scopes) const;
 

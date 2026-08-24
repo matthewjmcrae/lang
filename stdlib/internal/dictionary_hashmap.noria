@@ -1,17 +1,18 @@
 import std::internal::dictionary_bst::{type_size};
-import std::internal::rt::{alloc_bytes, byte_offset, hash_of, load_at, load_i32_at, load_ptr_at,
-                           null_ptr, ptr_eq, release_bytes, store_at, store_i32_at, store_ptr_at};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, hash_of, load_at,
+                           load_i32_at, load_ptr_at, null_ptr, ptr_eq, release_bytes, store_at,
+                           store_i32_at, store_ptr_at};
+
+fn slot_key_offset() -> i32 {
+  return 8;
+}
+
+fn slot_value_offset(key_size: i32, val_size: i32) -> i32 {
+  return align_up(slot_key_offset() + key_size, field_alignment(val_size));
+}
 
 fn slot_bytes(key_size: i32, val_size: i32) -> i32 {
-  return 8 + key_size + val_size;
-}
-
-fn slot_key_index(key_size: i32) -> i32 {
-  return 8 / key_size;
-}
-
-fn slot_value_index(key_size: i32, val_size: i32) -> i32 {
-  return (8 + key_size) / val_size;
+  return align_up(slot_value_offset(key_size, val_size) + val_size, 8);
 }
 
 fn slot_empty() -> i32 {
@@ -40,19 +41,19 @@ fn set_slot_status(slot: __rt_ptr, status: i32) -> i32 {
 }
 
 fn slot_key<K>(slot: __rt_ptr, key_size: i32) -> K {
-  return load_at(slot, slot_key_index(key_size));
+  return load_at(byte_offset(slot, slot_key_offset()), 0);
 }
 
 fn set_slot_key<K>(slot: __rt_ptr, key_size: i32, key: K) -> i32 {
-  return store_at(slot, slot_key_index(key_size), key);
+  return store_at(byte_offset(slot, slot_key_offset()), 0, key);
 }
 
 fn slot_value<V>(slot: __rt_ptr, key_size: i32, val_size: i32) -> V {
-  return load_at(slot, slot_value_index(key_size, val_size));
+  return load_at(byte_offset(slot, slot_value_offset(key_size, val_size)), 0);
 }
 
 fn set_slot_value<V>(slot: __rt_ptr, key_size: i32, val_size: i32, value: V) -> i32 {
-  return store_at(slot, slot_value_index(key_size, val_size), value);
+  return store_at(byte_offset(slot, slot_value_offset(key_size, val_size)), 0, value);
 }
 
 fn probe_index<K>(key: K, cap: i32) -> i32 {
@@ -146,6 +147,9 @@ fn hashmap_rehash<K, V>(header: __rt_ptr, new_cap: i32) -> i32 {
       let value: V = slot_value(old_slot, key_size, val_size);
       let target: __rt_ptr =
           hashmap_find_insert_slot(new_table, new_cap, key, key_size, stride);
+      if ptr_eq(target, null_ptr()) {
+        __rt_trap("dictionary_insert: hashmap full\n");
+      }
       let mark: i32 = set_slot_status(target, slot_occupied());
       let sk: i32 = set_slot_key(target, key_size, key);
       let sv: i32 = set_slot_value(target, key_size, val_size, value);

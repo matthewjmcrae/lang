@@ -1,0 +1,21 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_len, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<str, i32, hashmap> = dictionary_new("", 0);
+  d = dictionary_insert(d, "alpha", 1);
+  d = dictionary_insert(d, "beta", 2);
+  if dictionary_len(d) != 2 {
+    return 1;
+  }
+  if !dictionary_contains(d, "alpha") {
+    return 2;
+  }
+  if dictionary_get(d, "beta") != 2 {
+    return 3;
+  }
+  if dictionary_contains(d, "missing") {
+    return 4;
+  }
+  return 0;
+}

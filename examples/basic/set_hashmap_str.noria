@@ -1,0 +1,22 @@
+import std::set::{Set, set_contains, set_insert, set_len, set_new, set_remove};
+
+fn main() -> i32 {
+  let s: Set<str, hashmap> = set_new("");
+  s = set_insert(s, "a");
+  s = set_insert(s, "b");
+  s = set_insert(s, "a");
+  if set_len(s) != 2 {
+    return 1;
+  }
+  if !set_contains(s, "b") {
+    return 2;
+  }
+  s = set_remove(s, "a");
+  if set_contains(s, "a") {
+    return 3;
+  }
+  if set_len(s) != 1 {
+    return 4;
+  }
+  return 0;
+}

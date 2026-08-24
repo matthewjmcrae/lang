@@ -1,0 +1,27 @@
+fn max_profit(prices: [i32]) -> i32 {
+  let lowest: i32 = prices[0];
+  let best: i32 = 0;
+  let i: i32 = 1;
+  while i < len(prices) {
+    if prices[i] - lowest > best {
+      best = prices[i] - lowest;
+    }
+    if prices[i] < lowest {
+      lowest = prices[i];
+    }
+    i = i + 1;
+  }
+  return best;
+}
+
+fn main() -> i32 {
+  let prices: [i32] = [7, 1, 5, 3, 6, 4];
+  if max_profit(prices) != 5 {
+    return 1;
+  }
+  let down: [i32] = [7, 6, 4, 3, 1];
+  if max_profit(down) != 0 {
+    return 2;
+  }
+  return 0;
+}

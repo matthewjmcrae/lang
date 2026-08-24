@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; `==`/`!=` on `i32`, `f64`, `bool`, and `str` (ordered compares stay numeric); unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; runtime traps for array/string OOB and failed allocations; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
@@ -54,7 +54,9 @@ Container ADTs and algorithms live under `stdlib/` and are imported as `std::…
 | `std::set` | `Set<T, I>` | `bst`, `hashmap` | `set_new`, `set_len`, `set_insert`, `set_contains`, `set_remove` |
 | `std::heap` | (algorithms over `Sequence<T, I>`) | inherits sequence tag | `heappush`, `heappop`, `heapify` |
 
-Implementation tags are chosen at compile time and monomorphize to separate specializations. Observable behavior is the same across tags of a given ADT; only performance characteristics differ (for example, `Sequence<i32, arr>` vs `Sequence<i32, list>`, or `Dictionary<i32, i32, bst>` vs `Dictionary<i32, i32, hashmap>`).
+Implementation tags are chosen at compile time and monomorphize to separate specializations. Observable behavior is the same across tags of a given ADT; only performance characteristics differ (for example, `Sequence<i32, arr>` vs `Sequence<i32, list>`, or `Dictionary<i32, i32, bst>` vs `Dictionary<i32, i32, hashmap>`). Hashmap keys may be `i32`, `bool`, or `str`; BST keys may be `i32` or `f64`. Mixed-size dictionary entries use aligned byte offsets rather than `sizeof`-scaled indexes.
+
+Language coverage programs live under `examples/basic/`, including LeetCode-style proofs such as `leetcode_two_sum.noria`.
 
 ## Requirements
 

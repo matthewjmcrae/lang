@@ -6,6 +6,8 @@
 #include "noria/Monomorphize.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <unordered_set>
@@ -105,6 +107,13 @@ namespace noria {
       return std::nullopt;
     }
 
+    void rejectStructArrayElement(const Type& elementType, SourceLocation location) {
+      if (elementType.kind == TypeKind::Struct) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "array element type cannot be a struct"));
+      }
+    }
+
     const ast::Function*
     selectGenericImplementation(const std::vector<const ast::Function*>& family,
                                 std::optional<ImplementationTag> callTag,
@@ -197,7 +206,7 @@ namespace noria {
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
-    const Type returnType = checker_.checkRvalue(*returnStatement.expression);
+    const Type returnType = checker_.checkRvalue(*returnStatement.expression, expectedReturnType_);
 
     if (!checker_.isAssignable(expectedReturnType_, returnType)) {
       throw CompileError(
@@ -304,7 +313,12 @@ namespace noria {
                                                     std::optional<Type> expectedType)
       : checker_(checker), expectedType_(std::move(expectedType)) {}
 
-  void TypeChecker::ExpressionVisitor::visit(const ast::IntegerLiteral&) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+    if (integer.value < std::numeric_limits<std::int32_t>::min() ||
+        integer.value > std::numeric_limits<std::int32_t>::max()) {
+      throw CompileError(formatDiagnostic(integer.location, DiagnosticStage::TypeCheck,
+                                          "integer literal out of i32 range"));
+    }
     result_ = Type::i32();
   }
 
@@ -386,14 +400,24 @@ namespace noria {
     case ast::BinaryOperator::LessEqual:
     case ast::BinaryOperator::Greater:
     case ast::BinaryOperator::GreaterEqual:
-    case ast::BinaryOperator::Equal:
-    case ast::BinaryOperator::NotEqual:
       if (left == right && (left == Type::i32() || left == Type::f64())) {
         result_ = Type::boolean();
         return;
       }
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                          "comparison requires matching numeric operands, got " +
+                                          "ordered comparison requires matching numeric operands, "
+                                          "got " +
+                                              left.name() + " and " + right.name()));
+    case ast::BinaryOperator::Equal:
+    case ast::BinaryOperator::NotEqual:
+      if (left == right && (left == Type::i32() || left == Type::f64() || left == Type::boolean() ||
+                            left == Type::str())) {
+        result_ = Type::boolean();
+        return;
+      }
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                          "equality requires matching i32, f64, bool, or str "
+                                          "operands, got " +
                                               left.name() + " and " + right.name()));
     }
   }
@@ -539,9 +563,10 @@ namespace noria {
       checker_.unifyTypes(expectedParam, actual, bindings, call.arguments[index]->location);
     }
 
-    checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
+    checker_.seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
     checker_.seedUnboundTypeParamsFromExpectedType(bindings, signature.returnType, expectedType_,
                                                    call.location);
+    checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
 
     std::vector<Type> typeArgs;
     typeArgs.reserve(signature.typeParams.size());
@@ -587,6 +612,7 @@ namespace noria {
       }
     }
 
+    rejectStructArrayElement(elementType, literal.location);
     result_ = Type::array(elementType);
   }
 
@@ -1063,6 +1089,7 @@ namespace noria {
       }
       requireKnownType(*type.element, location, allowedTypeParams, allowImplTags,
                        allowInternalTypes);
+      rejectStructArrayElement(*type.element, location);
       return;
     }
 
@@ -1495,14 +1522,12 @@ namespace noria {
 
   bool TypeChecker::checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
                                     Type expectedReturnType) {
-
+    bool returned = false;
     for (const auto& statement : statements) {
-      if (checkStatement(*statement, expectedReturnType)) {
-        return true;
-      }
+      returned = checkStatement(*statement, expectedReturnType) || returned;
     }
 
-    return false;
+    return returned;
   }
 
   bool TypeChecker::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
@@ -1677,15 +1702,19 @@ namespace noria {
     }
 
     const std::vector<ast::TypeParameter>& callerTypeParams = family->second.front()->typeParams;
-    for (std::size_t index{}; index < calleeTypeParams.size(); ++index) {
-      if (index >= callerTypeParams.size() || index >= callerTypeArgs->size()) {
-        break;
-      }
-      if (callerTypeParams[index].name != calleeTypeParams[index].name) {
+    std::unordered_map<std::string, Type> callerBindings;
+    for (std::size_t index{}; index < callerTypeParams.size() && index < callerTypeArgs->size();
+         ++index) {
+      callerBindings.emplace(callerTypeParams[index].name, (*callerTypeArgs)[index]);
+    }
+
+    for (const auto& calleeParam : calleeTypeParams) {
+      if (bindings.contains(calleeParam.name)) {
         continue;
       }
-      if (!bindings.contains(calleeTypeParams[index].name)) {
-        bindings.emplace(calleeTypeParams[index].name, (*callerTypeArgs)[index]);
+      const auto callerBound = callerBindings.find(calleeParam.name);
+      if (callerBound != callerBindings.end()) {
+        bindings.emplace(calleeParam.name, callerBound->second);
       }
     }
   }

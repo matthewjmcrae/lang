@@ -1,0 +1,17 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<str, arr> = sequence_new("");
+  s = sequence_push(s, "hello");
+  s = sequence_push(s, "world");
+  if sequence_len(s) != 2 {
+    return 1;
+  }
+  if sequence_get(s, 0) != "hello" {
+    return 2;
+  }
+  if sequence_get(s, 1) != "world" {
+    return 3;
+  }
+  return 0;
+}

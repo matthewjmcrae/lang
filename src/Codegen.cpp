@@ -19,7 +19,7 @@ namespace noria {
 
     std::string escapeForLlvmString(std::string_view value) {
       std::string escaped;
-      for (const char character : value) {
+      for (const unsigned char character : value) {
         switch (character) {
         case '\\':
           escaped += "\\5C";
@@ -34,7 +34,14 @@ namespace noria {
           escaped += "\\09";
           break;
         default:
-          escaped.push_back(character);
+          if (character >= 32 && character <= 126) {
+            escaped.push_back(static_cast<char>(character));
+          } else {
+            static constexpr char hex[] = "0123456789ABCDEF";
+            escaped += '\\';
+            escaped += hex[character >> 4];
+            escaped += hex[character & 0xF];
+          }
           break;
         }
       }
@@ -246,7 +253,11 @@ namespace noria {
         generator_.generatePlace(*assignmentStatement.lhs, emitter_, context_, scopes_);
 
     Value rvalue = generator_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_);
-    emitter_.emitStore(local.type, rvalue.text, local.slot);
+    if (local.byteBuffer) {
+      generator_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
+    } else {
+      emitter_.emitStore(local.type, rvalue.text, local.slot);
+    }
     returned_ = false;
   }
 
@@ -570,8 +581,8 @@ namespace noria {
 
     const Type elementType = *base.type.element;
     const std::string pointer =
-        generator_.emitArrayElementPointer(base, indexValue, elementType, emitter_);
-    result_ = LocalBinding{pointer, elementType};
+        generator_.emitArrayElementPointer(base, indexValue, elementType, emitter_, context_);
+    result_ = LocalBinding{pointer, elementType, true};
   }
 
   void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
@@ -623,13 +634,73 @@ namespace noria {
   std::string LlvmIrTextGenerator::emitArrayElementPointer(const Value& base,
                                                            const Value& indexValue,
                                                            const Type& elementType,
-                                                           IrEmitter& emitter) const {
+                                                           IrEmitter& emitter,
+                                                           CodegenContext& context) const {
+    const std::string length = emitter.freshTemp();
+    emitter.line(length + " = load i64, ptr " + base.text);
+    emitBoundsCheck(length, indexValue, emitter, context, "array index out of bounds\n");
+
     const std::string elems = emitter.freshTemp();
     emitter.line(elems + " = getelementptr inbounds i8, ptr " + base.text + ", i64 8");
+    return emitRawBufferElementPointer(Value{elems, Type::rawPtr()}, indexValue, elementType,
+                                       emitter);
+  }
+
+  std::string LlvmIrTextGenerator::emitCStringPointer(std::string_view text, IrEmitter& emitter,
+                                                      CodegenContext& context) const {
+    const std::string globalName = "@.str." + std::to_string(context.nextStringGlobal++);
+    const std::size_t length = text.size() + 1;
+    context.globals << globalName << " = private unnamed_addr constant [" << length << " x i8] c\""
+                    << escapeForLlvmString(text) << "\\00\"\n";
+
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = getelementptr inbounds [" + std::to_string(length) + " x i8], ptr " +
+                 globalName + ", i32 0, i32 0");
+    return result;
+  }
+
+  void LlvmIrTextGenerator::emitRuntimeTrap(IrEmitter& emitter, CodegenContext& context,
+                                            std::string_view message) const {
+    const std::string pointer = emitCStringPointer(message, emitter, context);
+    emitter.line("call void @\"__noria.rt.trap\"(ptr " + pointer + ")");
+    emitter.line("unreachable");
+  }
+
+  void LlvmIrTextGenerator::emitNullPointerCheck(const std::string& pointer, IrEmitter& emitter,
+                                                 CodegenContext& context) const {
+    const int labelId = emitter.freshLabelId();
+    const std::string trapLabel = "alloc.fail" + std::to_string(labelId);
+    const std::string contLabel = "alloc.ok" + std::to_string(labelId);
+    const std::string isNull = emitter.freshTemp();
+    emitter.line(isNull + " = icmp eq ptr " + pointer + ", null");
+    emitter.emitCondBranch(isNull, trapLabel, contLabel);
+    emitter.emitLabel(trapLabel);
+    emitRuntimeTrap(emitter, context, "allocation failed\n");
+    emitter.emitLabel(contLabel);
+  }
+
+  std::string LlvmIrTextGenerator::emitCheckedMalloc(const std::string& size64, IrEmitter& emitter,
+                                                     CodegenContext& context) const {
     const std::string pointer = emitter.freshTemp();
-    emitter.line(pointer + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " + elems +
-                 ", i32 " + indexValue.text);
+    emitter.line(pointer + " = call ptr @malloc(i64 " + size64 + ")");
+    emitNullPointerCheck(pointer, emitter, context);
     return pointer;
+  }
+
+  void LlvmIrTextGenerator::emitBoundsCheck(const std::string& length64, const Value& indexValue,
+                                            IrEmitter& emitter, CodegenContext& context,
+                                            std::string_view message) const {
+    const int labelId = emitter.freshLabelId();
+    const std::string trapLabel = "bounds.fail" + std::to_string(labelId);
+    const std::string contLabel = "bounds.ok" + std::to_string(labelId);
+    const std::string index64 = emitter.freshTemp();
+    emitter.line(index64 + " = zext i32 " + indexValue.text + " to i64");
+    const std::string inBounds = emitter.freshTemp();
+    emitter.line(inBounds + " = icmp ult i64 " + index64 + ", " + length64);
+    emitter.emitCondBranch(inBounds, contLabel, trapLabel);
+    emitter.emitLabel(trapLabel);
+    emitRuntimeTrap(emitter, context, message);
+    emitter.emitLabel(contLabel);
   }
 
   std::string LlvmIrTextGenerator::emitRawBufferElementPointer(const Value& base,
@@ -642,6 +713,33 @@ namespace noria {
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = getelementptr i8, ptr " + base.text + ", i32 " + offset);
     return pointer;
+  }
+
+  std::string LlvmIrTextGenerator::emitBufferLoad(const Type& type, const std::string& pointer,
+                                                  IrEmitter& emitter) const {
+    if (type.kind == TypeKind::Bool) {
+      const std::string packed = emitter.freshTemp();
+      emitter.line(packed + " = load i8, ptr " + pointer);
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = icmp ne i8 " + packed + ", 0");
+      return result;
+    }
+
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = load " + llvmType(type) + ", ptr " + pointer);
+    return result;
+  }
+
+  void LlvmIrTextGenerator::emitBufferStore(const Type& type, const std::string& value,
+                                            const std::string& pointer, IrEmitter& emitter) const {
+    if (type.kind == TypeKind::Bool) {
+      const std::string packed = emitter.freshTemp();
+      emitter.line(packed + " = zext i1 " + value + " to i8");
+      emitter.line("store i8 " + packed + ", ptr " + pointer);
+      return;
+    }
+
+    emitter.line("store " + llvmType(type) + " " + value + ", ptr " + pointer);
   }
 
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement, IrEmitter& emitter,
@@ -682,18 +780,17 @@ namespace noria {
     const std::size_t count = elements.size();
     const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);
 
-    const std::string base = emitter.freshTemp();
-    emitter.line(base + " = call ptr @malloc(i64 " + std::to_string(totalBytes) + ")");
+    const std::string base = emitCheckedMalloc(std::to_string(totalBytes), emitter, context);
     emitter.line("store i64 " + std::to_string(count) + ", ptr " + base);
 
     const std::string elems = emitter.freshTemp();
     emitter.line(elems + " = getelementptr inbounds i8, ptr " + base + ", i64 8");
 
     for (std::size_t index{}; index < count; ++index) {
-      const std::string slot = emitter.freshTemp();
-      emitter.line(slot + " = getelementptr inbounds " + llvmType(elementType) + ", ptr " + elems +
-                   ", i32 " + std::to_string(index));
-      emitter.line("store " + llvmType(elementType) + " " + elements[index].text + ", ptr " + slot);
+      const Value indexValue{std::to_string(index), Type::i32()};
+      const std::string slot = emitRawBufferElementPointer(Value{elems, Type::rawPtr()}, indexValue,
+                                                           elementType, emitter);
+      emitBufferStore(elementType, elements[index].text, slot, emitter);
     }
 
     return Value{base, arrayType};
@@ -711,11 +808,15 @@ namespace noria {
         throw CompileError("codegen: array type missing element type");
 
       const Type elementType = *base.type.element;
-      const std::string pointer = emitArrayElementPointer(base, indexValue, elementType, emitter);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = load " + llvmType(elementType) + ", ptr " + pointer);
+      const std::string pointer =
+          emitArrayElementPointer(base, indexValue, elementType, emitter, context);
+      const std::string result = emitBufferLoad(elementType, pointer, emitter);
       return Value{result, elementType};
     }
+
+    const std::string length = emitter.freshTemp();
+    emitter.line(length + " = call i64 @strlen(ptr " + base.text + ")");
+    emitBoundsCheck(length, indexValue, emitter, context, "string index out of bounds\n");
 
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = getelementptr inbounds i8, ptr " + base.text + ", i32 " +
@@ -841,6 +942,7 @@ namespace noria {
       emitter.line(size64 + " = sext i32 " + size.text + " to i64");
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = call ptr @malloc(i64 " + size64 + ")");
+      emitNullPointerCheck(result, emitter, context);
       return Value{result, Type::rawPtr()};
     }
     case BuiltinId::RtRealloc: {
@@ -850,6 +952,7 @@ namespace noria {
       emitter.line(size64 + " = sext i32 " + size.text + " to i64");
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = call ptr @realloc(ptr " + pointer.text + ", i64 " + size64 + ")");
+      emitNullPointerCheck(result, emitter, context);
       return Value{result, Type::rawPtr()};
     }
     case BuiltinId::RtRelease: {
@@ -871,8 +974,7 @@ namespace noria {
       const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
       const std::string elementPointer =
           emitRawBufferElementPointer(pointer, index, witness, emitter);
-      const std::string loaded = emitter.freshTemp();
-      emitter.line(loaded + " = load " + llvmType(witness) + ", ptr " + elementPointer);
+      const std::string loaded = emitBufferLoad(witness, elementPointer, emitter);
       return Value{loaded, witness};
     }
     case BuiltinId::RtStore: {
@@ -883,7 +985,7 @@ namespace noria {
       const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
       const std::string elementPointer =
           emitRawBufferElementPointer(pointer, index, witness, emitter);
-      emitter.line("store " + llvmType(witness) + " " + value.text + ", ptr " + elementPointer);
+      emitBufferStore(witness, value.text, elementPointer, emitter);
       return Value{"", Type::voidType()};
     }
     case BuiltinId::RtLoadPtr: {
@@ -983,13 +1085,9 @@ namespace noria {
       return generateBinaryExpression(*binary, emitter, context, scopes).text;
 
     const Value value = generateRvalue(expression, emitter, context, scopes);
-
-    if (value.type == Type::boolean())
-      return value.text;
-
-    const std::string result = emitter.freshTemp();
-    emitter.line(result + " = icmp ne i32 " + value.text + ", 0");
-    return result;
+    if (value.type != Type::boolean())
+      throw CompileError("codegen: condition must be bool");
+    return value.text;
   }
 
   LlvmIrTextGenerator::Value
@@ -1029,12 +1127,17 @@ namespace noria {
 
       emitter.emitLabel(rhsLabel);
       const Value right = generateRvalue(*binary.right, emitter, context, scopes);
+      const std::string rhsJoinLabel =
+          (binary.op == ast::BinaryOperator::And ? "and.rhs.join" : "or.rhs.join") +
+          std::to_string(labelId);
+      emitter.emitBranch(rhsJoinLabel);
+      emitter.emitLabel(rhsJoinLabel);
       emitter.emitBranch(mergeLabel);
 
       emitter.emitLabel(mergeLabel);
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = phi i1 [ " + shortCircuitValue + ", %" + shortCircuitLabel +
-                   " ], [ " + right.text + ", %" + rhsLabel + " ]");
+                   " ], [ " + right.text + ", %" + rhsJoinLabel + " ]");
       return Value{result, Type::boolean()};
     }
 
@@ -1051,8 +1154,7 @@ namespace noria {
       emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
       const std::string size = emitter.freshTemp();
       emitter.line(size + " = add i64 " + sumLength + ", 1");
-      const std::string buffer = emitter.freshTemp();
-      emitter.line(buffer + " = call ptr @malloc(i64 " + size + ")");
+      const std::string buffer = emitCheckedMalloc(size, emitter, context);
       emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
       emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
       return Value{buffer, Type::str()};
@@ -1067,8 +1169,18 @@ namespace noria {
         return Value{result, Type::boolean()};
       }
 
-      emitter.line(result + " = icmp " + llvmIntegerComparisonPredicate(binary.op) + " i32 " +
-                   left.text + ", " + right.text);
+      if (left.type == Type::str() && right.type == Type::str()) {
+        const std::string compared = emitter.freshTemp();
+        emitter.line(compared + " = call i32 @strcmp(ptr " + left.text + ", ptr " + right.text +
+                     ")");
+        emitter.line(result + " = icmp " + llvmIntegerComparisonPredicate(binary.op) + " i32 " +
+                     compared + ", 0");
+        return Value{result, Type::boolean()};
+      }
+
+      const std::string integerType = left.type == Type::boolean() ? "i1" : "i32";
+      emitter.line(result + " = icmp " + llvmIntegerComparisonPredicate(binary.op) + " " +
+                   integerType + " " + left.text + ", " + right.text);
       return Value{result, Type::boolean()};
     }
 

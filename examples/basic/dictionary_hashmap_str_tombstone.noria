@@ -1,0 +1,26 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_len, dictionary_new, dictionary_remove};
+
+fn main() -> i32 {
+  let d: Dictionary<str, i32, hashmap> = dictionary_new("", 0);
+  d = dictionary_insert(d, "keep", 1);
+  d = dictionary_insert(d, "drop", 2);
+  let removed: i32 = dictionary_remove(d, "drop");
+  if removed != 2 {
+    return 1;
+  }
+  d = dictionary_insert(d, "drop", 3);
+  if dictionary_len(d) != 2 {
+    return 2;
+  }
+  if !dictionary_contains(d, "drop") {
+    return 3;
+  }
+  if dictionary_get(d, "drop") != 3 {
+    return 4;
+  }
+  if dictionary_get(d, "keep") != 1 {
+    return 5;
+  }
+  return 0;
+}

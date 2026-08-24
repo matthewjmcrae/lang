@@ -1,0 +1,30 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_new};
+
+fn two_sum(nums: [i32], target: i32) -> i32 {
+  let seen: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  let i: i32 = 0;
+  while i < len(nums) {
+    let need: i32 = target - nums[i];
+    if dictionary_contains(seen, need) {
+      return dictionary_get(seen, need) + i;
+    }
+    seen = dictionary_insert(seen, nums[i], i);
+    i = i + 1;
+  }
+  return -1;
+}
+
+fn main() -> i32 {
+  let nums: [i32] = [2, 7, 11, 15];
+  if two_sum(nums, 9) != 1 {
+    return 1;
+  }
+  if two_sum(nums, 26) != 5 {
+    return 2;
+  }
+  if two_sum(nums, 3) != -1 {
+    return 3;
+  }
+  return 0;
+}

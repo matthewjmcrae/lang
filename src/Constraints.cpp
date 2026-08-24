@@ -18,8 +18,10 @@ namespace noria {
   bool supportsOperation(const Type& type, RequiredOperation operation) {
     switch (operation) {
     case RequiredOperation::LessThan:
-    case RequiredOperation::Equality:
       return type.kind == TypeKind::I32 || type.kind == TypeKind::F64;
+    case RequiredOperation::Equality:
+      return type.kind == TypeKind::I32 || type.kind == TypeKind::F64 ||
+             type.kind == TypeKind::Bool || type.kind == TypeKind::Str;
     case RequiredOperation::Hash:
       return type.kind == TypeKind::I32 || type.kind == TypeKind::Bool ||
              type.kind == TypeKind::Str;

@@ -242,6 +242,14 @@ done
 
 grep -q "2:10: typecheck: unknown local variable 'missing'" \
   "${TEST_OUT_DIR}/unknown_variable.stderr"
+grep -q "typecheck: integer literal out of i32 range" \
+  "${TEST_OUT_DIR}/integer_literal_overflow.stderr"
+grep -q "typecheck: ordered comparison requires matching numeric operands, got bool and bool" \
+  "${TEST_OUT_DIR}/ordered_compare_bool.stderr"
+grep -q "typecheck: array element type cannot be a struct" \
+  "${TEST_OUT_DIR}/array_struct_element.stderr"
+grep -q "typecheck: unknown function 'missing'" \
+  "${TEST_OUT_DIR}/unreachable_after_exhaustive_if.stderr"
 
 echo "[noria-tests] future type name() diagnostics"
 grep -q "typecheck: cannot initialize 'x' of type f64 with bool" \
@@ -409,12 +417,23 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       expect_compile_failure_contains "${source}" \
         "impl clause requires a generic function"
       ;;
+    integer_literal_underflow.noria)
+      expect_compile_failure_contains "${source}" \
+        "integer literal out of i32 range"
+      ;;
+    float_literal_overflow.noria)
+      expect_compile_failure_contains "${source}" \
+        "float literal out of range"
+      ;;
   esac
 done
 
 run_native_exit_test "${ROOT_DIR}/examples/basic/return_zero.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/return_one.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/return_answer.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/local_variable.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/function_parameter.noria" 5
+run_native_exit_test "${ROOT_DIR}/examples/basic/return_large_integer.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/assignment.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/assignment_reuse.noria" 14
 run_native_exit_test "${ROOT_DIR}/examples/basic/arithmetic.noria" 7
@@ -464,8 +483,13 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/unary_operators.noria" 12
 run_native_exit_test "${ROOT_DIR}/examples/basic/logical_operators.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/modulo.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/bitwise.noria" 37
+run_native_exit_test "${ROOT_DIR}/examples/basic/i32_min_max.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/i32_wrapping.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/bool_equality.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_and.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_or.noria" 7
+run_native_stdout_test "${ROOT_DIR}/examples/basic/short_circuit_no_print.noria" \
+  "${ROOT_DIR}/examples/basic/short_circuit_no_print.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/else_if.noria" 6
 run_native_exit_test "${ROOT_DIR}/examples/basic/if_without_else.noria" 5
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_identity.noria" 8
@@ -505,6 +529,10 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/string_escapes.noria" \
 echo "[noria-tests] phase 3 string output acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_output.noria" \
   "${ROOT_DIR}/examples/basic/string_output.expected"
+run_native_exit_test "${ROOT_DIR}/examples/basic/str_equality.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/empty_string.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/string_index_oob.noria" 70 \
+  "string index out of bounds"
 
 echo "[noria-tests] phase 4 array acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/arrays_sum.noria" 18
@@ -517,6 +545,11 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/array_str_elements.noria" \
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_reassign.noria" 3
 run_native_stdout_test "${ROOT_DIR}/examples/basic/array_indexed_assignment.noria" \
   "${ROOT_DIR}/examples/basic/array_indexed_assignment.expected"
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_bool_roundtrip.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_oob.noria" 70 \
+  "array index out of bounds"
+run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_negative.noria" 70 \
+  "array index out of bounds"
 grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
@@ -542,8 +575,8 @@ grep -q "typecheck: str index is not assignable" \
   "${TEST_OUT_DIR}/string_index_assignment.stderr"
 grep -q "typecheck: index requires i32 index, got bool" \
   "${TEST_OUT_DIR}/array_indexed_non_i32_index.stderr"
-grep -q "getelementptr inbounds i32, ptr %t[0-9]*, i32 1" \
-  "${TEST_OUT_DIR}/array_indexed_assignment.ll"
+grep -q "mul i32 .*, 4" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
+grep -q "getelementptr i8, ptr %t[0-9]*, i32" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
 grep -q "store i32 [^,]*, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
 grep -q "store i32 99, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.ll"
 grep -q "typecheck: len expects str or array, got i32" \
@@ -658,6 +691,12 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_remove_oob.nor
   "sequence_remove: index out of bounds"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_arr_list_conformance.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_nested_id.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_str_arr.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_str_list.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_bool_arr.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_bool_list.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_set_oob.noria" 70 \
+  "sequence_set: index out of bounds"
 grep -c '%Sequence$s.i32$tag.list = type' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
 grep -c 'define %Sequence$s.i32$tag.list @sequence_new$s.i32$tag.list' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_pop_empty.noria" 70 \
@@ -673,8 +712,18 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_contains_rem
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_get_or.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_resize.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_tombstone.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_dense.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_i32_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_str_i32.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_bool_i32.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_str_tombstone.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_i32_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_f64.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_sorted_delete.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/dictionary_get_missing.noria" 70 \
   "dictionary_get: key not found"
+run_native_failure_test "${ROOT_DIR}/examples/basic/dictionary_remove_missing.noria" 70 \
+  "dictionary_remove: key not found"
 grep -c '%Dictionary$s.i32$s.i32$tag.bst = type' "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
 grep -c 'define %Dictionary$s.i32$s.i32$tag.bst @dictionary_new$s.i32$s.i32$tag.bst' \
   "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
@@ -685,6 +734,10 @@ grep -c 'define %Dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$
 
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_bst_ops.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_ops.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_bool.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/set_remove_missing.noria" 70 \
+  "set_remove: key not found"
 grep -c '%Set$s.i32$tag.bst = type' "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
 grep -c 'define %Set$s.i32$tag.bst @set_new$s.i32$tag.bst' \
   "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
@@ -708,7 +761,7 @@ grep -q "typecheck: implementation tag 'bst' requires '<' for key type str" \
   "${TEST_OUT_DIR}/set_bst_key_unordered.stderr"
 grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64; V2 hashes i32, bool, str" \
   "${TEST_OUT_DIR}/set_hashmap_key_unhashable.stderr"
-grep -q "typecheck: comparison requires matching numeric operands, got str and str" \
+grep -q "typecheck: ordered comparison requires matching numeric operands, got str and str" \
   "${TEST_OUT_DIR}/heap_key_unordered.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
@@ -819,6 +872,21 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_select_tag.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_tag_constraint_ok.noria" 43
+
+echo "[noria-tests] production review leetcode and mixed-adt programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_two_sum.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_valid_parentheses.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_max_subarray.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_climbing_stairs.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_merge_sorted_array.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_palindrome_number.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_roman_to_int.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_contains_duplicate.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_best_time_stock.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_binary_search.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_single_number.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_kth_largest.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/complex_sequence_set_pair.noria" 0
 grep -c '%Box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 grep -c 'define i32 @kind$s.i32$tag.arr' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"

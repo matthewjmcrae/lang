@@ -1,36 +1,52 @@
-import std::internal::rt::{alloc_bytes, load_at, load_ptr_at, null_ptr, ptr_eq, release_bytes,
-                           size_of, store_at, store_ptr_at};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, load_at, load_ptr_at,
+                           null_ptr, ptr_eq, release_bytes, size_of, store_at, store_ptr_at};
 
 fn type_size<T>(sample: T) -> i32 {
   return size_of();
 }
 
-fn key_index(key_size: i32) -> i32 {
-  return 16 / key_size;
+fn key_offset() -> i32 {
+  return 16;
 }
 
-fn value_index(key_size: i32, val_size: i32) -> i32 {
-  return (16 + key_size) / val_size;
+fn value_offset(key_size: i32, val_size: i32) -> i32 {
+  return align_up(key_offset() + key_size, field_alignment(val_size));
 }
 
 fn node_bytes(key_size: i32, val_size: i32) -> i32 {
-  return 16 + key_size + val_size;
+  return align_up(value_offset(key_size, val_size) + val_size, 8);
 }
 
 fn bst_new_node<K, V>(key: K, value: V, key_size: i32, val_size: i32) -> __rt_ptr {
   let node: __rt_ptr = alloc_bytes(node_bytes(key_size, val_size));
   let left0: i32 = store_ptr_at(node, 0, null_ptr());
   let right0: i32 = store_ptr_at(node, 1, null_ptr());
-  let key0: i32 = store_at(node, key_index(key_size), key);
-  let val0: i32 = store_at(node, value_index(key_size, val_size), value);
+  let key0: i32 = store_at(byte_offset(node, key_offset()), 0, key);
+  let val0: i32 = store_at(byte_offset(node, value_offset(key_size, val_size)), 0, value);
   return node;
+}
+
+fn bst_load_key<K>(node: __rt_ptr) -> K {
+  return load_at(byte_offset(node, key_offset()), 0);
+}
+
+fn bst_store_key<K>(node: __rt_ptr, key: K) -> i32 {
+  return store_at(byte_offset(node, key_offset()), 0, key);
+}
+
+fn bst_load_value<V>(node: __rt_ptr, key_size: i32, val_size: i32) -> V {
+  return load_at(byte_offset(node, value_offset(key_size, val_size)), 0);
+}
+
+fn bst_store_value<V>(node: __rt_ptr, key_size: i32, val_size: i32, value: V) -> i32 {
+  return store_at(byte_offset(node, value_offset(key_size, val_size)), 0, value);
 }
 
 fn bst_contains_node<K, V>(node: __rt_ptr, key: K, key_size: i32) -> bool {
   if ptr_eq(node, null_ptr()) {
     return false;
   }
-  let node_key: K = load_at(node, key_index(key_size));
+  let node_key: K = bst_load_key(node);
   if key == node_key {
     return true;
   }
@@ -46,7 +62,7 @@ fn bst_find_node<K, V>(node: __rt_ptr, key: K, key_size: i32) -> __rt_ptr {
   if ptr_eq(node, null_ptr()) {
     return null_ptr();
   }
-  let node_key: K = load_at(node, key_index(key_size));
+  let node_key: K = bst_load_key(node);
   if key == node_key {
     return node;
   }
@@ -62,9 +78,9 @@ fn bst_insert_node<K, V>(node: __rt_ptr, key: K, value: V, key_size: i32, val_si
   if ptr_eq(node, null_ptr()) {
     return bst_new_node(key, value, key_size, val_size);
   }
-  let node_key: K = load_at(node, key_index(key_size));
+  let node_key: K = bst_load_key(node);
   if key == node_key {
-    let upsert: i32 = store_at(node, value_index(key_size, val_size), value);
+    let upsert: i32 = bst_store_value(node, key_size, val_size, value);
     return node;
   }
   if key < node_key {
@@ -91,7 +107,7 @@ fn bst_remove_node<K, V>(node: __rt_ptr, key: K, key_size: i32, val_size: i32) -
   if ptr_eq(node, null_ptr()) {
     return null_ptr();
   }
-  let node_key: K = load_at(node, key_index(key_size));
+  let node_key: K = bst_load_key(node);
   if key < node_key {
     let left: __rt_ptr = load_ptr_at(node, 0);
     let new_left: __rt_ptr = bst_remove_node(left, key, key_size, val_size);
@@ -115,10 +131,10 @@ fn bst_remove_node<K, V>(node: __rt_ptr, key: K, key_size: i32, val_size: i32) -
     return left;
   }
   let successor: __rt_ptr = bst_min_node(right);
-  let succ_key: K = load_at(successor, key_index(key_size));
-  let succ_val: V = load_at(successor, value_index(key_size, val_size));
-  let copy_key: i32 = store_at(node, key_index(key_size), succ_key);
-  let copy_val: i32 = store_at(node, value_index(key_size, val_size), succ_val);
+  let succ_key: K = bst_load_key(successor);
+  let succ_val: V = bst_load_value(successor, key_size, val_size);
+  let copy_key: i32 = bst_store_key(node, succ_key);
+  let copy_val: i32 = bst_store_value(node, key_size, val_size, succ_val);
   let new_right: __rt_ptr = bst_remove_node(right, succ_key, key_size, val_size);
   let patch: i32 = store_ptr_at(node, 1, new_right);
   return node;

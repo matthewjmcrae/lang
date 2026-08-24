@@ -6,25 +6,27 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 
 ## Current status (as of August 2026)
 
-**Branch:** `mmcrae/v2` — Phases 0–5 are implemented; Phase 6 is next.
+**Branch:** `mmcrae/v2` — Phases 0–7 are implemented. Phase 8 (dungeon demo) is next.
 
 
-| Phase                       | Status          | Notes                                                              |
-| --------------------------- | --------------- | ------------------------------------------------------------------ |
-| 0 — type-refactor           | **Done**        | Canonical `Type` in `Types.hpp`; `llvmType` adapter                |
-| 1 — operators               | **Done**        | Unary, logical, bitwise, `%`, `else if`, `as`                      |
-| 2 — floats-io-cast          | **Done**        | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world |
-| 2.5 — architecture refactor | **Done**        | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place    |
-| 3 — strings                 | **Done**        | `len`, `s[i]`, `str + str`, escapes; `print(str)`                  |
-| 4 — arrays                  | **Done**        | `[T]`, literals, `len`, index read/write places                    |
-| 5 — structs                 | **Done**        | Decl, construction, field r/w, by-value params/returns             |
-| 6 — generics-modules        | **Partial**     | `import std::…`, generic functions; structs/tags pending           |
-| 7–9                         | **Not started** | Blocked on 6                                                       |
+| Phase                       | Status          | Notes                                                                                          |
+| --------------------------- | --------------- | ---------------------------------------------------------------------------------------------- |
+| 0 — type-refactor           | **Done**        | Canonical `Type` in `Types.hpp`; `llvmType` adapter                                            |
+| 1 — operators               | **Done**        | Unary, logical, bitwise, `%`, `else if`, `as`                                                  |
+| 2 — floats-io-cast          | **Done**        | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world                             |
+| 2.5 — architecture refactor | **Done**        | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place                                |
+| 3 — strings                 | **Done**        | `len`, `s[i]`, `str + str`, escapes; `print(str)`                                              |
+| 4 — arrays                  | **Done**        | `[T]`, literals, `len`, index read/write places; OOB traps                                     |
+| 5 — structs                 | **Done**        | Decl, construction, field r/w, by-value params/returns                                         |
+| 6 — generics-modules        | **Done**        | `import std::…`, generic functions/structs, tags, constraints, monomorphization                |
+| 7 — data-structure-stdlib   | **Done**        | Sequence, Dictionary, Set, heap; mixed-size slot layout; bool/str hashmap keys                 |
+| 8 — demo-dungeon            | **Not started** | `read_char` + CLI dungeon                                                                      |
+| 9 — docs-tests polish       | **Partial**     | SYNTAX/README aligned with implemented behavior; remaining polish is dungeon + snapshot audit  |
 
 
-**Regression gate:** `just test` (99 `examples/basic`, 66 `examples/invalid`, 13 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
+**Regression gate:** `just test` (192 `examples/basic`, 100 `examples/invalid`, 21 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
-**Documentation:** README/SYNTAX updated through Phase 5; keep updating after each feature phase.
+**Documentation:** README/SYNTAX updated through Phase 7, including bool/str equality and container layout.
 
 ## Task checklist
 
@@ -35,7 +37,7 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 - [x] **Phase 3 — strings (finish):** Indexing, `len`, concat on top of Phase 2.5 infrastructure.
 - [x] **Phase 4 — arrays:** Array types, literals, indexing, `len`; indexed places via Phase 2.5 Place path.
 - [x] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
-- [ ] **Phase 6 — generics-modules:** Add source imports, generic structs/functions, compile-time implementation tags, constraints, and reachable-specialization monomorphization.
+- [x] **Phase 6 — generics-modules:** Add source imports, generic structs/functions, compile-time implementation tags, constraints, and reachable-specialization monomorphization.
 - [x] **Phase 7 — data-structure-stdlib:** Add module-private struct fields (Phase 7.0 prerequisite), then ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
 - [ ] **Phase 8 — demo-dungeon:** Add `read_char()` input and write a deterministic CLI dungeon game in Noria (`examples/demos/dungeon_cli.noria`) using the standard-library ADTs, with scripted transcript tests.
 - [ ] **Phase 9 — docs-tests polish:** Final harness audit, `--emit-ast` snapshot coverage, standard-library reference, dungeon sample session, resume bullet.
@@ -439,5 +441,6 @@ Obsolete calendar (end-of-July) replaced with dependency-ordered milestones:
 - **Field privacy scope:** Module-private fields are intentional — Noria has no methods, so struct-scoped privacy would make private fields unusable. Do not ship ADTs with public `__rt_ptr` handles before Phase 7.0 lands.
 - **Implementation tradeoffs:** A linked-list sequence intentionally performs poorly for indexed heap operations, and the V2 `bst` is not balanced. Preserve shared ADT semantics while documenting these complexity differences.
 - **Documentation drift:** README/SYNTAX lag the compiler today; update at end of Phase 2.5 and after each feature phase per testing rules.
-- **Regression gate:** All existing examples (currently 69 basic + 34 invalid + 5 invalid_syntax) must stay green after every phase and every Phase 2.5 checkpoint.
+- **Visitor tax:** every AST node still needs ~10 `AstVisitor` implementations (TypeChecker and Codegen each have four nested visitors, plus Parser probe / Monomorphize / AstPrinter). Follow-up: a throwing default `AstVisitor` so probes need not stub every node. Do not do a repo-wide visitor rewrite in the production-hardening pass.
+- **Regression gate:** All existing examples must stay green after every phase and every Phase 2.5 checkpoint. Counts grow with the suite; `just test` is the source of truth.
 

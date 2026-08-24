@@ -1,15 +1,17 @@
 import std::internal::dictionary_bst::{bst_contains_node, bst_find_node, bst_insert_node,
-                                         bst_min_node, bst_new_node, bst_remove_node, key_index,
-                                         node_bytes, type_size, value_index};
+                                         bst_load_key, bst_load_value, bst_min_node, bst_new_node,
+                                         bst_remove_node, bst_store_key, bst_store_value, key_offset,
+                                         node_bytes, type_size, value_offset};
 import std::internal::dictionary_hashmap::{hashmap_contains, hashmap_find_insert_slot, hashmap_find_slot,
                                             hashmap_get_slot, hashmap_get_value, hashmap_init_table,
                                             hashmap_insert_slot, hashmap_maybe_grow, hashmap_rehash,
                                             hashmap_remove, probe_index, set_slot_key, set_slot_status,
                                             set_slot_value, slot_at, slot_bytes, slot_empty,
-                                            slot_key, slot_key_index, slot_occupied, slot_status,
-                                            slot_tombstone, slot_value, slot_value_index};
-import std::internal::rt::{alloc_bytes, load_i32_at, load_ptr_at, null_ptr, ptr_eq,
-                           store_i32_at, store_ptr_at};
+                                            slot_key, slot_key_offset, slot_occupied, slot_status,
+                                            slot_tombstone, slot_value, slot_value_offset};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, load_at, load_i32_at,
+                           load_ptr_at, null_ptr, ptr_eq, release_bytes, store_at, store_i32_at,
+                           store_ptr_at};
 
 struct Set<T, I> {
   private:
@@ -101,6 +103,9 @@ fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool impl hashmap {
 }
 
 fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl hashmap {
+  if !hashmap_contains(s.handle, elem) {
+    __rt_trap("set_remove: key not found\n");
+  }
   let _: i32 = hashmap_remove(s.handle, elem);
   return s;
 }

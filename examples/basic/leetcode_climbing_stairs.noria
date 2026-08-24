@@ -1,0 +1,28 @@
+fn climb(n: i32) -> i32 {
+  if n <= 2 {
+    return n;
+  }
+  let a: i32 = 1;
+  let b: i32 = 2;
+  let i: i32 = 3;
+  while i <= n {
+    let next: i32 = a + b;
+    a = b;
+    b = next;
+    i = i + 1;
+  }
+  return b;
+}
+
+fn main() -> i32 {
+  if climb(1) != 1 {
+    return 1;
+  }
+  if climb(2) != 2 {
+    return 2;
+  }
+  if climb(5) != 8 {
+    return 3;
+  }
+  return 0;
+}

@@ -1,0 +1,35 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_len, dictionary_new, dictionary_remove};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
+  d = dictionary_insert(d, 3, 30);
+  d = dictionary_insert(d, 1, 10);
+  d = dictionary_insert(d, 2, 20);
+  d = dictionary_insert(d, 5, 50);
+  d = dictionary_insert(d, 4, 40);
+  let removed: i32 = dictionary_remove(d, 3);
+  if removed != 30 {
+    return 1;
+  }
+  if dictionary_len(d) != 4 {
+    return 2;
+  }
+  if dictionary_contains(d, 3) {
+    return 3;
+  }
+  if dictionary_get(d, 1) != 10 || dictionary_get(d, 2) != 20 {
+    return 4;
+  }
+  if dictionary_get(d, 4) != 40 || dictionary_get(d, 5) != 50 {
+    return 5;
+  }
+  let leftmost: i32 = dictionary_remove(d, 1);
+  if leftmost != 10 {
+    return 6;
+  }
+  if dictionary_get(d, 5) != 50 {
+    return 7;
+  }
+  return 0;
+}

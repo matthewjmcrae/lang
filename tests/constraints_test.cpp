@@ -43,7 +43,10 @@ int main() {
 
   expect(noria::supportsOperation(Type::i32(), RequiredOperation::LessThan), "i32 supports <");
   expect(noria::supportsOperation(Type::f64(), RequiredOperation::Equality), "f64 supports ==");
+  expect(noria::supportsOperation(Type::boolean(), RequiredOperation::Equality), "bool supports ==");
+  expect(noria::supportsOperation(Type::str(), RequiredOperation::Equality), "str supports ==");
   expect(!noria::supportsOperation(Type::str(), RequiredOperation::LessThan), "str lacks <");
+  expect(!noria::supportsOperation(Type::boolean(), RequiredOperation::LessThan), "bool lacks <");
   expect(noria::supportsOperation(Type::str(), RequiredOperation::Hash), "str supports hash");
   expect(!noria::supportsOperation(Type::f64(), RequiredOperation::Hash), "f64 lacks hash");
   expect(!noria::supportsOperation(Type::array(Type::i32()), RequiredOperation::Equality),

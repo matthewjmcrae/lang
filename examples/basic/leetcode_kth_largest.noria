@@ -1,0 +1,32 @@
+import std::heap::{heappop, heappush};
+import std::sequence::{Sequence, sequence_len, sequence_new};
+
+fn kth_largest(nums: [i32], k: i32) -> i32 {
+  let heap: Sequence<i32, arr> = sequence_new(0);
+  let i: i32 = 0;
+  while i < len(nums) {
+    if sequence_len(heap) < k {
+      heap = heappush(heap, nums[i]);
+    } else {
+      let smallest: i32 = heappop(heap);
+      if nums[i] > smallest {
+        heap = heappush(heap, nums[i]);
+      } else {
+        heap = heappush(heap, smallest);
+      }
+    }
+    i = i + 1;
+  }
+  return heappop(heap);
+}
+
+fn main() -> i32 {
+  let nums: [i32] = [3, 2, 1, 5, 6, 4];
+  if kth_largest(nums, 2) != 5 {
+    return 1;
+  }
+  if kth_largest(nums, 1) != 6 {
+    return 2;
+  }
+  return 0;
+}

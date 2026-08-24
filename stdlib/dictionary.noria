@@ -1,15 +1,17 @@
 import std::internal::dictionary_bst::{bst_contains_node, bst_find_node, bst_insert_node,
-                                         bst_min_node, bst_new_node, bst_remove_node, key_index,
-                                         node_bytes, type_size, value_index};
+                                         bst_load_key, bst_load_value, bst_min_node, bst_new_node,
+                                         bst_remove_node, bst_store_key, bst_store_value, key_offset,
+                                         node_bytes, type_size, value_offset};
 import std::internal::dictionary_hashmap::{hashmap_contains, hashmap_find_insert_slot, hashmap_find_slot,
                                             hashmap_get_slot, hashmap_get_value, hashmap_init_table,
                                             hashmap_insert_slot, hashmap_maybe_grow, hashmap_rehash,
                                             hashmap_remove, probe_index, set_slot_key, set_slot_status,
                                             set_slot_value, slot_at, slot_bytes, slot_empty,
-                                            slot_key, slot_key_index, slot_occupied, slot_status,
-                                            slot_tombstone, slot_value, slot_value_index};
-import std::internal::rt::{alloc_bytes, load_at, load_i32_at, load_ptr_at, null_ptr, ptr_eq,
-                           store_i32_at, store_ptr_at};
+                                            slot_key, slot_key_offset, slot_occupied, slot_status,
+                                            slot_tombstone, slot_value, slot_value_offset};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, load_at, load_i32_at,
+                           load_ptr_at, null_ptr, ptr_eq, release_bytes, store_at, store_i32_at,
+                           store_ptr_at};
 
 struct Dictionary<K, V, I> {
   private:
@@ -59,7 +61,7 @@ fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
   if ptr_eq(node, null_ptr()) {
     __rt_trap("dictionary_get: key not found\n");
   }
-  return load_at(node, value_index(key_size, val_size));
+  return bst_load_value(node, key_size, val_size);
 }
 
 fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V impl bst {
@@ -70,7 +72,7 @@ fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V i
   if ptr_eq(node, null_ptr()) {
     return default;
   }
-  return load_at(node, value_index(key_size, val_size));
+  return bst_load_value(node, key_size, val_size);
 }
 
 fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
@@ -81,7 +83,7 @@ fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
   if ptr_eq(node, null_ptr()) {
     __rt_trap("dictionary_remove: key not found\n");
   }
-  let value: V = load_at(node, value_index(key_size, val_size));
+  let value: V = bst_load_value(node, key_size, val_size);
   let new_root: __rt_ptr = bst_remove_node(root, key, key_size, val_size);
   let patch: i32 = store_ptr_at(d.handle, 2, new_root);
   let len: i32 = load_i32_at(d.handle, 0);

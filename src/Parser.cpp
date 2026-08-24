@@ -4,8 +4,12 @@
 #include "noria/Diagnostic.hpp"
 
 #include <charconv>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -61,6 +65,16 @@ namespace noria {
     void IdentifierNameProbe::visit(const ast::WhileStatement&) {}
     void IdentifierNameProbe::visit(const ast::AssignmentStatement&) {}
     void IdentifierNameProbe::visit(const ast::ExpressionStatement&) {}
+
+    std::int64_t parseIntegerToken(const Token& integer) {
+      std::int64_t value = 0;
+      const auto* begin = integer.text.data();
+      const auto* end = integer.text.data() + integer.text.size();
+      const auto result = std::from_chars(begin, end, value);
+      if (result.ec != std::errc() || result.ptr != end)
+        throw CompileError(formatDiagnostic(integer.location, "invalid integer literal"));
+      return value;
+    }
 
   } // namespace
 
@@ -590,6 +604,15 @@ namespace noria {
 
     if (peek().kind == TokenKind::Minus) {
       const Token& opToken = advance();
+      if (peek().kind == TokenKind::Integer) {
+        const Token& integer = advance();
+        const std::int64_t magnitude = parseIntegerToken(integer);
+        if (magnitude > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1)
+          throw CompileError(
+              formatDiagnostic(integer.location, "integer literal out of i32 range"));
+        return std::make_unique<ast::IntegerLiteral>(-magnitude, opToken.location);
+      }
+
       auto operand = parseUnary();
       return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::Negate, std::move(operand),
                                                     opToken.location);
@@ -758,7 +781,14 @@ namespace noria {
 
     if (peek().kind == TokenKind::Float) {
       const Token& token = advance();
-      double value = std::stod(token.text);
+      double value = 0.0;
+      try {
+        value = std::stod(token.text);
+      } catch (const std::invalid_argument&) {
+        throw CompileError(formatDiagnostic(token.location, "invalid float literal"));
+      } catch (const std::out_of_range&) {
+        throw CompileError(formatDiagnostic(token.location, "float literal out of range"));
+      }
       return std::make_unique<ast::FloatLiteral>(value, token.location);
     }
 
@@ -785,15 +815,7 @@ namespace noria {
 
     if (peek().kind == TokenKind::Integer) {
       const Token& integer = advance();
-
-      std::int64_t value = 0;
-      const auto* begin = integer.text.data();
-      const auto* end = integer.text.data() + integer.text.size();
-      const auto result = std::from_chars(begin, end, value);
-      if (result.ec != std::errc())
-        throw CompileError(formatDiagnostic(integer.location, "invalid integer literal"));
-
-      return std::make_unique<ast::IntegerLiteral>(value, integer.location);
+      return std::make_unique<ast::IntegerLiteral>(parseIntegerToken(integer), integer.location);
     }
 
     throw CompileError(formatDiagnostic(peek().location, "expected expression"));

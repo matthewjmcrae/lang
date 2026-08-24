@@ -240,6 +240,8 @@ fn main() -> i32 {
 }
 ```
 
+If a function reaches the end of its body without a `return`, code generation emits the type's zero value (`0`, `false`, `0.0`, `null`, or `zeroinitializer`). Missing returns are not a type error. Statements that follow an `if`/`else` where both branches `return` are still type-checked, but codegen does not emit them (unreachable).
+
 Recursion is supported:
 
 ```noria
@@ -270,6 +272,8 @@ Type parameters are bare identifiers with no bounds or defaults. At a call site,
 
 Each distinct specialization is monomorphized into a concrete function with a deterministic mangled name such as `id$s.i32` (type kinds are encoded: scalars as `s.i32`, structs as `st.Point`). Calling the same generic twice with the same type reuses one specialization, including when the same concrete specialization is requested from multiple import paths.
 
+When a generic call sits inside another specialization, type parameters that share a name with the caller (`V` in `dictionary_get<K, V>` calling `bst_load_value<V>`) are reused. Remaining parameters are inferred from arguments, then from a `let`/return expected type, then from leftover caller type arguments.
+
 Generic functions may declare tag-selected implementations after the return type. Each implementation shares the same public signature and is chosen at specialization time from the inferred implementation tag in the type arguments:
 
 ```noria
@@ -291,7 +295,7 @@ struct Box<T> {
 
 Use type applications in annotations and struct literals: `Box<i32>`, `Box<i32> { value: 42 }`. When type arguments are omitted from a literal (`Box { value: 42 }`), the compiler infers them from field values. Each concrete application is monomorphized into a specialized struct type such as `Box$s.i32`. Uncalled generic struct templates are not emitted in LLVM IR.
 
-Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time selectors used only inside type-argument lists (for example `Box<i32, arr>`). They are not runtime types and cannot appear as standalone value types. Each tag participates in specialization keys and mangling (`tag.arr`). Tagged specializations enforce key-type constraints at instantiation time: `bst` keys require `<` and `==` on `i32` or `f64`; `hashmap` keys require `==` on `i32` or `f64` and a V2 `hash` on `i32`, `bool`, or `str`. `arr` and `list` impose no key constraints.
+Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time selectors used only inside type-argument lists (for example `Box<i32, arr>`). They are not runtime types and cannot appear as standalone value types. Each tag participates in specialization keys and mangling (`tag.arr`). Tagged specializations enforce key-type constraints at instantiation time: `bst` keys require `<` and `==` on `i32` or `f64`; `hashmap` keys require `==` and a V2 `hash` on `i32`, `bool`, or `str`. `arr` and `list` impose no key constraints.
 
 ## Variables
 
@@ -310,10 +314,11 @@ x = x + 1;
 
 ## Expressions
 
-Integer literals:
+Integer literals are signed 32-bit values in the range `[-2147483648, 2147483647]`. The literal `-2147483648` is accepted. Values outside that range are rejected with a located diagnostic.
 
 ```noria
 42
+-2147483648
 ```
 
 Boolean literals:
@@ -368,7 +373,7 @@ Operator precedence is supported:
 (1 + 2) * 3   // 9
 ```
 
-Division is signed integer division.
+Division is signed integer division that truncates toward zero. Integer `+`, `-`, and `*` wrap on overflow. Division or remainder by zero and shifts by 32 or more are LLVM poison; they are not trapped.
 
 ## Comparisons
 
@@ -387,9 +392,10 @@ Comparisons produce `bool`.
 
 ```noria
 let flag: bool = x >= 10;
+let same: bool = "noria" == "noria";
 ```
 
-Comparisons work on `i32` and `f64` operands of the same type.
+`==` and `!=` work on matching `i32`, `f64`, `bool`, or `str` operands. Ordered comparisons (`<`, `<=`, `>`, `>=`) work only on matching `i32` or `f64` operands.
 
 ## Unary Operators
 
@@ -601,18 +607,18 @@ fn main() -> i32 {
 }
 ```
 
-Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance.
+Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Out-of-range indexes, including negatives, trap at runtime. Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Failed allocations trap. Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance. `str` values compare with `==` and `!=`.
 
 ## Arrays
 
-Array types are written `[T]` where `T` is any known element type (for example, `[i32]`, `[str]`, `[[i32]]`). Array literals use square brackets with comma-separated elements:
+Array types are written `[T]` where `T` is a scalar or array element type (for example, `[i32]`, `[str]`, `[[i32]]`). Struct types cannot be used as array elements.
 
 ```noria
 let values: [i32] = [3, 4, 5, 6];
 let names: [str] = ["alice", "bob"];
 ```
 
-Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). There is no bounds checking; out-of-range indexing is undefined behavior. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
 
 String indexing is read-only; `s[i] = expr` is rejected at type check.
 
@@ -831,17 +837,23 @@ fn main() -> i32 {
 
 ## Current Limitations
 
-Noria does not currently support:
+Noria currently does not support:
 
-- imports or modules
-- container stdlib
+- user-defined modules or a module search path (only bundled `std::` imports)
+- `as` import renaming or glob imports
 - `break` or `continue`
 - `for` loops
 - global variables
-- type inference
+- type inference for locals (annotations are required)
 - implicit conversions between types
 - additional integer types (`i64`, unsigned, or character types)
 - float exponent literals (for example, `1e3` does not parse)
+- boxed recursive types (trees/graphs as user structs)
+- `Sequence<T>` elements that are structs
+- `[T]` arrays whose element type `T` is a struct
+- reclaiming `str` concatenations or array/`malloc` buffers (leak-on-exit)
+
+Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, and failed `malloc`/`realloc`. Integer overflow wraps; `sdiv`/`srem` by zero and shifts of 32 or more are LLVM poison.
 
 ## Commands
 

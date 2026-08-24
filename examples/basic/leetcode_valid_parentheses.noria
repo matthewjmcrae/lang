@@ -1,0 +1,47 @@
+import std::sequence::{Sequence, sequence_len, sequence_new, sequence_pop, sequence_push};
+
+fn is_open(ch: i32) -> bool {
+  return ch == 40 || ch == 91 || ch == 123;
+}
+
+fn matches(open: i32, close: i32) -> bool {
+  return (open == 40 && close == 41) || (open == 91 && close == 93) ||
+         (open == 123 && close == 125);
+}
+
+fn valid(s: str) -> bool {
+  let stack: Sequence<i32, arr> = sequence_new(0);
+  let i: i32 = 0;
+  while i < len(s) {
+    let ch: i32 = s[i];
+    if is_open(ch) {
+      stack = sequence_push(stack, ch);
+    } else {
+      if sequence_len(stack) == 0 {
+        return false;
+      }
+      let top: i32 = sequence_pop(stack);
+      if !matches(top, ch) {
+        return false;
+      }
+    }
+    i = i + 1;
+  }
+  return sequence_len(stack) == 0;
+}
+
+fn main() -> i32 {
+  if !valid("()[]{}") {
+    return 1;
+  }
+  if valid("(]") {
+    return 2;
+  }
+  if valid("(") {
+    return 3;
+  }
+  if !valid("") {
+    return 4;
+  }
+  return 0;
+}

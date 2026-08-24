@@ -1,0 +1,17 @@
+fn main() -> i32 {
+  let flags: [bool] = [true, false, true];
+  if !flags[0] || flags[1] || !flags[2] {
+    return 1;
+  }
+  if true && flags[1] {
+    return 4;
+  }
+  flags[1] = true;
+  if !flags[1] {
+    return 2;
+  }
+  if len(flags) != 3 {
+    return 3;
+  }
+  return 0;
+}

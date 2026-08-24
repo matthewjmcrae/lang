@@ -1,0 +1,13 @@
+fn main() -> i32 {
+  let empty: str = "";
+  if len(empty) != 0 {
+    return 1;
+  }
+  if empty + "x" != "x" {
+    return 2;
+  }
+  if "x" + empty != "x" {
+    return 3;
+  }
+  return 0;
+}

@@ -1,0 +1,28 @@
+fn is_palindrome(x: i32) -> bool {
+  if x < 0 {
+    return false;
+  }
+  let original: i32 = x;
+  let reversed: i32 = 0;
+  while x > 0 {
+    reversed = reversed * 10 + x % 10;
+    x = x / 10;
+  }
+  return reversed == original;
+}
+
+fn main() -> i32 {
+  if !is_palindrome(121) {
+    return 1;
+  }
+  if is_palindrome(-121) {
+    return 2;
+  }
+  if is_palindrome(-2147483648) {
+    return 3;
+  }
+  if !is_palindrome(0) {
+    return 4;
+  }
+  return 0;
+}
