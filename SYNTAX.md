@@ -67,12 +67,29 @@ import <module-path>::{<name> (, <name>)*};
 Current limitations:
 
 - Only the `std` module root is supported.
-- Paths must be exactly `std::<name>` (for example, `std::mathx`).
+- Paths use `std::` followed by one or more segments (for example, `std::mathx` or `std::internal::rt`).
 - There is no `as` renaming, glob import, or user module search path.
 - Only names listed in the import braces are merged into the program; other symbols in the imported file remain unavailable.
-- Diagnostics report `line:column` without a source file path for imported modules.
+- Modules under `std::internal::` are available only to other standard-library modules, not to user programs.
 
-The bundled stdlib lives in `stdlib/` next to the project root. The compiler resolves `std::mathx` to `stdlib/mathx.noria`. Override the location with `--stdlib <dir>`.
+The bundled stdlib lives in `stdlib/` next to the project root. The compiler resolves `std::mathx` to `stdlib/mathx.noria` and nested paths such as `std::internal::rt` to `stdlib/internal/rt.noria`. Override the location with `--stdlib <dir>`.
+
+## Private runtime ABI
+
+Standard-library container implementations may use an internal pointer type and runtime builtins that are unavailable to ordinary programs:
+
+- Type `__rt_ptr` — internal raw pointer type (maps to LLVM `ptr`).
+- Builtins `__rt_alloc`, `__rt_realloc`, and `__rt_release` — wrap `malloc`, `realloc`, and `free`.
+
+These names are reserved with the `__rt_` prefix. User code cannot import `std::internal::*` modules, annotate variables with `__rt_ptr`, or call internal runtime builtins. Public stdlib modules such as `std::memory` expose safe entry points instead.
+
+```noria
+import std::memory::{memory_probe};
+
+fn main() -> i32 {
+  return memory_probe();
+}
+```
 
 ## Functions
 

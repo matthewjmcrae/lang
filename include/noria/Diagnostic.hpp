@@ -8,7 +8,7 @@
 
 namespace noria {
 
-  enum class DiagnosticStage { Lexer, TypeCheck };
+  enum class DiagnosticStage { Lexer, TypeCheck, Import };
 
   std::string formatDiagnostic(SourceLocation location, std::string_view message);
   std::string formatDiagnostic(SourceLocation location, DiagnosticStage stage,

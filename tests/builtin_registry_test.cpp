@@ -36,6 +36,7 @@ int main() {
   expect(printDescriptor->id == BuiltinId::Print, "print id");
   expect(printDescriptor->name == "print", "print name");
   expect(printDescriptor->arity == 1, "print arity");
+  expect(printDescriptor->visibility == noria::Visibility::Public, "print visibility");
   expect(printDescriptor->returnKind == TypeKind::Void, "print return kind");
 
   const BuiltinSignature* powDescriptor = lookupBuiltin("pow");
@@ -58,6 +59,22 @@ int main() {
   expect(lenDescriptor->parameters[0] == TypeKind::Str, "len parameter kind");
   expect(lenDescriptor->returnKind == TypeKind::I32, "len return kind");
   expect(lenDescriptor->style == MismatchStyle::PerArgument, "len mismatch style");
+
+  const BuiltinSignature* rtAllocDescriptor = lookupBuiltin("__rt_alloc");
+  expect(rtAllocDescriptor != nullptr, "lookup __rt_alloc");
+  expect(rtAllocDescriptor->id == BuiltinId::RtAlloc, "__rt_alloc id");
+  expect(rtAllocDescriptor->visibility == noria::Visibility::Internal, "__rt_alloc visibility");
+  expect(rtAllocDescriptor->parameters[0] == TypeKind::I32, "__rt_alloc parameter kind");
+  expect(rtAllocDescriptor->returnKind == TypeKind::RawPtr, "__rt_alloc return kind");
+
+  const BuiltinSignature* rtReallocDescriptor = lookupBuiltin("__rt_realloc");
+  expect(rtReallocDescriptor != nullptr, "lookup __rt_realloc");
+  expect(rtReallocDescriptor->parameters[0] == TypeKind::RawPtr, "__rt_realloc pointer kind");
+  expect(rtReallocDescriptor->parameters[1] == TypeKind::I32, "__rt_realloc size kind");
+
+  const BuiltinSignature* rtReleaseDescriptor = lookupBuiltin("__rt_release");
+  expect(rtReleaseDescriptor != nullptr, "lookup __rt_release");
+  expect(rtReleaseDescriptor->returnKind == TypeKind::Void, "__rt_release return kind");
 
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
@@ -92,6 +109,8 @@ int main() {
   expect(Type(printDescriptor->parameters[0]) == Type::str(), "print parameter type");
   expect(Type(lenDescriptor->parameters[0]) == Type::str(), "len parameter type");
   expect(Type(lenDescriptor->returnKind) == Type::i32(), "len return type");
+  expect(Type::rawPtr().name() == "__rt_ptr", "raw ptr name");
+  expect(noria::llvmType(Type::rawPtr()) == "ptr", "raw ptr llvm type");
   expect(Type(powDescriptor->parameters[0]) == Type::f64(), "pow first parameter type");
   expect(Type(powDescriptor->parameters[1]) == Type::f64(), "pow second parameter type");
   expect(Type(powDescriptor->returnKind) == Type::f64(), "pow return type");

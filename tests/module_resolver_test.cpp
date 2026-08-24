@@ -91,7 +91,7 @@ fn b_fn() -> i32 { return a_fn(); }
                               noria::CompileOptions{}, provider);
       },
       "cycle diagnostic names both modules",
-      "std::b:2:1: import cycle detected: std::b -> std::a -> std::b");
+      "std::b:2:1: import: import cycle detected: std::b -> std::a -> std::b");
 
   MemoryModuleSourceProvider diamondProvider;
   diamondProvider.addModule("std::d", R"(
@@ -135,7 +135,7 @@ fn main() -> i32 { return dup(); }
                               noria::CompileOptions{}, duplicateProvider);
       },
       "duplicate export rejected",
-      "duplicate symbol 'dup'");
+      "import: duplicate symbol 'dup'");
 
   MemoryModuleSourceProvider orderProvider;
   orderProvider.addModule("std::left", R"(fn left() -> i32 { return 1; })");
@@ -165,6 +165,55 @@ fn main() -> i32 { return left() + right(); }
     secondOrder << function.name << ',';
   }
   expect(firstOrder.str() == secondOrder.str(), "deterministic merge order across runs");
+
+  MemoryModuleSourceProvider nestedProvider;
+  nestedProvider.addModule("std::internal::rt", R"(
+fn rt_fn() -> i32 { return 1; }
+)");
+  nestedProvider.addModule("std::memory", R"(
+import std::internal::rt::{rt_fn};
+fn memory_fn() -> i32 { return rt_fn(); }
+)");
+
+  const noria::ResolvedProgram nestedResolved = noria::resolveImports(
+      parseModule(R"(
+import std::memory::{memory_fn};
+fn main() -> i32 { return memory_fn(); }
+)"),
+      noria::CompileOptions{}, nestedProvider);
+  expect(countFunction(nestedResolved.module, "rt_fn") == 1,
+         "nested stdlib path resolves internal module once");
+
+  expectThrowsContains(
+      [&] {
+        noria::resolveImports(parseModule(R"(
+import std::internal::rt::{rt_fn};
+fn main() -> i32 { return rt_fn(); }
+)"),
+                              noria::CompileOptions{}, nestedProvider);
+      },
+      "internal module import rejected from user code",
+      "import: module 'std::internal::rt' is internal and cannot be imported");
+
+  MemoryModuleSourceProvider originProvider;
+  originProvider.addModule("std::lib", R"(
+fn exported() -> i32 { return 1; }
+)");
+  const noria::ResolvedProgram originResolved = noria::resolveImports(
+      parseModule(R"(
+import std::lib::{exported};
+
+struct exported {
+  value: i32;
+}
+
+fn main() -> i32 { return exported(); }
+)"),
+      noria::CompileOptions{}, originProvider);
+  expect(originResolved.symbolOrigins.functions.at("exported") == "std::lib",
+         "imported function keeps stdlib origin");
+  expect(originResolved.symbolOrigins.structs.at("exported") == "",
+         "root struct keeps empty origin when name matches import");
 
   if (failures != 0) {
     std::cerr << failures << " module resolver test failure(s)\n";

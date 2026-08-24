@@ -10,6 +10,8 @@ namespace noria {
         return "lexer";
       case DiagnosticStage::TypeCheck:
         return "typecheck";
+      case DiagnosticStage::Import:
+        return "import";
       }
       return "";
     }

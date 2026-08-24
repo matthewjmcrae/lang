@@ -1,0 +1,15 @@
+import std::internal::rt::{alloc_bytes, identity_ptr, realloc_bytes, release_bytes};
+
+fn memory_probe() -> i32 {
+  let p: __rt_ptr = alloc_bytes(16);
+  let q: __rt_ptr = realloc_bytes(p, 32);
+  let _: i32 = release_bytes(q);
+  return 42;
+}
+
+fn generic_alloc_probe() -> i32 {
+  let p: __rt_ptr = alloc_bytes(8);
+  let q: __rt_ptr = identity_ptr(p);
+  let _: i32 = release_bytes(q);
+  return 1;
+}

@@ -51,6 +51,7 @@ namespace noria {
         return 1;
       case TypeKind::Str:
       case TypeKind::Array:
+      case TypeKind::RawPtr:
         return 8;
       case TypeKind::Struct:
         throw CompileError("codegen: struct element size is not supported");
@@ -114,7 +115,7 @@ namespace noria {
       return "0.0";
     if (type.kind == TypeKind::Struct)
       return "zeroinitializer";
-    if (type.kind == TypeKind::Str || type.kind == TypeKind::Array)
+    if (type.kind == TypeKind::Str || type.kind == TypeKind::Array || type.kind == TypeKind::RawPtr)
       return "null";
     return "0";
   }
@@ -790,6 +791,28 @@ namespace noria {
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = trunc i64 " + length + " to i32");
       return Value{result, Type::i32()};
+    }
+    case BuiltinId::RtAlloc: {
+      const Value size = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const std::string size64 = emitter.freshTemp();
+      emitter.line(size64 + " = sext i32 " + size.text + " to i64");
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = call ptr @malloc(i64 " + size64 + ")");
+      return Value{result, Type::rawPtr()};
+    }
+    case BuiltinId::RtRealloc: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value size = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string size64 = emitter.freshTemp();
+      emitter.line(size64 + " = sext i32 " + size.text + " to i64");
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = call ptr @realloc(ptr " + pointer.text + ", i64 " + size64 + ")");
+      return Value{result, Type::rawPtr()};
+    }
+    case BuiltinId::RtRelease: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      emitter.line("call void @free(ptr " + pointer.text + ")");
+      return Value{"", Type::voidType()};
     }
     }
 

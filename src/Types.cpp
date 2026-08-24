@@ -74,6 +74,8 @@ namespace noria {
       return typeParamName == other.typeParamName;
     case TypeKind::ImplTag:
       return implTag == other.implTag;
+    case TypeKind::RawPtr:
+      return true;
     default:
       return true;
     }
@@ -110,6 +112,8 @@ namespace noria {
       return typeParamName;
     case TypeKind::ImplTag:
       return std::string(implementationTagName(implTag));
+    case TypeKind::RawPtr:
+      return "__rt_ptr";
     case TypeKind::Void:
       return "void";
     }
@@ -127,6 +131,7 @@ namespace noria {
       return "i1";
     case TypeKind::Str:
     case TypeKind::Array:
+    case TypeKind::RawPtr:
       return "ptr";
     case TypeKind::Struct:
       if (!type.typeArgs.empty()) {

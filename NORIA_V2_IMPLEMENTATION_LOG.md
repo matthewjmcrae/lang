@@ -706,4 +706,36 @@ Root file gets CLI path string, not necessarily canonical. User module paths sti
 
 Private stdlib runtime ABI or full ADT stdlib bodies.
 
+## Phase 6 — Private stdlib runtime ABI
+
+Baseline commit `6c975af`. Review: APPROVED after two fix rounds (specialization origin propagation; kind-specific SymbolOrigins).
+
+### Objective and acceptance
+
+Introduce private runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`); stdlib wrappers in `stdlib/internal/rt.noria` and public probes in `stdlib/memory.noria`; forbid user `std::internal::*` imports, direct runtime builtins, and `__rt_ptr` outside stdlib; preserve preexisting AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`Builtins.hpp`: `Visibility`, internal `Rt*` entries. `Types`: `RawPtr`/`__rt_ptr`. `Runtime.hpp`: `realloc`/`free` decls. `ModuleResolver`: block internal imports; kind-split `SymbolOrigins`. `TypeChecker`: stdlib-context gating. `Codegen`: malloc/realloc/free mapping. `Compiler.cpp`: specialization origin propagation. New stdlib modules, four examples, updated registry/type tests, `SYNTAX.md`, `README.md`.
+
+### Semantic and architectural decisions
+
+Internal builtins gate on enclosing function module origin from `SymbolOrigins`, not file path alone. Public API is named stdlib functions; `__rt_ptr` maps to opaque LLVM `ptr` with no user place/cast support.
+
+### Tests, sanitizer, results
+
+`just test`; `just sanitize` green. 108 preexisting AST unchanged; IR preamble adds only `realloc`/`free` on old programs. Probes exit 42/1.
+
+### Review findings and resolutions
+
+APPROVED after propagation fix for monomorphized stdlib origins and kind-specific origin maps to stop false function/struct duplicate errors.
+
+### Limitations and risks
+
+No buffer/node primitives yet. No ownership model; leak-on-exit unchanged. Harmless unused `realloc`/`free` preamble.
+
+### Next unit
+
+Phase 7 — ADT stdlib bodies.
+
 

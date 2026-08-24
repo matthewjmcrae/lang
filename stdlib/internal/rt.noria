@@ -1,0 +1,20 @@
+struct PtrBox<T> {
+  value: T;
+}
+
+fn alloc_bytes(size: i32) -> __rt_ptr {
+  return __rt_alloc(size);
+}
+
+fn realloc_bytes(p: __rt_ptr, size: i32) -> __rt_ptr {
+  return __rt_realloc(p, size);
+}
+
+fn release_bytes(p: __rt_ptr) -> i32 {
+  __rt_release(p);
+  return 0;
+}
+
+fn identity_ptr<T>(value: T) -> T {
+  return value;
+}

@@ -3,6 +3,7 @@
 #include "noria/Ast.hpp"
 #include "noria/AstVisitor.hpp"
 #include "noria/Builtins.hpp"
+#include "noria/ModuleResolver.hpp"
 #include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
@@ -21,7 +22,7 @@ namespace noria {
 
   class TypeChecker {
   public:
-    void check(const ast::Module& module);
+    void check(const ast::Module& module, const SymbolOrigins& symbolOrigins = {});
 
     const std::vector<SpecializationRequest>& specializationRequests() const {
       return specializationRequests_;
@@ -173,7 +174,7 @@ namespace noria {
 
     void requireKnownType(const Type& type, SourceLocation location,
                           const std::unordered_set<std::string>* allowedTypeParams = nullptr,
-                          bool allowImplTags = false) const;
+                          bool allowImplTags = false, bool allowInternalTypes = false) const;
     void unifyTypes(const Type& expected, const Type& actual,
                     std::unordered_map<std::string, Type>& bindings, SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;
@@ -214,6 +215,10 @@ namespace noria {
     bool declareLocal(const std::string& name, Type type);
     Type lookupLocal(const std::string& name, SourceLocation location) const;
 
+    bool isStdlibOrigin(const std::string& modulePath) const;
+    bool isStdlibContext() const;
+
+    SymbolOrigins symbolOrigins_;
     std::unordered_map<std::string, FunctionSignature> functions_;
     std::unordered_map<std::string, const ast::Function*> genericFunctions_;
     std::unordered_map<std::string, const ast::StructDecl*> genericStructs_;

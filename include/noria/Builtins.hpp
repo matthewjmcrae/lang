@@ -10,67 +10,111 @@
 
 namespace noria {
 
-  enum class BuiltinId { Print, PrintInt, PrintFloat, PrintChar, Println, Sqrt, Pow, Len };
+  enum class BuiltinId {
+    Print,
+    PrintInt,
+    PrintFloat,
+    PrintChar,
+    Println,
+    Sqrt,
+    Pow,
+    Len,
+    RtAlloc,
+    RtRealloc,
+    RtRelease,
+  };
+
+  enum class Visibility { Public, Internal };
 
   enum class MismatchStyle { PerArgument, AllArguments };
 
   struct BuiltinSignature {
     BuiltinId id;
     std::string_view name;
+    Visibility visibility;
     std::size_t arity;
     std::array<TypeKind, 2> parameters;
     TypeKind returnKind;
     MismatchStyle style;
   };
 
-  inline constexpr std::array<BuiltinSignature, 8> builtinSignatures{{
+  inline constexpr std::array<BuiltinSignature, 11> builtinSignatures{{
       {BuiltinId::Print,
        "print",
+       Visibility::Public,
        1,
        {TypeKind::Str, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::PrintInt,
        "print_int",
+       Visibility::Public,
        1,
        {TypeKind::I32, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::PrintFloat,
        "print_float",
+       Visibility::Public,
        1,
        {TypeKind::F64, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::PrintChar,
        "print_char",
+       Visibility::Public,
        1,
        {TypeKind::I32, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::Println,
        "println",
+       Visibility::Public,
        0,
        {TypeKind::Void, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::Sqrt,
        "sqrt",
+       Visibility::Public,
        1,
        {TypeKind::F64, TypeKind::Void},
        TypeKind::F64,
        MismatchStyle::PerArgument},
       {BuiltinId::Pow,
        "pow",
+       Visibility::Public,
        2,
        {TypeKind::F64, TypeKind::F64},
        TypeKind::F64,
        MismatchStyle::AllArguments},
       {BuiltinId::Len,
        "len",
+       Visibility::Public,
        1,
        {TypeKind::Str, TypeKind::Void},
        TypeKind::I32,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtAlloc,
+       "__rt_alloc",
+       Visibility::Internal,
+       1,
+       {TypeKind::I32, TypeKind::Void},
+       TypeKind::RawPtr,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtRealloc,
+       "__rt_realloc",
+       Visibility::Internal,
+       2,
+       {TypeKind::RawPtr, TypeKind::I32},
+       TypeKind::RawPtr,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtRelease,
+       "__rt_release",
+       Visibility::Internal,
+       1,
+       {TypeKind::RawPtr, TypeKind::Void},
+       TypeKind::Void,
        MismatchStyle::PerArgument},
   }};
 

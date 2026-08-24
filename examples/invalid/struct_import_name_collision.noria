@@ -1,0 +1,9 @@
+import std::memory::{memory_probe};
+
+struct memory_probe {
+  bad: __rt_ptr;
+}
+
+fn main() -> i32 {
+  return memory_probe();
+}

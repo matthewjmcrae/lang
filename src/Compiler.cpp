@@ -12,8 +12,30 @@ namespace noria {
 
   namespace {
 
+    void propagateFunctionSpecializationOrigin(SymbolOrigins& symbolOrigins,
+                                               std::string_view templateName,
+                                               const std::vector<Type>& typeArgs) {
+      const auto templateOrigin = symbolOrigins.functions.find(std::string(templateName));
+      if (templateOrigin == symbolOrigins.functions.end()) {
+        return;
+      }
+      symbolOrigins.functions.emplace(mangleSpecialization(templateName, typeArgs),
+                                      templateOrigin->second);
+    }
+
+    void propagateStructSpecializationOrigin(SymbolOrigins& symbolOrigins,
+                                             std::string_view templateName,
+                                             const std::vector<Type>& typeArgs) {
+      const auto templateOrigin = symbolOrigins.structs.find(std::string(templateName));
+      if (templateOrigin == symbolOrigins.structs.end()) {
+        return;
+      }
+      symbolOrigins.structs.emplace(mangleSpecialization(templateName, typeArgs),
+                                    templateOrigin->second);
+    }
+
     CompileOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
-                                      StopAfter stopAfter) {
+                                      StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
       CompileOutput output;
       output.tokens = std::move(tokens);
       output.module = std::move(module);
@@ -23,7 +45,7 @@ namespace noria {
       }
 
       TypeChecker checker;
-      checker.check(output.module);
+      checker.check(output.module, symbolOrigins);
 
       constexpr std::size_t kMaxSpecializationRounds = 8;
       constexpr std::size_t kMaxSpecializations = 64;
@@ -39,6 +61,8 @@ namespace noria {
           checker.clearStructSpecializationRequests();
           for (const StructSpecializationRequest& request : structRequests) {
             lastSpecializationLocation = request.useSiteLocation;
+            propagateStructSpecializationOrigin(symbolOrigins, request.templateName,
+                                                request.typeArgs);
           }
           totalSpecializations += expandStructSpecializations(output.module, structRequests);
           expanded = true;
@@ -49,6 +73,8 @@ namespace noria {
           checker.clearSpecializationRequests();
           for (const SpecializationRequest& request : requests) {
             lastSpecializationLocation = request.callSiteLocation;
+            propagateFunctionSpecializationOrigin(symbolOrigins, request.templateName,
+                                                  request.typeArgs);
           }
           totalSpecializations += expandSpecializations(output.module, requests);
           expanded = true;
@@ -64,7 +90,7 @@ namespace noria {
                                               "recursive generic specialization"));
         }
 
-        checker.check(output.module);
+        checker.check(output.module, symbolOrigins);
       }
 
       if (!checker.specializationRequests().empty() ||
@@ -123,7 +149,8 @@ namespace noria {
 
     FileModuleSourceProvider provider(options.stdlibRoot);
     ResolvedProgram resolved = resolveImports(std::move(rootModule), options, provider);
-    return compileParsedModule(std::move(tokens), std::move(resolved.module), stopAfter);
+    return compileParsedModule(std::move(tokens), std::move(resolved.module), stopAfter,
+                               resolved.symbolOrigins);
   }
 
 } // namespace noria

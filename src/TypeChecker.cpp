@@ -48,7 +48,8 @@ namespace noria {
       : checker_(checker), expectedReturnType_(expectedReturnType) {}
 
   void TypeChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
-    checker_.requireKnownType(letStatement.type, letStatement.location);
+    checker_.requireKnownType(letStatement.type, letStatement.location, nullptr, false,
+                              checker_.isStdlibContext());
     const Type declaredType = letStatement.type;
     const Type initializerType = checker_.checkRvalue(*letStatement.initializer);
 
@@ -211,6 +212,11 @@ namespace noria {
     const Type left = checker_.checkRvalue(*binary.left);
     const Type right = checker_.checkRvalue(*binary.right);
 
+    if (left.kind == TypeKind::RawPtr || right.kind == TypeKind::RawPtr) {
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                          "invalid operation on __rt_ptr"));
+    }
+
     switch (binary.op) {
     case ast::BinaryOperator::And:
     case ast::BinaryOperator::Or:
@@ -309,8 +315,15 @@ namespace noria {
 
   void TypeChecker::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
     const Type sourceType = checker_.checkRvalue(*castExpression.expression);
-    checker_.requireKnownType(castExpression.targetType, castExpression.location);
+    const bool allowInternal = checker_.isStdlibContext();
+    checker_.requireKnownType(castExpression.targetType, castExpression.location, nullptr, false,
+                              allowInternal);
     const Type targetType = castExpression.targetType;
+
+    if (sourceType.kind == TypeKind::RawPtr || targetType.kind == TypeKind::RawPtr) {
+      throw CompileError(formatDiagnostic(castExpression.location, DiagnosticStage::TypeCheck,
+                                          "cannot cast to or from __rt_ptr"));
+    }
 
     if (sourceType == targetType) {
       result_ = targetType;
@@ -851,10 +864,19 @@ namespace noria {
 
   void TypeChecker::requireKnownType(const Type& type, SourceLocation location,
                                      const std::unordered_set<std::string>* allowedTypeParams,
-                                     bool allowImplTags) const {
+                                     bool allowImplTags, bool allowInternalTypes) const {
     if (type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
         type == Type::str())
       return;
+
+    if (type.kind == TypeKind::RawPtr) {
+      if (!allowInternalTypes) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "__rt_ptr cannot be used outside the standard library"));
+      }
+      return;
+    }
 
     if (type.kind == TypeKind::ImplTag) {
       if (allowImplTags) {
@@ -880,7 +902,8 @@ namespace noria {
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                             "unknown type '" + type.name() + "'"));
       }
-      requireKnownType(*type.element, location, allowedTypeParams);
+      requireKnownType(*type.element, location, allowedTypeParams, allowImplTags,
+                       allowInternalTypes);
       return;
     }
 
@@ -907,7 +930,7 @@ namespace noria {
         }
 
         for (const Type& typeArg : type.typeArgs) {
-          requireKnownType(typeArg, location, allowedTypeParams, true);
+          requireKnownType(typeArg, location, allowedTypeParams, true, allowInternalTypes);
         }
 
         if (!containsUnboundTypeParam(type)) {
@@ -1147,6 +1170,10 @@ namespace noria {
                                             "duplicate struct '" + decl.name + "'"));
       }
 
+      const auto origin = symbolOrigins_.structs.find(decl.name);
+      const bool allowInternal =
+          origin != symbolOrigins_.structs.end() && isStdlibOrigin(origin->second);
+
       if (!decl.typeParams.empty()) {
         std::unordered_set<std::string> allowedTypeParams;
         for (const auto& typeParam : decl.typeParams) {
@@ -1161,7 +1188,7 @@ namespace noria {
                                                     decl.name + "'"));
           }
           seenFields.insert(field.name);
-          requireKnownType(field.type, field.location, &allowedTypeParams);
+          requireKnownType(field.type, field.location, &allowedTypeParams, false, allowInternal);
         }
 
         genericStructs_.emplace(decl.name, &decl);
@@ -1191,19 +1218,24 @@ namespace noria {
         continue;
       }
 
+      const auto origin = symbolOrigins_.structs.find(decl.name);
+      const bool allowInternal =
+          origin != symbolOrigins_.structs.end() && isStdlibOrigin(origin->second);
+
       for (const auto& field : decl.fields) {
-        requireKnownType(field.type, field.location);
+        requireKnownType(field.type, field.location, nullptr, false, allowInternal);
       }
       checkStructAcyclic(decl.name, decl.location);
     }
   }
 
-  void TypeChecker::check(const ast::Module& module) {
+  void TypeChecker::check(const ast::Module& module, const SymbolOrigins& symbolOrigins) {
     functions_.clear();
     genericFunctions_.clear();
     specializationRequests_.clear();
     structSpecializationRequests_.clear();
     scopes_.clear();
+    symbolOrigins_ = symbolOrigins;
 
     collectStructDecls(module);
     collectFunctionSignatures(module);
@@ -1215,17 +1247,30 @@ namespace noria {
     }
   }
 
+  bool TypeChecker::isStdlibOrigin(const std::string& modulePath) const {
+    return modulePath.rfind("std::", 0) == 0;
+  }
+
+  bool TypeChecker::isStdlibContext() const {
+    const auto origin = symbolOrigins_.functions.find(currentFunctionName_);
+    if (origin == symbolOrigins_.functions.end()) {
+      return false;
+    }
+    return isStdlibOrigin(origin->second);
+  }
+
   void TypeChecker::checkFunction(const ast::Function& function) {
     scopes_.clear();
     pushScope();
 
     currentFunctionName_ = function.name;
 
-    requireKnownType(function.returnType, function.location);
+    const bool allowInternal = isStdlibContext();
+    requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
     const Type expectedReturnType = function.returnType;
 
     for (const auto& parameter : function.parameters) {
-      requireKnownType(parameter.type, parameter.location);
+      requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
       const Type parameterType = parameter.type;
 
       if (!declareLocal(parameter.name, parameterType)) {
@@ -1258,6 +1303,13 @@ namespace noria {
 
   Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
                                      const BuiltinSignature& descriptor) {
+    if (descriptor.visibility == Visibility::Internal && !isStdlibContext()) {
+      throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                                          "internal runtime builtin '" +
+                                              std::string(descriptor.name) +
+                                              "' is unavailable outside the standard library"));
+    }
+
     if (!builtinArityMatches(descriptor, call.arguments.size())) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           formatBuiltinArityError(descriptor)));
@@ -1340,15 +1392,25 @@ namespace noria {
                                             "duplicate function '" + function.name + "'"));
       }
 
+      const auto origin = symbolOrigins_.functions.find(function.name);
+      const bool allowInternal =
+          origin != symbolOrigins_.functions.end() && isStdlibOrigin(origin->second);
+      if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
+        throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                            "name '" + function.name + "' is reserved"));
+      }
+
       if (!function.typeParams.empty()) {
         std::unordered_set<std::string> allowedTypeParams;
         for (const auto& typeParam : function.typeParams) {
           allowedTypeParams.insert(typeParam.name);
         }
 
-        requireKnownType(function.returnType, function.location, &allowedTypeParams);
+        requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
+                         allowInternal);
         for (const auto& parameter : function.parameters) {
-          requireKnownType(parameter.type, parameter.location, &allowedTypeParams);
+          requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
+                           allowInternal);
         }
 
         genericFunctions_.emplace(function.name, &function);
@@ -1356,11 +1418,11 @@ namespace noria {
       }
 
       FunctionSignature signature;
-      requireKnownType(function.returnType, function.location);
+      requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
       signature.returnType = function.returnType;
 
       for (const auto& parameter : function.parameters) {
-        requireKnownType(parameter.type, parameter.location);
+        requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
         signature.parameterTypes.push_back(parameter.type);
       }
 

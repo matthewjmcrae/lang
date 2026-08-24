@@ -844,6 +844,8 @@ namespace noria {
       return Type::boolean();
     if (token.text == "str")
       return Type::str();
+    if (token.text == "__rt_ptr")
+      return Type::rawPtr();
 
     if (const std::optional<ImplementationTag> tag = implementationTagFromName(token.text)) {
       return Type::implementationTag(*tag);

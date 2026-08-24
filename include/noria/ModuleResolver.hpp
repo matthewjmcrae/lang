@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace noria {
@@ -28,9 +29,15 @@ namespace noria {
     std::filesystem::path stdlibRoot_;
   };
 
+  struct SymbolOrigins {
+    std::unordered_map<std::string, std::string> functions;
+    std::unordered_map<std::string, std::string> structs;
+  };
+
   struct ResolvedProgram {
     ast::Module module;
     std::vector<std::string> ownedSources;
+    SymbolOrigins symbolOrigins;
   };
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,

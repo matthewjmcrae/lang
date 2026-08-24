@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  __rt_release(__rt_alloc(8));
+  return 0;
+}

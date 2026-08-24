@@ -535,6 +535,8 @@ namespace noria {
       return "s.bool";
     case TypeKind::Str:
       return "s.str";
+    case TypeKind::RawPtr:
+      return "s.rt_ptr";
     case TypeKind::Struct:
       if (type.typeArgs.empty()) {
         return "st." + type.structName;

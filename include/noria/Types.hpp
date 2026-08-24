@@ -24,6 +24,7 @@ namespace noria {
     Struct,
     TypeParam,
     ImplTag,
+    RawPtr,
     Void,
   };
 
@@ -46,6 +47,7 @@ namespace noria {
     static Type boolean() { return Type(TypeKind::Bool); }
     static Type str() { return Type(TypeKind::Str); }
     static Type voidType() { return Type(TypeKind::Void); }
+    static Type rawPtr() { return Type(TypeKind::RawPtr); }
     static Type array(Type elementType);
     static Type structType(std::string name, std::vector<Type> typeArgs = {});
     static Type typeParam(std::string name);

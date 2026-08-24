@@ -40,6 +40,7 @@ int main() {
   expectName(Type::boolean(), "bool");
   expectName(Type::str(), "str");
   expectName(Type::voidType(), "void");
+  expectName(Type::rawPtr(), "__rt_ptr");
   expectName(Type::array(Type::i32()), "[i32]");
   expectName(Type::array(Type::boolean()), "[bool]");
   expectName(Type::array(Type::f64()), "[f64]");
@@ -52,6 +53,7 @@ int main() {
   expectLlvm(Type::boolean(), "i1");
   expectLlvm(Type::voidType(), "void");
   expectLlvm(Type::str(), "ptr");
+  expectLlvm(Type::rawPtr(), "ptr");
   expectLlvm(Type::array(Type::i32()), "ptr");
   expectLlvm(Type::structType("Point"), "%Point");
 

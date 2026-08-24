@@ -1,0 +1,5 @@
+import std::memory::{memory_probe};
+
+fn main() -> i32 {
+  return memory_probe();
+}

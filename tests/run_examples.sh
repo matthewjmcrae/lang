@@ -193,6 +193,13 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/constraints_test"
 
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
+  case "$(basename "${source}")" in
+    import_private_runtime.noria)
+      expect_compile_failure_contains "${source}" \
+        "import: module 'std::internal::rt' is internal and cannot be imported"
+      continue
+      ;;
+  esac
   expect_compile_failure "${source}"
 done
 
@@ -285,11 +292,11 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       ;;
     import_missing_module.noria)
       expect_compile_failure_contains "${source}" \
-        "unknown module 'std::nope'"
+        "import: unknown module 'std::nope'"
       ;;
     import_unknown_export.noria)
       expect_compile_failure_contains "${source}" \
-        "module 'std::mathx' does not export 'cube'"
+        "import: module 'std::mathx' does not export 'cube'"
       ;;
     invalid_token.noria)
       expect_compile_failure_contains "${source}" \
@@ -530,6 +537,12 @@ grep -q "typecheck: field access requires struct base, got i32" \
   "${TEST_OUT_DIR}/struct_field_on_non_struct.stderr"
 grep -q "typecheck: struct 'Point' has no field 'z'" \
   "${TEST_OUT_DIR}/struct_field_assign_unknown_field.stderr"
+grep -q "typecheck: __rt_ptr cannot be used outside the standard library" \
+  "${TEST_OUT_DIR}/struct_import_name_collision.stderr"
+grep -q "typecheck: __rt_ptr cannot be used outside the standard library" \
+  "${TEST_OUT_DIR}/use_private_builtin.stderr"
+grep -q "typecheck: internal runtime builtin '__rt_release' is unavailable outside the standard library" \
+  "${TEST_OUT_DIR}/use_private_runtime_builtin.stderr"
 grep -q "typecheck: field access requires struct base, got i32" \
   "${TEST_OUT_DIR}/struct_field_assign_non_struct.stderr"
 grep -q "typecheck: cannot assign bool to variable 'p.x' of type i32" \
@@ -555,6 +568,10 @@ grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | gre
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
   -o "${TEST_OUT_DIR}/import_math.ast"
 grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
+
+echo "[noria-tests] phase 6 private runtime ABI"
+run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_memory_probe.noria" 42
+run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
 
 echo "[noria-tests] phase 6 import diagnostic file attribution"
 BAD_TYPE_STDERR="${TEST_OUT_DIR}/import_bad_type.stderr"

@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; `import std::<name>::{...}` from the bundled `stdlib/`; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; `import std::<path>::{...}` from the bundled `stdlib/` (including nested paths such as `std::memory`); a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {

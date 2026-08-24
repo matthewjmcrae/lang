@@ -17,14 +17,42 @@ namespace noria {
                                          std::string_view message) {
       SourceLocation diagnosticLocation = location;
       diagnosticLocation.file = modulePath;
-      throw CompileError(formatDiagnostic(diagnosticLocation, message));
+      throw CompileError(formatDiagnostic(diagnosticLocation, DiagnosticStage::Import, message));
     }
 
     std::optional<std::string> moduleFileName(const std::vector<std::string>& path) {
-      if (path.size() != 2 || path[0] != "std") {
+      if (path.empty() || path[0] != "std" || path.size() < 2) {
         return std::nullopt;
       }
-      return path[1] + ".noria";
+
+      std::ostringstream fileName;
+      for (std::size_t index = 1; index < path.size(); ++index) {
+        if (index != 1) {
+          fileName << '/';
+        }
+        fileName << path[index];
+      }
+      fileName << ".noria";
+      return fileName.str();
+    }
+
+    bool isStdlibModulePath(const std::string& modulePath) {
+      return modulePath.rfind("std::", 0) == 0;
+    }
+
+    void rejectInternalImport(const std::vector<std::string>& importPath, SourceLocation location,
+                              const std::string& importingModulePath) {
+      if (importPath.size() < 2 || importPath[1] != "internal") {
+        return;
+      }
+
+      if (isStdlibModulePath(importingModulePath)) {
+        return;
+      }
+
+      const std::string modulePath = formatModulePath(importPath);
+      throwResolverError(location, modulePath,
+                         "module '" + modulePath + "' is internal and cannot be imported");
     }
 
     std::optional<ast::Function*> findFunction(ast::Module& module, const std::string& name) {
@@ -100,7 +128,7 @@ namespace noria {
                                  "'; only 'std' imports are supported");
         }
 
-        if (path.size() != 2) {
+        if (path.size() < 2) {
           throwResolverError(location, modulePath, "unsupported module path '" + modulePath + "'");
         }
 
@@ -150,25 +178,46 @@ namespace noria {
 
     void mergeImportedName(ast::Module& merged, ast::Module& sourceModule,
                            const std::string& modulePath, const ast::ImportedName& importedName,
-                           std::unordered_map<std::string, std::string>& symbolOrigins) {
-      if (const auto existingOrigin = symbolOrigins.find(importedName.name);
-          existingOrigin != symbolOrigins.end()) {
-        if (existingOrigin->second == modulePath) {
-          return;
-        }
-        throwResolverError(importedName.location, modulePath,
-                           "duplicate symbol '" + importedName.name + "'");
-      }
-
+                           SymbolOrigins& symbolOrigins) {
       if (findFunction(sourceModule, importedName.name)) {
+        if (const auto existingOrigin = symbolOrigins.functions.find(importedName.name);
+            existingOrigin != symbolOrigins.functions.end()) {
+          if (existingOrigin->second == modulePath) {
+            return;
+          }
+          throwResolverError(importedName.location, modulePath,
+                             "duplicate symbol '" + importedName.name + "'");
+        }
+
         merged.functions.push_back(takeFunction(sourceModule, importedName.name));
-        symbolOrigins.emplace(importedName.name, modulePath);
+        symbolOrigins.functions.emplace(importedName.name, modulePath);
         return;
       }
 
       if (findStruct(sourceModule, importedName.name)) {
+        if (const auto existingOrigin = symbolOrigins.structs.find(importedName.name);
+            existingOrigin != symbolOrigins.structs.end()) {
+          if (existingOrigin->second == modulePath) {
+            return;
+          }
+          throwResolverError(importedName.location, modulePath,
+                             "duplicate symbol '" + importedName.name + "'");
+        }
+
         merged.structs.push_back(takeStruct(sourceModule, importedName.name));
-        symbolOrigins.emplace(importedName.name, modulePath);
+        symbolOrigins.structs.emplace(importedName.name, modulePath);
+        return;
+      }
+
+      if (const auto existingFunctionOrigin = symbolOrigins.functions.find(importedName.name);
+          existingFunctionOrigin != symbolOrigins.functions.end() &&
+          existingFunctionOrigin->second == modulePath) {
+        return;
+      }
+
+      if (const auto existingStructOrigin = symbolOrigins.structs.find(importedName.name);
+          existingStructOrigin != symbolOrigins.structs.end() &&
+          existingStructOrigin->second == modulePath) {
         return;
       }
 
@@ -178,9 +227,12 @@ namespace noria {
 
     void mergeImportsFromModule(ast::Module& merged, const ast::Module& importSource,
                                 const std::vector<ast::ImportDecl>& imports, Resolver& resolver,
-                                std::unordered_map<std::string, std::string>& symbolOrigins) {
+                                SymbolOrigins& symbolOrigins,
+                                const std::string& importingModulePath) {
       (void)importSource;
       for (const auto& importDecl : imports) {
+        rejectInternalImport(importDecl.path, importDecl.location, importingModulePath);
+
         ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
 
         for (const auto& importedName : importDecl.names) {
@@ -188,7 +240,8 @@ namespace noria {
           mergeImportedName(merged, dependency, modulePath, importedName, symbolOrigins);
         }
 
-        mergeImportsFromModule(merged, dependency, dependency.imports, resolver, symbolOrigins);
+        mergeImportsFromModule(merged, dependency, dependency.imports, resolver, symbolOrigins,
+                               formatModulePath(importDecl.path));
       }
     }
 
@@ -252,9 +305,16 @@ namespace noria {
     }
 
     Resolver resolver(provider, resolved.ownedSources);
-    std::unordered_map<std::string, std::string> symbolOrigins;
+    SymbolOrigins symbolOrigins;
+    for (const auto& function : resolved.module.functions) {
+      symbolOrigins.functions.emplace(function.name, "");
+    }
+    for (const auto& structDecl : resolved.module.structs) {
+      symbolOrigins.structs.emplace(structDecl.name, "");
+    }
     mergeImportsFromModule(resolved.module, resolved.module, resolved.module.imports, resolver,
-                           symbolOrigins);
+                           symbolOrigins, "");
+    resolved.symbolOrigins = std::move(symbolOrigins);
     return resolved;
   }
 
