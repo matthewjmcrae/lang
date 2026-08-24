@@ -1,6 +1,7 @@
 #include "noria/AstPrinter.hpp"
 
 #include "noria/AstVisitor.hpp"
+#include "noria/SemanticTables.hpp"
 
 #include <memory>
 #include <sstream>
@@ -31,9 +32,17 @@ namespace noria {
 
       void visit(const ast::LetStatement& node) override {
         printIndent(out_, indent_);
-        out_ << "Let " << node.name << ": " << node.type.name() << "\n";
-        AstPrintVisitor child(out_, indent_ + 1);
-        node.initializer->accept(child);
+        out_ << "Let " << node.name << ": ";
+        if (node.declaredType) {
+          out_ << node.declaredType->name();
+        } else {
+          out_ << "<inferred>";
+        }
+        out_ << "\n";
+        if (node.initializer) {
+          AstPrintVisitor child(out_, indent_ + 1);
+          node.initializer->accept(child);
+        }
       }
 
       void visit(const ast::AssignmentStatement& node) override {
@@ -235,58 +244,16 @@ namespace noria {
   namespace {
 
     std::string_view binaryOperatorName(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Add:
-        return "+";
-      case ast::BinaryOperator::Subtract:
-        return "-";
-      case ast::BinaryOperator::Multiply:
-        return "*";
-      case ast::BinaryOperator::Divide:
-        return "/";
-      case ast::BinaryOperator::Modulo:
-        return "%";
-      case ast::BinaryOperator::And:
-        return "&&";
-      case ast::BinaryOperator::Or:
-        return "||";
-      case ast::BinaryOperator::BitAnd:
-        return "&";
-      case ast::BinaryOperator::BitOr:
-        return "|";
-      case ast::BinaryOperator::BitXor:
-        return "^";
-      case ast::BinaryOperator::Shl:
-        return "<<";
-      case ast::BinaryOperator::Shr:
-        return ">>";
-      case ast::BinaryOperator::Less:
-        return "<";
-      case ast::BinaryOperator::LessEqual:
-        return "<=";
-      case ast::BinaryOperator::Greater:
-        return ">";
-      case ast::BinaryOperator::GreaterEqual:
-        return ">=";
-      case ast::BinaryOperator::Equal:
-        return "==";
-      case ast::BinaryOperator::NotEqual:
-        return "!=";
+      if (const BinaryOperatorInfo* info = binaryOperatorInfo(op)) {
+        return info->symbol;
       }
-
       return "<unknown>";
     }
 
     std::string_view unaryOperatorName(ast::UnaryOperator op) {
-      switch (op) {
-      case ast::UnaryOperator::Negate:
-        return "-";
-      case ast::UnaryOperator::Not:
-        return "!";
-      case ast::UnaryOperator::BitNot:
-        return "~";
+      if (const UnaryOperatorInfo* info = unaryOperatorInfo(op)) {
+        return info->symbol;
       }
-
       return "<unknown>";
     }
 

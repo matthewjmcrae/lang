@@ -1,6 +1,7 @@
 #include "noria/Compiler.hpp"
 
 #include "noria/Codegen.hpp"
+#include "noria/CompilerCache.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/ModuleResolver.hpp"
@@ -8,73 +9,15 @@
 #include "noria/Parser.hpp"
 #include "noria/TypeChecker.hpp"
 
-#include <unordered_set>
+#include <filesystem>
 
 namespace noria {
 
   namespace {
 
-    void propagateFunctionSpecializationOrigin(SymbolOrigins& symbolOrigins,
-                                               std::string_view templateName,
-                                               const std::vector<Type>& typeArgs) {
-      const auto templateOrigin = symbolOrigins.functions.find(std::string(templateName));
-      if (templateOrigin == symbolOrigins.functions.end()) {
-        return;
-      }
-      symbolOrigins.functions.emplace(mangleSpecialization(templateName, typeArgs),
-                                      templateOrigin->second);
-    }
-
-    void propagateStructSpecializationOrigin(SymbolOrigins& symbolOrigins,
-                                             std::string_view templateName,
-                                             const std::vector<Type>& typeArgs) {
-      const auto templateOrigin = symbolOrigins.structs.find(std::string(templateName));
-      if (templateOrigin == symbolOrigins.structs.end()) {
-        return;
-      }
-      symbolOrigins.structs.emplace(mangleSpecialization(templateName, typeArgs),
-                                    templateOrigin->second);
-    }
-
-    std::string parentSpecializationMangled(std::string_view enclosingFunction) {
-      if (enclosingFunction.find('$') == std::string_view::npos) {
-        return {};
-      }
-      return std::string(enclosingFunction);
-    }
-
-    void linkNewSpecializations(SpecializationCache& cache,
-                                const std::vector<StructSpecializationRequest>& structRequests,
-                                const std::vector<SpecializationRequest>& functionRequests) {
-      std::unordered_set<std::string> linked;
-      for (const StructSpecializationRequest& request : structRequests) {
-        const std::string childMangled =
-            mangleSpecialization(request.templateName, request.typeArgs);
-        if (!linked.insert(childMangled).second) {
-          continue;
-        }
-        cache.link(childMangled, parentSpecializationMangled(request.enclosingFunction),
-                   request.useSiteLocation);
-      }
-      for (const SpecializationRequest& request : functionRequests) {
-        const std::string childMangled =
-            mangleSpecialization(request.templateName, request.typeArgs);
-        if (!linked.insert(childMangled).second) {
-          continue;
-        }
-        cache.link(childMangled, parentSpecializationMangled(request.enclosingFunction),
-                   request.callSiteLocation);
-      }
-    }
-
-    [[noreturn]] void throwExpansionLimit(SourceLocation location) {
-      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                          "specialization expansion limit exceeded"));
-    }
-
-    CompileOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
-                                      StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
-      CompileOutput output;
+    PipelineOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
+                                       StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
+      PipelineOutput output;
       output.tokens = std::move(tokens);
       output.module = std::move(module);
 
@@ -85,105 +28,28 @@ namespace noria {
       TypeChecker checker;
       checker.check(output.module, symbolOrigins);
 
-      SpecializationCache cache;
-      cache.seedFromModule(output.module);
-
-      constexpr std::size_t kMaxSpecializationRounds = 64;
-      constexpr std::size_t kMaxSpecializations = 64;
-      std::size_t totalSpecializations = 0;
-      SourceLocation lastSpecializationLocation{};
-
-      for (std::size_t round = 0; round < kMaxSpecializationRounds; ++round) {
-        bool expanded = false;
-
-        const std::vector<StructSpecializationRequest> structRequests =
-            checker.structSpecializationRequests();
-        const std::vector<SpecializationRequest> functionRequests =
-            checker.specializationRequests();
-
-        if (!structRequests.empty() || !functionRequests.empty()) {
-          linkNewSpecializations(cache, structRequests, functionRequests);
-        }
-
-        if (!structRequests.empty()) {
-          checker.clearStructSpecializationRequests();
-          for (const StructSpecializationRequest& request : structRequests) {
-            lastSpecializationLocation = request.useSiteLocation;
-            propagateStructSpecializationOrigin(symbolOrigins, request.templateName,
-                                                request.typeArgs);
-          }
-          totalSpecializations += expandStructSpecializations(output.module, structRequests, cache);
-          expanded = true;
-        }
-
-        if (!functionRequests.empty()) {
-          checker.clearSpecializationRequests();
-          for (const SpecializationRequest& request : functionRequests) {
-            lastSpecializationLocation = request.callSiteLocation;
-            propagateFunctionSpecializationOrigin(symbolOrigins, request.templateName,
-                                                  request.typeArgs);
-            checker.registerFunctionSpecialization(
-                mangleSpecialization(request.templateName, request.typeArgs), request.typeArgs);
-          }
-          totalSpecializations += expandSpecializations(output.module, functionRequests, cache);
-          expanded = true;
-        }
-
-        if (!expanded) {
-          cache.clearLinks();
-          break;
-        }
-
-        if (totalSpecializations > kMaxSpecializations) {
-          throwExpansionLimit(lastSpecializationLocation);
-        }
-
-        checker.check(output.module, symbolOrigins);
-      }
-
-      if (!checker.specializationRequests().empty() ||
-          !checker.structSpecializationRequests().empty()) {
-        throwExpansionLimit(lastSpecializationLocation);
-      }
-
-      stripGenericTemplates(output.module);
+      const MonomorphizationResult monomorphization =
+          monomorphizeGenerics(output.module, checker, symbolOrigins, &processCompilerCache());
 
       if (stopAfter == StopAfter::Typed) {
         return output;
       }
 
-      LlvmIrTextGenerator generator;
-      generator.setFunctionSpecializationTypeArgs(cache.functionSpecializationTypeArgs());
-      output.llvmIr = generator.generate(output.module);
+      LLVMGenerator generator;
+      generator.setFunctionSpecializationTypeArgs(monomorphization.functionSpecializationTypeArgs);
+      output.LLVM = generator.generate(output.module);
       return output;
     }
 
   } // namespace
 
-  CompileOutput compileSource(std::string_view source, StopAfter stopAfter) {
-    Lexer lexer(source);
-    std::vector<Token> tokens = lexer.lex();
-    if (stopAfter == StopAfter::Tokens) {
-      CompileOutput output;
-      output.tokens = std::move(tokens);
-      return output;
-    }
+  PipelineOutput compileSource(std::string_view source, StopAfter stopAfter,
+                               const CompileOptions& options) {
 
-    Parser parser(tokens);
-    ast::Module module = parser.parseModule();
-    if (!module.imports.empty()) {
-      throw CompileError("imports require compileSource with CompileOptions");
-    }
-
-    return compileParsedModule(std::move(tokens), std::move(module), stopAfter);
-  }
-
-  CompileOutput compileSource(std::string_view source, StopAfter stopAfter,
-                              const CompileOptions& options) {
     Lexer lexer(source, options.rootFileName);
     std::vector<Token> tokens = lexer.lex();
     if (stopAfter == StopAfter::Tokens) {
-      CompileOutput output;
+      PipelineOutput output;
       output.tokens = std::move(tokens);
       return output;
     }
@@ -195,8 +61,16 @@ namespace noria {
       return compileParsedModule(std::move(tokens), std::move(rootModule), stopAfter);
     }
 
-    FileModuleSourceProvider provider(options.stdlibRoot);
-    ResolvedProgram resolved = resolveImports(std::move(rootModule), options, provider);
+    if (!options.stdlibRoot.has_value()) {
+      throw CompileError("imports require compileSource with CompileOptions");
+    }
+    if (!std::filesystem::is_directory(*options.stdlibRoot)) {
+      throw CompileError("stdlib root does not exist: " + options.stdlibRoot->string());
+    }
+
+    FileModuleSourceProvider provider(*options.stdlibRoot);
+    ResolvedProgram resolved =
+        resolveImports(std::move(rootModule), options, provider, &processCompilerCache());
     return compileParsedModule(std::move(tokens), std::move(resolved.module), stopAfter,
                                resolved.symbolOrigins);
   }

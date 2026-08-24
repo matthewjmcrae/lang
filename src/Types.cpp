@@ -1,7 +1,9 @@
 #include "noria/Types.hpp"
 
 #include "noria/Diagnostic.hpp"
+#include "noria/SemanticTables.hpp"
 
+#include <unordered_map>
 #include <utility>
 
 namespace noria {
@@ -32,27 +34,16 @@ namespace noria {
   }
 
   std::optional<ImplementationTag> implementationTagFromName(std::string_view name) {
-    if (name == "arr")
-      return ImplementationTag::Arr;
-    if (name == "list")
-      return ImplementationTag::List;
-    if (name == "bst")
-      return ImplementationTag::Bst;
-    if (name == "hashmap")
-      return ImplementationTag::Hashmap;
+    const auto tag = implementationTagNameTable().find(name);
+    if (tag != implementationTagNameTable().end()) {
+      return tag->second;
+    }
     return std::nullopt;
   }
 
   std::string_view implementationTagName(ImplementationTag tag) {
-    switch (tag) {
-    case ImplementationTag::Arr:
-      return "arr";
-    case ImplementationTag::List:
-      return "list";
-    case ImplementationTag::Bst:
-      return "bst";
-    case ImplementationTag::Hashmap:
-      return "hashmap";
+    if (const ImplementationTagInfo* info = implementationTagInfo(tag)) {
+      return info->name;
     }
     return "";
   }
@@ -61,39 +52,40 @@ namespace noria {
     if (kind != other.kind)
       return false;
 
-    switch (kind) {
-    case TypeKind::Array:
-      if (!element || !other.element)
-        return element == other.element;
-      return *element == *other.element;
-    case TypeKind::Struct:
-      if (structName != other.structName)
-        return false;
-      return typeArgs == other.typeArgs;
-    case TypeKind::TypeParam:
-      return typeParamName == other.typeParamName;
-    case TypeKind::ImplTag:
-      return implTag == other.implTag;
-    case TypeKind::RawPtr:
-      return true;
-    default:
-      return true;
+    using EqualityCheck = bool (*)(const Type&, const Type&);
+    static const std::unordered_map<TypeKind, EqualityCheck, EnumHash<TypeKind>> equalityChecks = {
+        {TypeKind::Array,
+         [](const Type& left, const Type& right) {
+           if (!left.element || !right.element)
+             return left.element == right.element;
+           return *left.element == *right.element;
+         }},
+        {TypeKind::Struct,
+         [](const Type& left, const Type& right) {
+           return left.structName == right.structName && left.typeArgs == right.typeArgs;
+         }},
+        {TypeKind::TypeParam,
+         [](const Type& left, const Type& right) {
+           return left.typeParamName == right.typeParamName;
+         }},
+        {TypeKind::ImplTag,
+         [](const Type& left, const Type& right) { return left.implTag == right.implTag; }},
+    };
+
+    const auto check = equalityChecks.find(kind);
+    if (check != equalityChecks.end()) {
+      return check->second(*this, other);
     }
+
+    return true;
   }
 
   std::string Type::name() const {
-    switch (kind) {
-    case TypeKind::I32:
-      return "i32";
-    case TypeKind::F64:
-      return "f64";
-    case TypeKind::Bool:
-      return "bool";
-    case TypeKind::Str:
-      return "str";
-    case TypeKind::Array:
+    if (kind == TypeKind::Array) {
       return "[" + (element ? element->name() : std::string{"?"}) + "]";
-    case TypeKind::Struct:
+    }
+
+    if (kind == TypeKind::Struct) {
       if (structName.empty())
         return "<struct>";
       if (typeArgs.empty())
@@ -108,44 +100,41 @@ namespace noria {
         rendered += ">";
         return rendered;
       }
-    case TypeKind::TypeParam:
-      return typeParamName;
-    case TypeKind::ImplTag:
-      return std::string(implementationTagName(implTag));
-    case TypeKind::RawPtr:
-      return "__rt_ptr";
-    case TypeKind::Void:
-      return "void";
     }
 
+    if (kind == TypeKind::TypeParam) {
+      return typeParamName;
+    }
+
+    if (kind == TypeKind::ImplTag) {
+      return std::string(implementationTagName(implTag));
+    }
+
+    if (const TypeKindInfo* info = typeKindInfo(kind); info && !info->displayName.empty()) {
+      return std::string(info->displayName);
+    }
     return "<unknown>";
   }
 
-  std::string llvmType(const Type& type) {
-    switch (type.kind) {
-    case TypeKind::I32:
-      return "i32";
-    case TypeKind::F64:
-      return "double";
-    case TypeKind::Bool:
-      return "i1";
-    case TypeKind::Str:
-    case TypeKind::Array:
-    case TypeKind::RawPtr:
-      return "ptr";
-    case TypeKind::Struct:
+  std::string LLVMType(const Type& type) {
+    if (type.kind == TypeKind::Struct) {
       if (!type.typeArgs.empty()) {
         throw CompileError("internal: unsubstituted generic struct");
       }
       return "%" + type.structName;
-    case TypeKind::TypeParam:
-      throw CompileError("internal: unsubstituted type parameter");
-    case TypeKind::ImplTag:
-      throw CompileError("internal: implementation tag is not a runtime type");
-    case TypeKind::Void:
-      return "void";
     }
 
+    if (type.kind == TypeKind::TypeParam) {
+      throw CompileError("internal: unsubstituted type parameter");
+    }
+
+    if (type.kind == TypeKind::ImplTag) {
+      throw CompileError("internal: implementation tag is not a runtime type");
+    }
+
+    if (const TypeKindInfo* info = typeKindInfo(type.kind); info && !info->LLVMName.empty()) {
+      return std::string(info->LLVMName);
+    }
     return "";
   }
 

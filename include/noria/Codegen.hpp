@@ -2,6 +2,7 @@
 
 #include "noria/Ast.hpp"
 #include "noria/AstVisitor.hpp"
+#include "noria/Builtins.hpp"
 #include "noria/IrEmitter.hpp"
 #include "noria/Types.hpp"
 
@@ -13,7 +14,7 @@
 
 namespace noria {
 
-  class LlvmIrTextGenerator {
+  class LLVMGenerator {
   public:
     void setFunctionSpecializationTypeArgs(
         std::unordered_map<std::string, std::vector<Type>> typeArgsByFunction) {
@@ -54,12 +55,14 @@ namespace noria {
     };
 
     using Scope = std::unordered_map<std::string, LocalBinding>;
+    using BuiltinEmitter = Value (LLVMGenerator::*)(const ast::CallExpression&, IREmitter&,
+                                                    CodegenContext&,
+                                                    const std::vector<Scope>&) const;
 
     class StatementVisitor final : public ast::AstVisitor {
     public:
-      StatementVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
-                       CodegenContext& context, Type expectedReturnType,
-                       std::vector<Scope>& scopes);
+      StatementVisitor(const LLVMGenerator& generator, IREmitter& emitter, CodegenContext& context,
+                       Type expectedReturnType, std::vector<Scope>& scopes);
 
       bool returned() const { return returned_; }
 
@@ -85,8 +88,8 @@ namespace noria {
       void visit(const ast::FieldAccessExpression& node) override;
 
     private:
-      const LlvmIrTextGenerator& generator_;
-      IrEmitter& emitter_;
+      const LLVMGenerator& generator_;
+      IREmitter& emitter_;
       CodegenContext& context_;
       Type expectedReturnType_;
       std::vector<Scope>& scopes_;
@@ -95,8 +98,8 @@ namespace noria {
 
     class ExpressionVisitor final : public ast::AstVisitor {
     public:
-      ExpressionVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
-                        CodegenContext& context, const std::vector<Scope>& scopes);
+      ExpressionVisitor(const LLVMGenerator& generator, IREmitter& emitter, CodegenContext& context,
+                        const std::vector<Scope>& scopes);
 
       Value result() const { return result_; }
 
@@ -122,8 +125,8 @@ namespace noria {
       void visit(const ast::ExpressionStatement& node) override;
 
     private:
-      const LlvmIrTextGenerator& generator_;
-      IrEmitter& emitter_;
+      const LLVMGenerator& generator_;
+      IREmitter& emitter_;
       CodegenContext& context_;
       const std::vector<Scope>& scopes_;
       Value result_{};
@@ -131,8 +134,8 @@ namespace noria {
 
     class PlaceVisitor final : public ast::AstVisitor {
     public:
-      PlaceVisitor(const LlvmIrTextGenerator& generator, IrEmitter& emitter,
-                   CodegenContext& context, const std::vector<Scope>& scopes);
+      PlaceVisitor(const LLVMGenerator& generator, IREmitter& emitter, CodegenContext& context,
+                   const std::vector<Scope>& scopes);
 
       LocalBinding result() const { return result_; }
 
@@ -159,67 +162,124 @@ namespace noria {
       void visit(const ast::ExpressionStatement& node) override;
 
     private:
-      const LlvmIrTextGenerator& generator_;
-      IrEmitter& emitter_;
+      const LLVMGenerator& generator_;
+      IREmitter& emitter_;
       CodegenContext& context_;
       const std::vector<Scope>& scopes_;
       LocalBinding result_{};
     };
 
     std::string generateFunction(const ast::Function& function, CodegenContext& context) const;
-    bool generateStatement(const ast::Statement& statement, IrEmitter& emitter,
+    bool generateStatement(const ast::Statement& statement, IREmitter& emitter,
                            CodegenContext& context, Type expectedReturnType,
                            std::vector<Scope>& scopes) const;
     bool generateStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
-                            IrEmitter& emitter, CodegenContext& context, Type expectedReturnType,
+                            IREmitter& emitter, CodegenContext& context, Type expectedReturnType,
                             std::vector<Scope>& scopes) const;
-    std::string generateCondition(const ast::Expression& expression, IrEmitter& emitter,
+    std::string generateCondition(const ast::Expression& expression, IREmitter& emitter,
                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
-    LocalBinding generatePlace(const ast::Expression& place, IrEmitter& emitter,
+    LocalBinding generatePlace(const ast::Expression& place, IREmitter& emitter,
                                CodegenContext& context, const std::vector<Scope>& scopes) const;
     std::string emitArrayElementPointer(const Value& base, const Value& indexValue,
-                                        const Type& elementType, IrEmitter& emitter,
+                                        const Type& elementType, IREmitter& emitter,
                                         CodegenContext& context) const;
     std::string emitRawBufferElementPointer(const Value& base, const Value& indexValue,
-                                            const Type& elementType, IrEmitter& emitter) const;
+                                            const Type& elementType, IREmitter& emitter) const;
     std::string emitBufferLoad(const Type& type, const std::string& pointer,
-                               IrEmitter& emitter) const;
+                               IREmitter& emitter) const;
     void emitBufferStore(const Type& type, const std::string& value, const std::string& pointer,
-                         IrEmitter& emitter) const;
-    std::string emitCStringPointer(std::string_view text, IrEmitter& emitter,
+                         IREmitter& emitter) const;
+    std::string emitCStringPointer(std::string_view text, IREmitter& emitter,
                                    CodegenContext& context) const;
-    void emitRuntimeTrap(IrEmitter& emitter, CodegenContext& context,
+    void emitRuntimeTrap(IREmitter& emitter, CodegenContext& context,
                          std::string_view message) const;
-    void emitNullPointerCheck(const std::string& pointer, IrEmitter& emitter,
+    void emitNullPointerCheck(const std::string& pointer, IREmitter& emitter,
                               CodegenContext& context) const;
-    std::string emitCheckedMalloc(const std::string& size64, IrEmitter& emitter,
+    std::string emitCheckedMalloc(const std::string& size64, IREmitter& emitter,
                                   CodegenContext& context) const;
-    void emitBoundsCheck(const std::string& length64, const Value& indexValue, IrEmitter& emitter,
+    void emitBoundsCheck(const std::string& length64, const Value& indexValue, IREmitter& emitter,
                          CodegenContext& context, std::string_view message) const;
-    Value generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
+    Value generateRvalue(const ast::Expression& expression, IREmitter& emitter,
                          CodegenContext& context, const std::vector<Scope>& scopes) const;
 
-    Value generateBinaryExpression(const ast::BinaryExpression& binary, IrEmitter& emitter,
+    Value generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
                                    CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateStringLiteral(const ast::StringLiteral& literal, IrEmitter& emitter,
+    Value generateShortCircuitBinaryExpression(const ast::BinaryExpression& binary,
+                                               IREmitter& emitter, CodegenContext& context,
+                                               const std::vector<Scope>& scopes) const;
+    Value generateStringConcatExpression(const Value& left, const Value& right, IREmitter& emitter,
+                                         CodegenContext& context) const;
+    Value generateComparisonExpression(const ast::BinaryExpression& binary, const Value& left,
+                                       const Value& right, IREmitter& emitter) const;
+    Value generateNumericBinaryExpression(const ast::BinaryExpression& binary, const Value& left,
+                                          const Value& right, IREmitter& emitter) const;
+    Value generateStringLiteral(const ast::StringLiteral& literal, IREmitter& emitter,
                                 CodegenContext& context) const;
-    Value generateCastExpression(const ast::CastExpression& cast, IrEmitter& emitter,
+    Value generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
                                  CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateArrayLiteral(const ast::ArrayLiteral& literal, IrEmitter& emitter,
+    Value generateArrayLiteral(const ast::ArrayLiteral& literal, IREmitter& emitter,
                                CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateIndexExpression(const ast::IndexExpression& index, IrEmitter& emitter,
+    Value generateIndexExpression(const ast::IndexExpression& index, IREmitter& emitter,
                                   CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateStructLiteral(const ast::StructLiteral& literal, IrEmitter& emitter,
+    Value generateStructLiteral(const ast::StructLiteral& literal, IREmitter& emitter,
                                 CodegenContext& context, const std::vector<Scope>& scopes) const;
-    Value generateFieldAccess(const ast::FieldAccessExpression& access, IrEmitter& emitter,
+    Value generateFieldAccess(const ast::FieldAccessExpression& access, IREmitter& emitter,
                               CodegenContext& context, const std::vector<Scope>& scopes) const;
     std::string emitStructFieldPointer(const Type& structType, const std::string& slot,
-                                       std::size_t fieldIndex, IrEmitter& emitter) const;
-    std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call, IrEmitter& emitter,
+                                       std::size_t fieldIndex, IREmitter& emitter) const;
+    std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression& call, IREmitter& emitter,
                                                 CodegenContext& context,
                                                 const std::vector<Scope>& scopes) const;
+    std::optional<BuiltinEmitter> builtinEmitterFor(BuiltinId id) const;
+    Value emitPrintlnBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                             CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitPrintBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                           CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitPrintIntBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                              CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitPrintFloatBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                                CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitPrintCharBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitSqrtBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                          CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitPowBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                         CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitLenBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                         CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtAllocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                             CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtReallocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtReleaseBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtSizeofBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                              CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtLoadBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                            CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtStoreBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                             CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtLoadPtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtStorePtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                                CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtLoadI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
+                               CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtStoreI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
+                                CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtTrapBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                            CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtNullBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                            CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtPtrEqBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                             CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtHashBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                            CodegenContext& context, const std::vector<Scope>& scopes) const;
+    Value emitRtByteOffsetBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                                  CodegenContext& context,
+                                  const std::vector<Scope>& scopes) const;
 
-    std::string defaultIrValue(const Type& type) const;
+    std::string defaultIRValue(const Type& type) const;
     std::string modulePreamble() const;
     bool declareLocal(std::vector<Scope>& scopes, const std::string& name,
                       LocalBinding binding) const;

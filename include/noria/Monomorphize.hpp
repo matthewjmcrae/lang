@@ -10,6 +10,10 @@
 
 namespace noria {
 
+  class TypeChecker;
+  class CompilerCache;
+  struct SymbolOrigins;
+
   using Substitution = std::unordered_map<std::string, Type>;
 
   struct SpecializationRequest {
@@ -28,6 +32,9 @@ namespace noria {
 
   class SpecializationCache {
   public:
+    explicit SpecializationCache(CompilerCache* compilerCache = nullptr,
+                                 SymbolOrigins* symbolOrigins = nullptr);
+
     void seedFromModule(const ast::Module& module);
 
     bool hasFunction(std::string_view mangledName) const;
@@ -50,9 +57,15 @@ namespace noria {
     std::unordered_set<std::string> emittedStructs_;
     std::unordered_map<std::string, std::string> dependencyParent_;
     std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
+    CompilerCache* compilerCache_ = nullptr;
+    SymbolOrigins* symbolOrigins_ = nullptr;
 
     [[noreturn]] void throwCycle(SourceLocation location, std::string_view childMangled,
                                  std::string_view parentMangled) const;
+  };
+
+  struct MonomorphizationResult {
+    std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs;
   };
 
   Type substitute(const Type& type, const Substitution& substitution);
@@ -73,6 +86,10 @@ namespace noria {
 
   void rewriteGenericCallSites(ast::Module& module,
                                const std::vector<SpecializationRequest>& requests);
+
+  MonomorphizationResult monomorphizeGenerics(ast::Module& module, TypeChecker& checker,
+                                              SymbolOrigins& symbolOrigins,
+                                              CompilerCache* compilerCache = nullptr);
 
   void stripGenericTemplates(ast::Module& module);
 

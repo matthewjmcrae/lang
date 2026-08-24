@@ -1,0 +1,11 @@
+fn twoSum([i32]: nums, i32: target) -> int{
+    Dictionary<i32,i32,hashmap> map;
+
+}
+
+
+fn main() -> i32{
+
+
+
+}

@@ -12,22 +12,28 @@
 
 namespace noria::ast {
 
-  struct Expression {
-    explicit Expression(SourceLocation location) : location(location) {}
-    virtual ~Expression() = default;
+  struct ASTNode {
+    virtual ~ASTNode() = default;
 
     virtual void accept(AstVisitor& visitor) const = 0;
-    virtual void accept(MutableAstVisitor& visitor) = 0;
+    virtual void accept(AstMutator& visitor) = 0;
+  };
+
+  struct Expression : ASTNode {
+    explicit Expression(SourceLocation location) : location(location) {}
+    virtual ~Expression() = 0;
 
     SourceLocation location;
   };
+
+  inline Expression::~Expression() = default;
 
   struct IntegerLiteral final : Expression {
     IntegerLiteral(std::int64_t value, SourceLocation location)
         : Expression(location), value(value) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::int64_t value;
   };
@@ -36,7 +42,7 @@ namespace noria::ast {
     FloatLiteral(double value, SourceLocation location) : Expression(location), value(value) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     double value;
   };
@@ -46,7 +52,7 @@ namespace noria::ast {
         : Expression(location), value(std::move(value)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::string value;
   };
@@ -55,7 +61,7 @@ namespace noria::ast {
     BoolLiteral(bool value, SourceLocation location) : Expression(location), value(value) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     bool value;
   };
@@ -92,7 +98,7 @@ namespace noria::ast {
         : Expression(location), op(op), operand(std::move(operand)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     UnaryOperator op;
     std::unique_ptr<Expression> operand;
@@ -104,7 +110,7 @@ namespace noria::ast {
           targetType(std::move(targetType)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> expression;
     Type targetType;
@@ -116,7 +122,7 @@ namespace noria::ast {
         : Expression(location), op(op), left(std::move(left)), right(std::move(right)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     BinaryOperator op;
     std::unique_ptr<Expression> left;
@@ -128,7 +134,7 @@ namespace noria::ast {
         : Expression(location), name(std::move(name)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::string name;
   };
@@ -139,7 +145,7 @@ namespace noria::ast {
         : Expression(location), callee(std::move(callee)), arguments(std::move(arguments)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::string callee;
     std::vector<std::unique_ptr<Expression>> arguments;
@@ -150,7 +156,7 @@ namespace noria::ast {
         : Expression(location), elements(std::move(elements)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::vector<std::unique_ptr<Expression>> elements;
   };
@@ -161,7 +167,7 @@ namespace noria::ast {
         : Expression(location), base(std::move(base)), index(std::move(index)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> base;
     std::unique_ptr<Expression> index;
@@ -180,7 +186,7 @@ namespace noria::ast {
           fields(std::move(fields)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::string structName;
     std::vector<Type> typeArgs;
@@ -193,43 +199,42 @@ namespace noria::ast {
         : Expression(location), base(std::move(base)), fieldName(std::move(fieldName)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> base;
     std::string fieldName;
   };
 
-  struct Statement {
+  struct Statement : ASTNode {
     explicit Statement(SourceLocation location) : location(location) {}
-    virtual ~Statement() = default;
-
-    virtual void accept(AstVisitor& visitor) const = 0;
-    virtual void accept(MutableAstVisitor& visitor) = 0;
+    virtual ~Statement() = 0;
 
     SourceLocation location;
   };
+
+  inline Statement::~Statement() = default;
 
   struct ReturnStatement final : Statement {
     ReturnStatement(std::unique_ptr<Expression> expression, SourceLocation location)
         : Statement(location), expression(std::move(expression)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> expression;
   };
 
   struct LetStatement final : Statement {
-    LetStatement(std::string name, Type type, std::unique_ptr<Expression> initializer,
-                 SourceLocation location)
-        : Statement(location), name(std::move(name)), type(std::move(type)),
+    LetStatement(std::string name, std::optional<Type> declaredType,
+                 std::unique_ptr<Expression> initializer, SourceLocation location)
+        : Statement(location), name(std::move(name)), declaredType(std::move(declaredType)),
           initializer(std::move(initializer)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::string name;
-    Type type;
+    std::optional<Type> declaredType;
     std::unique_ptr<Expression> initializer;
   };
 
@@ -241,7 +246,7 @@ namespace noria::ast {
           elseBranch(std::move(elseBranch)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> condition;
     std::vector<std::unique_ptr<Statement>> thenBranch;
@@ -254,7 +259,7 @@ namespace noria::ast {
         : Statement(location), condition(std::move(condition)), body(std::move(body)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> condition;
     std::vector<std::unique_ptr<Statement>> body;
@@ -266,7 +271,7 @@ namespace noria::ast {
         : Statement(location), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> lhs;
     std::unique_ptr<Expression> rhs;
@@ -277,7 +282,7 @@ namespace noria::ast {
         : Statement(location), expression(std::move(expression)) {}
 
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
-    void accept(MutableAstVisitor& visitor) override { visitor.visit(*this); }
+    void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
     std::unique_ptr<Expression> expression;
   };

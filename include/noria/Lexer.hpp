@@ -2,6 +2,7 @@
 
 #include "noria/Token.hpp"
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -18,10 +19,14 @@ namespace noria {
     char advance();
     bool isAtEnd() const;
     void skipWhitespace();
+    void skipLineComment();
     Token makeToken(TokenKind kind, std::string text, SourceLocation location) const;
+    Token lexToken();
     Token lexIdentifierOrKeyword();
     Token lexNumber();
     Token lexString();
+    std::optional<Token> tryLexTwoCharacterToken(SourceLocation start);
+    std::optional<Token> tryLexSingleCharacterToken(SourceLocation start);
 
     std::string_view source_;
     std::string file_;

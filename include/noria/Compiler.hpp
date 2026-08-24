@@ -4,6 +4,7 @@
 #include "noria/Token.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,24 +14,23 @@ namespace noria {
   enum class StopAfter { Tokens, Ast, Typed, Ir };
 
   struct CompileOptions {
-    std::filesystem::path stdlibRoot;
+    std::optional<std::filesystem::path> stdlibRoot;
     std::string rootFileName;
   };
 
-  struct CompileOutput {
+  struct PipelineOutput {
     std::vector<Token> tokens;
     ast::Module module;
-    std::string llvmIr;
+    std::string LLVM;
 
-    CompileOutput() = default;
-    CompileOutput(CompileOutput&&) = default;
-    CompileOutput& operator=(CompileOutput&&) = default;
-    CompileOutput(const CompileOutput&) = delete;
-    CompileOutput& operator=(const CompileOutput&) = delete;
+    PipelineOutput() = default;
+    PipelineOutput(PipelineOutput&&) = default;
+    PipelineOutput& operator=(PipelineOutput&&) = default;
+    PipelineOutput(const PipelineOutput&) = delete;
+    PipelineOutput& operator=(const PipelineOutput&) = delete;
   };
 
-  CompileOutput compileSource(std::string_view source, StopAfter stopAfter);
-  CompileOutput compileSource(std::string_view source, StopAfter stopAfter,
-                              const CompileOptions& options);
+  PipelineOutput compileSource(std::string_view source, StopAfter stopAfter,
+                               const CompileOptions& options = {});
 
 } // namespace noria

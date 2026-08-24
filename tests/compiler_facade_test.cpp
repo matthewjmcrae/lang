@@ -47,25 +47,25 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput typedOutput =
+  const noria::PipelineOutput typedOutput =
       noria::compileSource(goodSource, noria::StopAfter::Typed);
   expect(!typedOutput.module.functions.empty(), "Typed stop produces module");
-  expect(typedOutput.llvmIr.empty(), "Typed stop does not generate IR");
+  expect(typedOutput.LLVM.empty(), "Typed stop does not generate IR");
 
-  const noria::CompileOutput tokensOutput =
+  const noria::PipelineOutput tokensOutput =
       noria::compileSource(goodSource, noria::StopAfter::Tokens);
   expect(!tokensOutput.tokens.empty(), "Tokens stop produces tokens");
   expect(tokensOutput.module.functions.empty(), "Tokens stop does not parse");
 
-  const noria::CompileOutput astOutput =
+  const noria::PipelineOutput astOutput =
       noria::compileSource(typeInvalidSource, noria::StopAfter::Ast);
   expect(!astOutput.module.functions.empty(),
          "Ast stop parses source that fails type checking");
-  expect(astOutput.llvmIr.empty(), "Ast stop does not generate IR");
+  expect(astOutput.LLVM.empty(), "Ast stop does not generate IR");
 
-  const noria::CompileOutput irOutput =
+  const noria::PipelineOutput irOutput =
       noria::compileSource(goodSource, noria::StopAfter::Ir);
-  expect(irOutput.llvmIr.find("define i32 @main") != std::string::npos,
+  expect(irOutput.LLVM.find("define i32 @main") != std::string::npos,
          "Ir stop generates main");
 
   expectCompileError(noria::StopAfter::Typed, typeInvalidSource,

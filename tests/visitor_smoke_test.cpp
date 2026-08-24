@@ -43,6 +43,8 @@ namespace {
     void visit(const noria::ast::AssignmentStatement&) override { ++assignmentStatement_; }
     void visit(const noria::ast::ExpressionStatement&) override { ++expressionStatement_; }
 
+    int integerLiteralCount() const { return integerLiteral_; }
+
     void expectEachOnce() const {
       expect(integerLiteral_ == 1, "IntegerLiteral visited once");
       expect(floatLiteral_ == 1, "FloatLiteral visited once");
@@ -87,7 +89,7 @@ namespace {
     int expressionStatement_ = 0;
   };
 
-  class RenameMutableVisitor final : public noria::ast::MutableAstVisitor {
+  class RenameMutableVisitor final : public noria::ast::AstMutator {
   public:
     void visit(noria::ast::IdentifierExpression& node) override { node.name = "renamed"; }
     void visit(noria::ast::LetStatement& node) override { node.name = "renamed_let"; }
@@ -293,10 +295,21 @@ int main() {
 
   counter.expectEachOnce();
 
+  CountingVisitor baseCounter;
+  const noria::ast::ASTNode& baseNode = integerLiteral;
+  baseNode.accept(baseCounter);
+  expect(baseCounter.integerLiteralCount() == 1, "AstVisitor dispatches through ASTNode base");
+
   RenameMutableVisitor renamer;
   IdentifierExpression mutableIdentifier("before", loc);
   mutableIdentifier.accept(renamer);
   expect(mutableIdentifier.name == "renamed", "MutableAstVisitor can mutate expression");
+
+  IdentifierExpression mutableBaseIdentifier("before", loc);
+  noria::ast::ASTNode& mutableBaseNode = mutableBaseIdentifier;
+  mutableBaseNode.accept(renamer);
+  expect(mutableBaseIdentifier.name == "renamed",
+         "MutableAstVisitor can mutate through ASTNode base");
 
   LetStatement mutableLet("before", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
   mutableLet.accept(renamer);

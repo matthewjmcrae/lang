@@ -22,10 +22,13 @@ namespace noria::ast {
   struct WhileStatement;
   struct AssignmentStatement;
   struct ExpressionStatement;
+  struct ASTNode;
 
   class AstVisitor {
   public:
     virtual ~AstVisitor() = default;
+
+    void visit(const ASTNode& node);
 
     virtual void visit(const IntegerLiteral& node) = 0;
     virtual void visit(const FloatLiteral& node) = 0;
@@ -49,9 +52,11 @@ namespace noria::ast {
     virtual void visit(const ExpressionStatement& node) = 0;
   };
 
-  class MutableAstVisitor {
+  class AstMutator {
   public:
-    virtual ~MutableAstVisitor() = default;
+    virtual ~AstMutator() = default;
+
+    void visit(ASTNode& node);
 
     virtual void visit(IntegerLiteral& node) = 0;
     virtual void visit(FloatLiteral& node) = 0;

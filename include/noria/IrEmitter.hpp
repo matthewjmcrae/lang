@@ -7,9 +7,9 @@
 
 namespace noria {
 
-  class IrEmitter {
+  class IREmitter {
   public:
-    IrEmitter(std::ostringstream& out, int nextTemporary = 0, int nextLabel = 0);
+    IREmitter(std::ostringstream& out, int nextTemporary = 0, int nextLabel = 0);
 
     std::string freshTemp();
     int freshTempCounter();

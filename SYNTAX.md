@@ -228,10 +228,15 @@ fn main() -> i32 {
 
 ## Functions
 
-Functions use typed parameters and a typed return value.
+Functions use typed parameters and a typed return value. Parameters may be written
+name-first or type-first; both forms produce the same function signature.
 
 ```noria
 fn add(a: i32, b: i32) -> i32 {
+  return a + b;
+}
+
+fn add_swapped(i32: a, b: i32) -> i32 {
   return a + b;
 }
 
@@ -299,11 +304,18 @@ Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time 
 
 ## Variables
 
-Local variables are declared with `let`.
+Local variables may use the original `let name: Type = expr;` form, a shorthand
+typed form without `let`, or `let name = expr;` when the type can be inferred
+from the initializer. Bare `name = expr;` remains assignment. Declarations
+without an initializer must include an explicit type and are default-initialized.
 
 ```noria
 let x: i32 = 42;
 let flag: bool = x > 0;
+x: i32 = 1;
+i32: y = 2;
+let inferred = x + y;
+z: i32;
 ```
 
 Variables can be reassigned:
@@ -645,12 +657,16 @@ fn main() -> i32 {
 
 ## Structs
 
-Declare a struct with named fields and semicolon-terminated field types. Fields are public by default; use `private:` and `public:` section labels inside the struct body to control visibility. A private field is readable, assignable, and initializable only from functions in the same module as the struct:
+Declare a struct with named fields and semicolon-terminated field types. Field
+declarations may be written name-first or type-first. Fields are public by
+default; use `private:` and `public:` section labels inside the struct body to
+control visibility. A private field is readable, assignable, and initializable
+only from functions in the same module as the struct:
 
 ```noria
 struct Point {
   x: i32;
-  y: i32;
+  i32: y;
 }
 
 struct Sequence<T, I> {
@@ -844,7 +860,6 @@ Noria currently does not support:
 - `break` or `continue`
 - `for` loops
 - global variables
-- type inference for locals (annotations are required)
 - implicit conversions between types
 - additional integer types (`i64`, unsigned, or character types)
 - float exponent literals (for example, `1e3` does not parse)

@@ -50,57 +50,69 @@ namespace {
     std::cerr << "  LLVM IR text by default, or debug output with --emit-tokens / --emit-ast\n";
   }
 
+  std::filesystem::path defaultStdlibRoot(const char* argv0) {
+    return std::filesystem::canonical(argv0).parent_path().parent_path() / "stdlib";
+  }
+
+  bool parseOptionToken(Options& options, int& index, int argc, char** argv) {
+    const std::string arg = argv[index];
+    if (arg == "build") {
+      options.outputMode = OutputMode::NativeExecutable;
+      return true;
+    }
+
+    if (arg == "--stdlib") {
+      if (index + 1 >= argc) {
+        throw noria::CompileError("expected directory after --stdlib");
+      }
+      options.stdlibRoot = argv[++index];
+      return true;
+    }
+
+    if (arg == "-O0" || arg == "-O1" || arg == "-O2" || arg == "-O3") {
+      options.optimizationLevel = arg[2] - '0';
+      return true;
+    }
+
+    if (arg == "-o") {
+      if (index + 1 >= argc) {
+        throw noria::CompileError("expected path after -o");
+      }
+      options.outputPath = argv[++index];
+      return true;
+    }
+
+    if (arg == "--emit-tokens") {
+      options.outputMode = OutputMode::Tokens;
+      return true;
+    }
+
+    if (arg == "--emit-ast") {
+      options.outputMode = OutputMode::Ast;
+      return true;
+    }
+
+    if (arg == "-h" || arg == "--help") {
+      printUsage(argv[0]);
+      std::exit(0);
+    }
+
+    return false;
+  }
+
   Options parseOptions(int argc, char** argv) {
     Options options;
-    options.stdlibRoot = std::filesystem::canonical(argv[0]).parent_path().parent_path() / "stdlib";
+    options.stdlibRoot = defaultStdlibRoot(argv[0]);
 
     for (int index{1}; index < argc; ++index) {
-      const std::string arg = argv[index];
-      if (arg == "build") {
-        options.outputMode = OutputMode::NativeExecutable;
+      if (parseOptionToken(options, index, argc, argv)) {
         continue;
-      }
-
-      if (arg == "--stdlib") {
-        if (index + 1 >= argc) {
-          throw noria::CompileError("expected directory after --stdlib");
-        }
-        options.stdlibRoot = argv[++index];
-        continue;
-      }
-
-      if (arg == "-O0" || arg == "-O1" || arg == "-O2" || arg == "-O3") {
-        options.optimizationLevel = arg[2] - '0';
-        continue;
-      }
-
-      if (arg == "-o") {
-        if (index + 1 >= argc) {
-          throw noria::CompileError("expected path after -o");
-        }
-        options.outputPath = argv[++index];
-        continue;
-      }
-
-      if (arg == "--emit-tokens") {
-        options.outputMode = OutputMode::Tokens;
-        continue;
-      }
-
-      if (arg == "--emit-ast") {
-        options.outputMode = OutputMode::Ast;
-        continue;
-      }
-
-      if (arg == "-h" || arg == "--help") {
-        printUsage(argv[0]);
-        std::exit(0);
       }
 
       if (!options.inputPath.empty()) {
         throw noria::CompileError("only one input file is supported");
       }
-      options.inputPath = arg;
+      options.inputPath = argv[index];
     }
 
     if (options.inputPath.empty()) {
@@ -245,52 +257,63 @@ namespace {
     return out.str();
   }
 
-} // namespace
-
-int main(int argc, char** argv) {
-  try {
-    const Options options = parseOptions(argc, argv);
-    const std::string source = readFile(options.inputPath);
-
-    noria::StopAfter stopAfter;
-    switch (options.outputMode) {
+  noria::StopAfter stopAfterForOutputMode(OutputMode outputMode) {
+    switch (outputMode) {
     case OutputMode::Tokens:
-      stopAfter = noria::StopAfter::Tokens;
-      break;
+      return noria::StopAfter::Tokens;
     case OutputMode::Ast:
-      stopAfter = noria::StopAfter::Ast;
-      break;
+      return noria::StopAfter::Ast;
     case OutputMode::LlvmIr:
     case OutputMode::NativeExecutable:
-      stopAfter = noria::StopAfter::Ir;
-      break;
+      return noria::StopAfter::Ir;
     }
 
+    return noria::StopAfter::Ir;
+  }
+
+  noria::CompileOptions compileOptionsFor(const Options& options) {
     noria::CompileOptions compileOptions;
     compileOptions.stdlibRoot = options.stdlibRoot;
     compileOptions.rootFileName = options.inputPath.string();
-    noria::CompileOutput output = noria::compileSource(source, stopAfter, compileOptions);
+    return compileOptions;
+  }
 
+  void writePipelineOutput(const Options& options, const noria::PipelineOutput& output) {
     if (options.outputMode == OutputMode::Tokens) {
       writeOutput(options.outputPath, dumpTokens(output.tokens));
-      return 0;
+      return;
     }
 
     if (options.outputMode == OutputMode::Ast) {
       std::ostringstream out;
       noria::printAst(output.module, out);
       writeOutput(options.outputPath, out.str());
-      return 0;
+      return;
     }
 
-    const std::string llvmIr = optimizeLlvmIr(output.llvmIr, options.optimizationLevel);
-
+    const std::string llvmIr = optimizeLlvmIr(output.LLVM, options.optimizationLevel);
     if (options.outputMode == OutputMode::NativeExecutable) {
       buildNativeExecutable(options.outputPath, llvmIr);
-      return 0;
+      return;
     }
 
     writeOutput(options.outputPath, llvmIr);
+  }
+
+  void runCompiler(int argc, char** argv) {
+    const Options options = parseOptions(argc, argv);
+    const std::string source = readFile(options.inputPath);
+    const noria::PipelineOutput output =
+        noria::compileSource(source, stopAfterForOutputMode(options.outputMode),
+                             compileOptionsFor(options));
+    writePipelineOutput(options, output);
+  }
+
+} // namespace
+
+int main(int argc, char** argv) {
+  try {
+    runCompiler(argc, argv);
   } catch (const noria::CompileError& error) {
     std::cerr << "noria: error: " << error.what() << "\n";
     return 1;

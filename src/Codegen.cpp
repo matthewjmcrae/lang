@@ -3,21 +3,18 @@
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Runtime.hpp"
+#include "noria/SemanticTables.hpp"
 
+#include <array>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 namespace noria {
 
   namespace {
-    bool isComparison(ast::BinaryOperator op);
-    std::string llvmIntegerInstruction(ast::BinaryOperator op);
-    std::string llvmFloatInstruction(ast::BinaryOperator op);
-    std::string llvmIntegerComparisonPredicate(ast::BinaryOperator op);
-    std::string llvmFloatComparisonPredicate(ast::BinaryOperator op);
-
-    std::string escapeForLlvmString(std::string_view value) {
+    std::string escapeForLLVMString(std::string_view value) {
       std::string escaped;
       for (const unsigned char character : value) {
         switch (character) {
@@ -49,25 +46,20 @@ namespace noria {
     }
 
     std::size_t elementSizeInBytes(const Type& type) {
-      switch (type.kind) {
-      case TypeKind::I32:
-        return 4;
-      case TypeKind::F64:
-        return 8;
-      case TypeKind::Bool:
-        return 1;
-      case TypeKind::Str:
-      case TypeKind::Array:
-      case TypeKind::RawPtr:
-        return 8;
-      case TypeKind::Struct:
+      if (type.kind == TypeKind::Struct) {
         throw CompileError("codegen: struct element size is not supported");
-      case TypeKind::ImplTag:
+      }
+
+      if (type.kind == TypeKind::ImplTag) {
         throw CompileError("codegen: internal: implementation tag is not a runtime type");
-      case TypeKind::TypeParam:
+      }
+
+      if (type.kind == TypeKind::TypeParam) {
         throw CompileError("internal: unsubstituted type parameter");
-      case TypeKind::Void:
-        break;
+      }
+
+      if (const TypeKindInfo* info = typeKindInfo(type.kind); info && info->runtimeElementSize) {
+        return *info->runtimeElementSize;
       }
 
       throw CompileError("codegen: unsupported array element type");
@@ -105,7 +97,7 @@ namespace noria {
   // gen() -> genFunction() + push scope (pop when done)-> genStatement() -> push scope if needed ->
   // genStatement() ->.... ->pop scope
   //                                                                      ->  genExpression() ->....
-  std::string LlvmIrTextGenerator::generate(const ast::Module& module) const {
+  std::string LLVMGenerator::generate(const ast::Module& module) const {
     CodegenContext context;
     context.functions = collectFunctionBindings(module);
     context.structs = collectStructLayouts(module);
@@ -122,7 +114,7 @@ namespace noria {
            functions.str();
   }
 
-  std::string LlvmIrTextGenerator::modulePreamble() const {
+  std::string LLVMGenerator::modulePreamble() const {
     std::string preamble;
 
     const std::string triple = runtime::targetTriple();
@@ -145,7 +137,7 @@ namespace noria {
     return preamble;
   }
 
-  std::string LlvmIrTextGenerator::defaultIrValue(const Type& type) const {
+  std::string LLVMGenerator::defaultIRValue(const Type& type) const {
     if (type == Type::boolean())
       return "false";
     if (type == Type::f64())
@@ -157,14 +149,14 @@ namespace noria {
     return "0";
   }
 
-  std::string LlvmIrTextGenerator::generateFunction(const ast::Function& function,
-                                                    CodegenContext& context) const {
+  std::string LLVMGenerator::generateFunction(const ast::Function& function,
+                                              CodegenContext& context) const {
     context.currentFunctionName = function.name;
     const Type returnType = function.returnType;
 
     std::ostringstream out;
-    IrEmitter emitter(out);
-    out << "define " << llvmType(returnType) << " @" << function.name << "(";
+    IREmitter emitter(out);
+    out << "define " << LLVMType(returnType) << " @" << function.name << "(";
     for (std::size_t index{}; index < function.parameters.size(); ++index) {
       const auto& parameter = function.parameters[index];
       const Type parameterType = parameter.type;
@@ -172,7 +164,7 @@ namespace noria {
       if (index != 0)
         out << ", ";
 
-      out << llvmType(parameterType) << " %" << parameter.name << ".param";
+      out << LLVMType(parameterType) << " %" << parameter.name << ".param";
     }
     out << ") {\n";
     out << "entry:\n";
@@ -196,16 +188,17 @@ namespace noria {
         generateStatements(function.body, emitter, context, returnType, scopes);
 
     if (!emittedReturn) {
-      out << "  ret " << llvmType(returnType) << " " << defaultIrValue(returnType) << "\n";
+      out << "  ret " << LLVMType(returnType) << " " << defaultIRValue(returnType) << "\n";
     }
 
     out << "}\n";
     return out.str();
   }
 
-  bool LlvmIrTextGenerator::generateStatements(
-      const std::vector<std::unique_ptr<ast::Statement>>& statements, IrEmitter& emitter,
-      CodegenContext& context, Type expectedReturnType, std::vector<Scope>& scopes) const {
+  bool
+  LLVMGenerator::generateStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
+                                    IREmitter& emitter, CodegenContext& context,
+                                    Type expectedReturnType, std::vector<Scope>& scopes) const {
 
     for (const auto& statement : statements) {
       if (generateStatement(*statement, emitter, context, expectedReturnType, scopes))
@@ -215,40 +208,47 @@ namespace noria {
     return false;
   }
 
-  LlvmIrTextGenerator::StatementVisitor::StatementVisitor(const LlvmIrTextGenerator& generator,
-                                                          IrEmitter& emitter,
-                                                          CodegenContext& context,
-                                                          Type expectedReturnType,
-                                                          std::vector<Scope>& scopes)
+  LLVMGenerator::StatementVisitor::StatementVisitor(const LLVMGenerator& generator,
+                                                    IREmitter& emitter, CodegenContext& context,
+                                                    Type expectedReturnType,
+                                                    std::vector<Scope>& scopes)
       : generator_(generator), emitter_(emitter), context_(context),
         expectedReturnType_(expectedReturnType), scopes_(scopes) {}
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::LetStatement& letStatement) {
-    const Type localType = letStatement.type;
+  void LLVMGenerator::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+    std::optional<Value> initializer;
+    if (letStatement.initializer) {
+      initializer =
+          generator_.generateRvalue(*letStatement.initializer, emitter_, context_, scopes_);
+    }
+
+    const Type localType =
+        letStatement.declaredType ? *letStatement.declaredType : initializer->type;
     const std::string slot =
         "%" + letStatement.name + ".slot" + std::to_string(emitter_.freshTempCounter());
+
+    emitter_.emitAlloca(localType, slot);
 
     if (!generator_.declareLocal(scopes_, letStatement.name, LocalBinding{slot, localType})) {
       throw CompileError("codegen: duplicate local variable '" + letStatement.name + "'");
     }
 
-    emitter_.emitAlloca(localType, slot);
-
-    Value initializer =
-        generator_.generateRvalue(*letStatement.initializer, emitter_, context_, scopes_);
-    emitter_.emitStore(localType, initializer.text, slot);
+    if (initializer) {
+      emitter_.emitStore(localType, initializer->text, slot);
+    } else {
+      emitter_.emitStore(localType, generator_.defaultIRValue(localType), slot);
+    }
     returned_ = false;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
     Value returnValue =
         generator_.generateRvalue(*returnStatement.expression, emitter_, context_, scopes_);
-    emitter_.line("ret " + llvmType(expectedReturnType_) + " " + returnValue.text);
+    emitter_.line("ret " + LLVMType(expectedReturnType_) + " " + returnValue.text);
     returned_ = true;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(
-      const ast::AssignmentStatement& assignmentStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
     const LocalBinding local =
         generator_.generatePlace(*assignmentStatement.lhs, emitter_, context_, scopes_);
 
@@ -261,7 +261,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
     const int labelId = emitter_.freshLabelId();
     const std::string thenLabel = "if.then" + std::to_string(labelId);
     const std::string elseLabel = "if.else" + std::to_string(labelId);
@@ -297,7 +297,7 @@ namespace noria {
     returned_ = true;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
     const int labelId = emitter_.freshLabelId();
     const std::string conditionLabel = "while.cond" + std::to_string(labelId);
     const std::string bodyLabel = "while.body" + std::to_string(labelId);
@@ -322,63 +322,61 @@ namespace noria {
     returned_ = false;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(
-      const ast::ExpressionStatement& expressionStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
     generator_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
     returned_ = false;
   }
 
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IntegerLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::IntegerLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::FloatLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::FloatLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::StringLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::StringLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::BoolLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::BoolLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::UnaryExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::UnaryExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CastExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::CastExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::BinaryExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::BinaryExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IdentifierExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::IdentifierExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::CallExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::CallExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::ArrayLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::IndexExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::IndexExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::StructLiteral&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::StructLiteral&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
-  void LlvmIrTextGenerator::StatementVisitor::visit(const ast::FieldAccessExpression&) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::FieldAccessExpression&) {
     throw CompileError("codegen: internal error: expression visited by statement visitor");
   }
 
-  LlvmIrTextGenerator::ExpressionVisitor::ExpressionVisitor(const LlvmIrTextGenerator& generator,
-                                                            IrEmitter& emitter,
-                                                            CodegenContext& context,
-                                                            const std::vector<Scope>& scopes)
+  LLVMGenerator::ExpressionVisitor::ExpressionVisitor(const LLVMGenerator& generator,
+                                                      IREmitter& emitter, CodegenContext& context,
+                                                      const std::vector<Scope>& scopes)
       : generator_(generator), emitter_(emitter), context_(context), scopes_(scopes) {}
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
     std::ostringstream literal;
     literal << floating.value;
     std::string text = literal.str();
@@ -389,20 +387,23 @@ namespace noria {
     result_ = Value{text, Type::f64()};
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
     result_ = generator_.generateStringLiteral(stringLiteral, emitter_, context_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
     result_ = Value{boolean.value ? "true" : "false", Type::boolean()};
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
     const Value operand = generator_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
     const std::string result = emitter_.freshTemp();
+    const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
+    if (info == nullptr) {
+      throw CompileError("codegen: internal error: unknown unary operator");
+    }
 
-    switch (unary.op) {
-    case ast::UnaryOperator::Negate:
+    if (info->codegenRule == UnaryCodegenRule::Negate) {
       if (operand.type == Type::f64()) {
         emitter_.line(result + " = fneg double " + operand.text);
         result_ = Value{result, Type::f64()};
@@ -411,26 +412,32 @@ namespace noria {
       emitter_.line(result + " = sub i32 0, " + operand.text);
       result_ = Value{result, Type::i32()};
       return;
-    case ast::UnaryOperator::Not:
+    }
+
+    if (info->codegenRule == UnaryCodegenRule::LogicalNot) {
       emitter_.line(result + " = xor i1 " + operand.text + ", true");
       result_ = Value{result, Type::boolean()};
       return;
-    case ast::UnaryOperator::BitNot:
+    }
+
+    if (info->codegenRule == UnaryCodegenRule::BitNot) {
       emitter_.line(result + " = xor i32 " + operand.text + ", -1");
       result_ = Value{result, Type::i32()};
       return;
     }
+
+    throw CompileError("codegen: internal error: unknown unary codegen rule");
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
     result_ = generator_.generateCastExpression(castExpression, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
     result_ = generator_.generateBinaryExpression(binary, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
     const LocalBinding& local = generator_.lookupLocal(scopes_, identifier.name);
 
     const std::string result = emitter_.freshTemp();
@@ -438,7 +445,7 @@ namespace noria {
     result_ = Value{result, local.type};
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::CallExpression& call) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::CallExpression& call) {
     if (auto builtin = generator_.tryGenerateBuiltinCall(call, emitter_, context_, scopes_)) {
       result_ = *builtin;
       return;
@@ -457,93 +464,93 @@ namespace noria {
 
     const std::string result = emitter_.freshTemp();
     std::string callLine =
-        result + " = call " + llvmType(function->second.returnType) + " @" + call.callee + "(";
+        result + " = call " + LLVMType(function->second.returnType) + " @" + call.callee + "(";
     for (std::size_t index{}; index < arguments.size(); ++index) {
       if (index != 0)
         callLine += ", ";
 
-      callLine += llvmType(arguments[index].type) + " " + arguments[index].text;
+      callLine += LLVMType(arguments[index].type) + " " + arguments[index].text;
     }
     callLine += ")";
     emitter_.line(callLine);
     result_ = Value{result, function->second.returnType};
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
     result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
     result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
     result_ = generator_.generateStructLiteral(literal, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
     result_ = generator_.generateFieldAccess(access, emitter_, context_, scopes_);
   }
 
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ReturnStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::ReturnStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::LetStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::LetStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::IfStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IfStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::WhileStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::WhileStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::AssignmentStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::AssignmentStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
-  void LlvmIrTextGenerator::ExpressionVisitor::visit(const ast::ExpressionStatement&) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::ExpressionStatement&) {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
 
-  LlvmIrTextGenerator::PlaceVisitor::PlaceVisitor(const LlvmIrTextGenerator& generator,
-                                                  IrEmitter& emitter, CodegenContext& context,
-                                                  const std::vector<Scope>& scopes)
+  LLVMGenerator::PlaceVisitor::PlaceVisitor(const LLVMGenerator& generator, IREmitter& emitter,
+                                            CodegenContext& context,
+                                            const std::vector<Scope>& scopes)
       : generator_(generator), emitter_(emitter), context_(context), scopes_(scopes) {}
 
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
     result_ = generator_.lookupLocal(scopes_, identifier.name);
   }
 
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IntegerLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IntegerLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FloatLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::FloatLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::StringLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::StringLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::BoolLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::BoolLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::UnaryExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::UnaryExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CastExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::CastExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::BinaryExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::BinaryExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::StructLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::StructLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IndexExpression& index) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IndexExpression& index) {
     const Value base = generator_.generateRvalue(*index.base, emitter_, context_, scopes_);
     const Value indexValue = generator_.generateRvalue(*index.index, emitter_, context_, scopes_);
 
@@ -560,7 +567,7 @@ namespace noria {
     result_ = LocalBinding{pointer, elementType, true};
   }
 
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
     const LocalBinding base = generator_.generatePlace(*access.base, emitter_, context_, scopes_);
     if (base.type.kind != TypeKind::Struct) {
       throw CompileError("codegen: field access requires struct base");
@@ -578,39 +585,37 @@ namespace noria {
         layout.fieldTypes[field->second]};
   }
 
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::LetStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::LetStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::IfStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IfStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::WhileStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::WhileStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::AssignmentStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::AssignmentStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LlvmIrTextGenerator::PlaceVisitor::visit(const ast::ExpressionStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ExpressionStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
 
-  LlvmIrTextGenerator::LocalBinding
-  LlvmIrTextGenerator::generatePlace(const ast::Expression& place, IrEmitter& emitter,
-                                     CodegenContext& context,
-                                     const std::vector<Scope>& scopes) const {
+  LLVMGenerator::LocalBinding LLVMGenerator::generatePlace(const ast::Expression& place,
+                                                           IREmitter& emitter,
+                                                           CodegenContext& context,
+                                                           const std::vector<Scope>& scopes) const {
     PlaceVisitor visitor(*this, emitter, context, scopes);
     place.accept(visitor);
     return visitor.result();
   }
 
-  std::string LlvmIrTextGenerator::emitArrayElementPointer(const Value& base,
-                                                           const Value& indexValue,
-                                                           const Type& elementType,
-                                                           IrEmitter& emitter,
-                                                           CodegenContext& context) const {
+  std::string LLVMGenerator::emitArrayElementPointer(const Value& base, const Value& indexValue,
+                                                     const Type& elementType, IREmitter& emitter,
+                                                     CodegenContext& context) const {
     const std::string length = emitter.freshTemp();
     emitter.line(length + " = load i64, ptr " + base.text);
     emitBoundsCheck(length, indexValue, emitter, context, "array index out of bounds\n");
@@ -621,12 +626,12 @@ namespace noria {
                                        emitter);
   }
 
-  std::string LlvmIrTextGenerator::emitCStringPointer(std::string_view text, IrEmitter& emitter,
-                                                      CodegenContext& context) const {
+  std::string LLVMGenerator::emitCStringPointer(std::string_view text, IREmitter& emitter,
+                                                CodegenContext& context) const {
     const std::string globalName = "@.str." + std::to_string(context.nextStringGlobal++);
     const std::size_t length = text.size() + 1;
     context.globals << globalName << " = private unnamed_addr constant [" << length << " x i8] c\""
-                    << escapeForLlvmString(text) << "\\00\"\n";
+                    << escapeForLLVMString(text) << "\\00\"\n";
 
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = getelementptr inbounds [" + std::to_string(length) + " x i8], ptr " +
@@ -634,15 +639,15 @@ namespace noria {
     return result;
   }
 
-  void LlvmIrTextGenerator::emitRuntimeTrap(IrEmitter& emitter, CodegenContext& context,
-                                            std::string_view message) const {
+  void LLVMGenerator::emitRuntimeTrap(IREmitter& emitter, CodegenContext& context,
+                                      std::string_view message) const {
     const std::string pointer = emitCStringPointer(message, emitter, context);
     emitter.line("call void @\"__noria.rt.trap\"(ptr " + pointer + ")");
     emitter.line("unreachable");
   }
 
-  void LlvmIrTextGenerator::emitNullPointerCheck(const std::string& pointer, IrEmitter& emitter,
-                                                 CodegenContext& context) const {
+  void LLVMGenerator::emitNullPointerCheck(const std::string& pointer, IREmitter& emitter,
+                                           CodegenContext& context) const {
     const int labelId = emitter.freshLabelId();
     const std::string trapLabel = "alloc.fail" + std::to_string(labelId);
     const std::string contLabel = "alloc.ok" + std::to_string(labelId);
@@ -654,17 +659,17 @@ namespace noria {
     emitter.emitLabel(contLabel);
   }
 
-  std::string LlvmIrTextGenerator::emitCheckedMalloc(const std::string& size64, IrEmitter& emitter,
-                                                     CodegenContext& context) const {
+  std::string LLVMGenerator::emitCheckedMalloc(const std::string& size64, IREmitter& emitter,
+                                               CodegenContext& context) const {
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = call ptr @malloc(i64 " + size64 + ")");
     emitNullPointerCheck(pointer, emitter, context);
     return pointer;
   }
 
-  void LlvmIrTextGenerator::emitBoundsCheck(const std::string& length64, const Value& indexValue,
-                                            IrEmitter& emitter, CodegenContext& context,
-                                            std::string_view message) const {
+  void LLVMGenerator::emitBoundsCheck(const std::string& length64, const Value& indexValue,
+                                      IREmitter& emitter, CodegenContext& context,
+                                      std::string_view message) const {
     const int labelId = emitter.freshLabelId();
     const std::string trapLabel = "bounds.fail" + std::to_string(labelId);
     const std::string contLabel = "bounds.ok" + std::to_string(labelId);
@@ -678,10 +683,9 @@ namespace noria {
     emitter.emitLabel(contLabel);
   }
 
-  std::string LlvmIrTextGenerator::emitRawBufferElementPointer(const Value& base,
-                                                               const Value& indexValue,
-                                                               const Type& elementType,
-                                                               IrEmitter& emitter) const {
+  std::string LLVMGenerator::emitRawBufferElementPointer(const Value& base, const Value& indexValue,
+                                                         const Type& elementType,
+                                                         IREmitter& emitter) const {
     const std::size_t size = elementSizeInBytes(elementType);
     const std::string offset = emitter.freshTemp();
     emitter.line(offset + " = mul i32 " + indexValue.text + ", " + std::to_string(size));
@@ -690,8 +694,8 @@ namespace noria {
     return pointer;
   }
 
-  std::string LlvmIrTextGenerator::emitBufferLoad(const Type& type, const std::string& pointer,
-                                                  IrEmitter& emitter) const {
+  std::string LLVMGenerator::emitBufferLoad(const Type& type, const std::string& pointer,
+                                            IREmitter& emitter) const {
     if (type.kind == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();
       emitter.line(packed + " = load i8, ptr " + pointer);
@@ -701,12 +705,12 @@ namespace noria {
     }
 
     const std::string result = emitter.freshTemp();
-    emitter.line(result + " = load " + llvmType(type) + ", ptr " + pointer);
+    emitter.line(result + " = load " + LLVMType(type) + ", ptr " + pointer);
     return result;
   }
 
-  void LlvmIrTextGenerator::emitBufferStore(const Type& type, const std::string& value,
-                                            const std::string& pointer, IrEmitter& emitter) const {
+  void LLVMGenerator::emitBufferStore(const Type& type, const std::string& value,
+                                      const std::string& pointer, IREmitter& emitter) const {
     if (type.kind == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();
       emitter.line(packed + " = zext i1 " + value + " to i8");
@@ -714,27 +718,27 @@ namespace noria {
       return;
     }
 
-    emitter.line("store " + llvmType(type) + " " + value + ", ptr " + pointer);
+    emitter.line("store " + LLVMType(type) + " " + value + ", ptr " + pointer);
   }
 
-  bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement, IrEmitter& emitter,
-                                              CodegenContext& context, Type expectedReturnType,
-                                              std::vector<Scope>& scopes) const {
+  bool LLVMGenerator::generateStatement(const ast::Statement& statement, IREmitter& emitter,
+                                        CodegenContext& context, Type expectedReturnType,
+                                        std::vector<Scope>& scopes) const {
     StatementVisitor visitor(*this, emitter, context, expectedReturnType, scopes);
     statement.accept(visitor);
     return visitor.returned();
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateStringLiteral(const ast::StringLiteral& literal, IrEmitter& emitter,
-                                             CodegenContext& context) const {
+  LLVMGenerator::Value LLVMGenerator::generateStringLiteral(const ast::StringLiteral& literal,
+                                                            IREmitter& emitter,
+                                                            CodegenContext& context) const {
     return Value{emitCStringPointer(literal.value, emitter, context), Type::str()};
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateArrayLiteral(const ast::ArrayLiteral& literal, IrEmitter& emitter,
-                                            CodegenContext& context,
-                                            const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateArrayLiteral(const ast::ArrayLiteral& literal,
+                                                           IREmitter& emitter,
+                                                           CodegenContext& context,
+                                                           const std::vector<Scope>& scopes) const {
     std::vector<Value> elements;
     elements.reserve(literal.elements.size());
 
@@ -763,10 +767,10 @@ namespace noria {
     return Value{base, arrayType};
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateIndexExpression(const ast::IndexExpression& index,
-                                               IrEmitter& emitter, CodegenContext& context,
-                                               const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value
+  LLVMGenerator::generateIndexExpression(const ast::IndexExpression& index, IREmitter& emitter,
+                                         CodegenContext& context,
+                                         const std::vector<Scope>& scopes) const {
     const Value base = generateRvalue(*index.base, emitter, context, scopes);
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
 
@@ -795,10 +799,10 @@ namespace noria {
     return Value{result, Type::i32()};
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateCastExpression(const ast::CastExpression& cast, IrEmitter& emitter,
-                                              CodegenContext& context,
-                                              const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value
+  LLVMGenerator::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
+                                        CodegenContext& context,
+                                        const std::vector<Scope>& scopes) const {
     const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
     const Type targetType = cast.targetType;
 
@@ -830,276 +834,345 @@ namespace noria {
     throw CompileError("codegen: unsupported cast");
   }
 
-  std::optional<LlvmIrTextGenerator::Value>
-  LlvmIrTextGenerator::tryGenerateBuiltinCall(const ast::CallExpression& call, IrEmitter& emitter,
-                                              CodegenContext& context,
-                                              const std::vector<Scope>& scopes) const {
+  std::optional<LLVMGenerator::Value>
+  LLVMGenerator::tryGenerateBuiltinCall(const ast::CallExpression& call, IREmitter& emitter,
+                                        CodegenContext& context,
+                                        const std::vector<Scope>& scopes) const {
 
     const BuiltinSignature* descriptor = lookupBuiltin(call.callee);
     if (descriptor == nullptr)
       return std::nullopt;
 
-    switch (descriptor->id) {
-    case BuiltinId::Println:
-      emitter.line("call i32 @putchar(i32 10)");
-      return Value{"", Type::voidType()};
-
-    case BuiltinId::Print: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      emitter.line("call i32 @puts(ptr " + argument.text + ")");
-      return Value{"", Type::voidType()};
-    }
-
-    case BuiltinId::PrintInt: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      emitter.line("call void @noria_print_int(i32 " + argument.text + ")");
-      return Value{"", Type::voidType()};
-    }
-
-    case BuiltinId::PrintFloat: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const std::string formatPointer = emitter.freshTemp();
-      emitter.line(formatPointer +
-                   " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0");
-      emitter.line("call i32 @printf(ptr " + formatPointer + ", double " + argument.text + ")");
-      return Value{"", Type::voidType()};
-    }
-
-    case BuiltinId::PrintChar: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      emitter.line("call i32 @putchar(i32 " + argument.text + ")");
-      return Value{"", Type::voidType()};
-    }
-
-    case BuiltinId::Sqrt: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = call double @llvm.sqrt.f64(double " + argument.text + ")");
-      return Value{result, Type::f64()};
-    }
-
-    case BuiltinId::Pow: {
-      const Value base = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value exponent = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = call double @llvm.pow.f64(double " + base.text + ", double " +
-                   exponent.text + ")");
-      return Value{result, Type::f64()};
-    }
-
-    case BuiltinId::Len: {
-      const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      if (argument.type == Type::str()) {
-        const std::string length = emitter.freshTemp();
-        emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
-        const std::string result = emitter.freshTemp();
-        emitter.line(result + " = trunc i64 " + length + " to i32");
-        return Value{result, Type::i32()};
-      }
-
-      const std::string length = emitter.freshTemp();
-      emitter.line(length + " = load i64, ptr " + argument.text);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = trunc i64 " + length + " to i32");
-      return Value{result, Type::i32()};
-    }
-    case BuiltinId::RtAlloc: {
-      const Value size = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const std::string size64 = emitter.freshTemp();
-      emitter.line(size64 + " = sext i32 " + size.text + " to i64");
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = call ptr @malloc(i64 " + size64 + ")");
-      emitNullPointerCheck(result, emitter, context);
-      return Value{result, Type::rawPtr()};
-    }
-    case BuiltinId::RtRealloc: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value size = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string size64 = emitter.freshTemp();
-      emitter.line(size64 + " = sext i32 " + size.text + " to i64");
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = call ptr @realloc(ptr " + pointer.text + ", i64 " + size64 + ")");
-      emitNullPointerCheck(result, emitter, context);
-      return Value{result, Type::rawPtr()};
-    }
-    case BuiltinId::RtRelease: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      emitter.line("call void @free(ptr " + pointer.text + ")");
-      return Value{"", Type::voidType()};
-    }
-    case BuiltinId::RtSizeof: {
-      const Type witness =
-          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = add i32 0, " + std::to_string(elementSizeInBytes(witness)));
-      return Value{result, Type::i32()};
-    }
-    case BuiltinId::RtLoad: {
-      const Type witness =
-          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, witness, emitter);
-      const std::string loaded = emitBufferLoad(witness, elementPointer, emitter);
-      return Value{loaded, witness};
-    }
-    case BuiltinId::RtStore: {
-      const Type witness =
-          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, witness, emitter);
-      emitBufferStore(witness, value.text, elementPointer, emitter);
-      return Value{"", Type::voidType()};
-    }
-    case BuiltinId::RtLoadPtr: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
-      const std::string loaded = emitter.freshTemp();
-      emitter.line(loaded + " = load ptr, ptr " + elementPointer);
-      return Value{loaded, Type::rawPtr()};
-    }
-    case BuiltinId::RtStorePtr: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
-      emitter.line("store ptr " + value.text + ", ptr " + elementPointer);
-      return Value{"", Type::voidType()};
-    }
-    case BuiltinId::RtLoadI32: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
-      const std::string loaded = emitter.freshTemp();
-      emitter.line(loaded + " = load i32, ptr " + elementPointer);
-      return Value{loaded, Type::i32()};
-    }
-    case BuiltinId::RtStoreI32: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
-      const std::string elementPointer =
-          emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
-      emitter.line("store i32 " + value.text + ", ptr " + elementPointer);
-      return Value{"", Type::voidType()};
-    }
-    case BuiltinId::RtTrap: {
-      const Value message = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      emitter.line("call void @\"__noria.rt.trap\"(ptr " + message.text + ")");
-      return Value{"", Type::voidType()};
-    }
-    case BuiltinId::RtNull: {
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = inttoptr i64 0 to ptr");
-      return Value{result, Type::rawPtr()};
-    }
-    case BuiltinId::RtPtrEq: {
-      const Value left = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value right = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = icmp eq ptr " + left.text + ", " + right.text);
-      return Value{result, Type::boolean()};
-    }
-    case BuiltinId::RtHash: {
-      const Type witness =
-          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
-      const Value key = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const std::string result = emitter.freshTemp();
-      if (witness == Type::i32()) {
-        const std::string mixed = emitter.freshTemp();
-        emitter.line(mixed + " = mul i32 " + key.text + ", 2654435761");
-        const std::string masked = emitter.freshTemp();
-        emitter.line(masked + " = and i32 " + mixed + ", 2147483647");
-        return Value{masked, Type::i32()};
-      }
-      if (witness == Type::boolean()) {
-        emitter.line(result + " = zext i1 " + key.text + " to i32");
-        return Value{result, Type::i32()};
-      }
-      if (witness == Type::str()) {
-        emitter.line(result + " = call i32 @noria_hash_str(ptr " + key.text + ")");
-        return Value{result, Type::i32()};
-      }
-      throw CompileError("codegen: __rt_hash unsupported witness type " + witness.name());
-    }
-    case BuiltinId::RtByteOffset: {
-      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-      const Value bytes = generateRvalue(*call.arguments[1], emitter, context, scopes);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = getelementptr i8, ptr " + pointer.text + ", i32 " + bytes.text);
-      return Value{result, Type::rawPtr()};
-    }
+    if (auto builtinEmitter = builtinEmitterFor(descriptor->id)) {
+      return (this->*(*builtinEmitter))(call, emitter, context, scopes);
     }
 
     return std::nullopt;
   }
 
-  std::string LlvmIrTextGenerator::generateCondition(const ast::Expression& expression,
-                                                     IrEmitter& emitter, CodegenContext& context,
-                                                     const std::vector<Scope>& scopes) const {
+  std::optional<LLVMGenerator::BuiltinEmitter>
+  LLVMGenerator::builtinEmitterFor(BuiltinId id) const {
+    static constexpr std::array<std::pair<BuiltinId, BuiltinEmitter>, 23> emitters{{
+        {BuiltinId::Println, &LLVMGenerator::emitPrintlnBuiltin},
+        {BuiltinId::Print, &LLVMGenerator::emitPrintBuiltin},
+        {BuiltinId::PrintInt, &LLVMGenerator::emitPrintIntBuiltin},
+        {BuiltinId::PrintFloat, &LLVMGenerator::emitPrintFloatBuiltin},
+        {BuiltinId::PrintChar, &LLVMGenerator::emitPrintCharBuiltin},
+        {BuiltinId::Sqrt, &LLVMGenerator::emitSqrtBuiltin},
+        {BuiltinId::Pow, &LLVMGenerator::emitPowBuiltin},
+        {BuiltinId::Len, &LLVMGenerator::emitLenBuiltin},
+        {BuiltinId::RtAlloc, &LLVMGenerator::emitRtAllocBuiltin},
+        {BuiltinId::RtRealloc, &LLVMGenerator::emitRtReallocBuiltin},
+        {BuiltinId::RtRelease, &LLVMGenerator::emitRtReleaseBuiltin},
+        {BuiltinId::RtSizeof, &LLVMGenerator::emitRtSizeofBuiltin},
+        {BuiltinId::RtLoad, &LLVMGenerator::emitRtLoadBuiltin},
+        {BuiltinId::RtStore, &LLVMGenerator::emitRtStoreBuiltin},
+        {BuiltinId::RtLoadPtr, &LLVMGenerator::emitRtLoadPtrBuiltin},
+        {BuiltinId::RtStorePtr, &LLVMGenerator::emitRtStorePtrBuiltin},
+        {BuiltinId::RtLoadI32, &LLVMGenerator::emitRtLoadI32Builtin},
+        {BuiltinId::RtStoreI32, &LLVMGenerator::emitRtStoreI32Builtin},
+        {BuiltinId::RtTrap, &LLVMGenerator::emitRtTrapBuiltin},
+        {BuiltinId::RtNull, &LLVMGenerator::emitRtNullBuiltin},
+        {BuiltinId::RtPtrEq, &LLVMGenerator::emitRtPtrEqBuiltin},
+        {BuiltinId::RtHash, &LLVMGenerator::emitRtHashBuiltin},
+        {BuiltinId::RtByteOffset, &LLVMGenerator::emitRtByteOffsetBuiltin},
+    }};
+
+    for (const auto& [candidate, emitter] : emitters) {
+      if (candidate == id) {
+        return emitter;
+      }
+    }
+    return std::nullopt;
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPrintlnBuiltin(
+      const ast::CallExpression&, IREmitter& emitter, CodegenContext&,
+      const std::vector<Scope>&) const {
+    emitter.line("call i32 @putchar(i32 10)");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPrintBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    emitter.line("call i32 @puts(ptr " + argument.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPrintIntBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    emitter.line("call void @noria_print_int(i32 " + argument.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPrintFloatBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const std::string formatPointer = emitter.freshTemp();
+    emitter.line(formatPointer +
+                 " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0");
+    emitter.line("call i32 @printf(ptr " + formatPointer + ", double " + argument.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPrintCharBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    emitter.line("call i32 @putchar(i32 " + argument.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitSqrtBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = call double @llvm.sqrt.f64(double " + argument.text + ")");
+    return Value{result, Type::f64()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitPowBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value base = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value exponent = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = call double @llvm.pow.f64(double " + base.text + ", double " +
+                 exponent.text + ")");
+    return Value{result, Type::f64()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitLenBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    if (argument.type == Type::str()) {
+      const std::string length = emitter.freshTemp();
+      emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = trunc i64 " + length + " to i32");
+      return Value{result, Type::i32()};
+    }
+
+    const std::string length = emitter.freshTemp();
+    emitter.line(length + " = load i64, ptr " + argument.text);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = trunc i64 " + length + " to i32");
+    return Value{result, Type::i32()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtAllocBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value size = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const std::string size64 = emitter.freshTemp();
+    emitter.line(size64 + " = sext i32 " + size.text + " to i64");
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = call ptr @malloc(i64 " + size64 + ")");
+    emitNullPointerCheck(result, emitter, context);
+    return Value{result, Type::rawPtr()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtReallocBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value size = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string size64 = emitter.freshTemp();
+    emitter.line(size64 + " = sext i32 " + size.text + " to i64");
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = call ptr @realloc(ptr " + pointer.text + ", i64 " + size64 + ")");
+    emitNullPointerCheck(result, emitter, context);
+    return Value{result, Type::rawPtr()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtReleaseBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    emitter.line("call void @free(ptr " + pointer.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtSizeofBuiltin(
+      const ast::CallExpression&, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>&) const {
+    const Type witness =
+        resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = add i32 0, " + std::to_string(elementSizeInBytes(witness)));
+    return Value{result, Type::i32()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtLoadBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Type witness =
+        resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string elementPointer = emitRawBufferElementPointer(pointer, index, witness, emitter);
+    const std::string loaded = emitBufferLoad(witness, elementPointer, emitter);
+    return Value{loaded, witness};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtStoreBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Type witness =
+        resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const std::string elementPointer = emitRawBufferElementPointer(pointer, index, witness, emitter);
+    emitBufferStore(witness, value.text, elementPointer, emitter);
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtLoadPtrBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string elementPointer =
+        emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+    const std::string loaded = emitter.freshTemp();
+    emitter.line(loaded + " = load ptr, ptr " + elementPointer);
+    return Value{loaded, Type::rawPtr()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtStorePtrBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const std::string elementPointer =
+        emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+    emitter.line("store ptr " + value.text + ", ptr " + elementPointer);
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtLoadI32Builtin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string elementPointer =
+        emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+    const std::string loaded = emitter.freshTemp();
+    emitter.line(loaded + " = load i32, ptr " + elementPointer);
+    return Value{loaded, Type::i32()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtStoreI32Builtin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const std::string elementPointer =
+        emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+    emitter.line("store i32 " + value.text + ", ptr " + elementPointer);
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtTrapBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value message = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    emitter.line("call void @\"__noria.rt.trap\"(ptr " + message.text + ")");
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtNullBuiltin(
+      const ast::CallExpression&, IREmitter& emitter, CodegenContext&,
+      const std::vector<Scope>&) const {
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = inttoptr i64 0 to ptr");
+    return Value{result, Type::rawPtr()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtPtrEqBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value left = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value right = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = icmp eq ptr " + left.text + ", " + right.text);
+    return Value{result, Type::boolean()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtHashBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Type witness =
+        resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+    const Value key = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const std::string result = emitter.freshTemp();
+    if (witness == Type::i32()) {
+      const std::string mixed = emitter.freshTemp();
+      emitter.line(mixed + " = mul i32 " + key.text + ", 2654435761");
+      const std::string masked = emitter.freshTemp();
+      emitter.line(masked + " = and i32 " + mixed + ", 2147483647");
+      return Value{masked, Type::i32()};
+    }
+    if (witness == Type::boolean()) {
+      emitter.line(result + " = zext i1 " + key.text + " to i32");
+      return Value{result, Type::i32()};
+    }
+    if (witness == Type::str()) {
+      emitter.line(result + " = call i32 @noria_hash_str(ptr " + key.text + ")");
+      return Value{result, Type::i32()};
+    }
+    throw CompileError("codegen: __rt_hash unsupported witness type " + witness.name());
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitRtByteOffsetBuiltin(
+      const ast::CallExpression& call, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value bytes = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = getelementptr i8, ptr " + pointer.text + ", i32 " + bytes.text);
+    return Value{result, Type::rawPtr()};
+  }
+
+  std::string LLVMGenerator::generateCondition(const ast::Expression& expression,
+                                               IREmitter& emitter, CodegenContext& context,
+                                               const std::vector<Scope>& scopes) const {
     const Value value = generateRvalue(expression, emitter, context, scopes);
     if (value.type != Type::boolean())
       throw CompileError("codegen: condition must be bool");
     return value.text;
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
-                                      CodegenContext& context,
-                                      const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateRvalue(const ast::Expression& expression,
+                                                     IREmitter& emitter, CodegenContext& context,
+                                                     const std::vector<Scope>& scopes) const {
     ExpressionVisitor visitor(*this, emitter, context, scopes);
     expression.accept(visitor);
     return visitor.result();
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateBinaryExpression(const ast::BinaryExpression& binary,
-                                                IrEmitter& emitter, CodegenContext& context,
-                                                const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value
+  LLVMGenerator::generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
+                                          CodegenContext& context,
+                                          const std::vector<Scope>& scopes) const {
 
-    if (binary.op == ast::BinaryOperator::And || binary.op == ast::BinaryOperator::Or) {
-      const Value left = generateRvalue(*binary.left, emitter, context, scopes);
-      const int labelId = emitter.freshLabelId();
-      const std::string shortCircuitLabel =
-          (binary.op == ast::BinaryOperator::And ? "and.short" : "or.short") +
-          std::to_string(labelId);
-      const std::string rhsLabel =
-          (binary.op == ast::BinaryOperator::And ? "and.rhs" : "or.rhs") + std::to_string(labelId);
-      const std::string mergeLabel =
-          (binary.op == ast::BinaryOperator::And ? "and.end" : "or.end") + std::to_string(labelId);
-      const std::string shortCircuitValue =
-          binary.op == ast::BinaryOperator::And ? "false" : "true";
+    const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
+    if (info == nullptr) {
+      throw CompileError("codegen: internal error: unknown binary operator");
+    }
 
-      if (binary.op == ast::BinaryOperator::And)
-        emitter.emitCondBranch(left.text, rhsLabel, shortCircuitLabel);
-      else
-        emitter.emitCondBranch(left.text, shortCircuitLabel, rhsLabel);
-
-      emitter.emitLabel(shortCircuitLabel);
-      emitter.emitBranch(mergeLabel);
-
-      emitter.emitLabel(rhsLabel);
-      const Value right = generateRvalue(*binary.right, emitter, context, scopes);
-      const std::string rhsJoinLabel =
-          (binary.op == ast::BinaryOperator::And ? "and.rhs.join" : "or.rhs.join") +
-          std::to_string(labelId);
-      emitter.emitBranch(rhsJoinLabel);
-      emitter.emitLabel(rhsJoinLabel);
-      emitter.emitBranch(mergeLabel);
-
-      emitter.emitLabel(mergeLabel);
-      const std::string result = emitter.freshTemp();
-      emitter.line(result + " = phi i1 [ " + shortCircuitValue + ", %" + shortCircuitLabel +
-                   " ], [ " + right.text + ", %" + rhsJoinLabel + " ]");
-      return Value{result, Type::boolean()};
+    if (info->shortCircuit) {
+      return generateShortCircuitBinaryExpression(binary, emitter, context, scopes);
     }
 
     const Value left = generateRvalue(*binary.left, emitter, context, scopes);
@@ -1107,57 +1180,124 @@ namespace noria {
 
     if (binary.op == ast::BinaryOperator::Add && left.type == Type::str() &&
         right.type == Type::str()) {
-      const std::string leftLength = emitter.freshTemp();
-      emitter.line(leftLength + " = call i64 @strlen(ptr " + left.text + ")");
-      const std::string rightLength = emitter.freshTemp();
-      emitter.line(rightLength + " = call i64 @strlen(ptr " + right.text + ")");
-      const std::string sumLength = emitter.freshTemp();
-      emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
-      const std::string size = emitter.freshTemp();
-      emitter.line(size + " = add i64 " + sumLength + ", 1");
-      const std::string buffer = emitCheckedMalloc(size, emitter, context);
-      emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
-      emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
-      return Value{buffer, Type::str()};
+      return generateStringConcatExpression(left, right, emitter, context);
+    }
+
+    if (info->comparison) {
+      return generateComparisonExpression(binary, left, right, emitter);
+    }
+
+    return generateNumericBinaryExpression(binary, left, right, emitter);
+  }
+
+  LLVMGenerator::Value LLVMGenerator::generateShortCircuitBinaryExpression(
+      const ast::BinaryExpression& binary, IREmitter& emitter, CodegenContext& context,
+      const std::vector<Scope>& scopes) const {
+    const Value left = generateRvalue(*binary.left, emitter, context, scopes);
+    const int labelId = emitter.freshLabelId();
+    const std::string shortCircuitLabel =
+        (binary.op == ast::BinaryOperator::And ? "and.short" : "or.short") +
+        std::to_string(labelId);
+    const std::string rhsLabel =
+        (binary.op == ast::BinaryOperator::And ? "and.rhs" : "or.rhs") + std::to_string(labelId);
+    const std::string mergeLabel =
+        (binary.op == ast::BinaryOperator::And ? "and.end" : "or.end") + std::to_string(labelId);
+    const std::string shortCircuitValue =
+        binary.op == ast::BinaryOperator::And ? "false" : "true";
+
+    if (binary.op == ast::BinaryOperator::And)
+      emitter.emitCondBranch(left.text, rhsLabel, shortCircuitLabel);
+    else
+      emitter.emitCondBranch(left.text, shortCircuitLabel, rhsLabel);
+
+    emitter.emitLabel(shortCircuitLabel);
+    emitter.emitBranch(mergeLabel);
+
+    emitter.emitLabel(rhsLabel);
+    const Value right = generateRvalue(*binary.right, emitter, context, scopes);
+    const std::string rhsJoinLabel =
+        (binary.op == ast::BinaryOperator::And ? "and.rhs.join" : "or.rhs.join") +
+        std::to_string(labelId);
+    emitter.emitBranch(rhsJoinLabel);
+    emitter.emitLabel(rhsJoinLabel);
+    emitter.emitBranch(mergeLabel);
+
+    // The phi selects the skipped value from the short-circuit edge, or the RHS from its join.
+    emitter.emitLabel(mergeLabel);
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = phi i1 [ " + shortCircuitValue + ", %" + shortCircuitLabel +
+                 " ], [ " + right.text + ", %" + rhsJoinLabel + " ]");
+    return Value{result, Type::boolean()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::generateStringConcatExpression(
+      const Value& left, const Value& right, IREmitter& emitter, CodegenContext& context) const {
+    const std::string leftLength = emitter.freshTemp();
+    emitter.line(leftLength + " = call i64 @strlen(ptr " + left.text + ")");
+    const std::string rightLength = emitter.freshTemp();
+    emitter.line(rightLength + " = call i64 @strlen(ptr " + right.text + ")");
+    const std::string sumLength = emitter.freshTemp();
+    emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
+    const std::string size = emitter.freshTemp();
+    emitter.line(size + " = add i64 " + sumLength + ", 1");
+    const std::string buffer = emitCheckedMalloc(size, emitter, context);
+    emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
+    emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
+    return Value{buffer, Type::str()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::generateComparisonExpression(
+      const ast::BinaryExpression& binary, const Value& left, const Value& right,
+      IREmitter& emitter) const {
+    const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
+    if (info == nullptr) {
+      throw CompileError("codegen: internal error: unknown comparison operator");
     }
 
     const std::string result = emitter.freshTemp();
-
-    if (isComparison(binary.op)) {
-      if (left.type == Type::f64() && right.type == Type::f64()) {
-        emitter.line(result + " = fcmp " + llvmFloatComparisonPredicate(binary.op) + " double " +
-                     left.text + ", " + right.text);
-        return Value{result, Type::boolean()};
-      }
-
-      if (left.type == Type::str() && right.type == Type::str()) {
-        const std::string compared = emitter.freshTemp();
-        emitter.line(compared + " = call i32 @strcmp(ptr " + left.text + ", ptr " + right.text +
-                     ")");
-        emitter.line(result + " = icmp " + llvmIntegerComparisonPredicate(binary.op) + " i32 " +
-                     compared + ", 0");
-        return Value{result, Type::boolean()};
-      }
-
-      const std::string integerType = left.type == Type::boolean() ? "i1" : "i32";
-      emitter.line(result + " = icmp " + llvmIntegerComparisonPredicate(binary.op) + " " +
-                   integerType + " " + left.text + ", " + right.text);
+    if (left.type == Type::f64() && right.type == Type::f64()) {
+      emitter.line(result + " = fcmp " + std::string(info->LLVMFloatPredicate) + " double " +
+                   left.text + ", " + right.text);
       return Value{result, Type::boolean()};
     }
 
+    if (left.type == Type::str() && right.type == Type::str()) {
+      const std::string compared = emitter.freshTemp();
+      emitter.line(compared + " = call i32 @strcmp(ptr " + left.text + ", ptr " + right.text +
+                   ")");
+      emitter.line(result + " = icmp " + std::string(info->LLVMIntegerPredicate) + " i32 " +
+                   compared + ", 0");
+      return Value{result, Type::boolean()};
+    }
+
+    const std::string integerType = left.type == Type::boolean() ? "i1" : "i32";
+    emitter.line(result + " = icmp " + std::string(info->LLVMIntegerPredicate) + " " +
+                 integerType + " " + left.text + ", " + right.text);
+    return Value{result, Type::boolean()};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::generateNumericBinaryExpression(
+      const ast::BinaryExpression& binary, const Value& left, const Value& right,
+      IREmitter& emitter) const {
+    const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
+    if (info == nullptr) {
+      throw CompileError("codegen: internal error: unknown numeric operator");
+    }
+
+    const std::string result = emitter.freshTemp();
     if (left.type == Type::f64() && right.type == Type::f64()) {
-      emitter.line(result + " = " + llvmFloatInstruction(binary.op) + " double " + left.text +
-                   ", " + right.text);
+      emitter.line(result + " = " + std::string(info->LLVMFloatInstruction) + " double " +
+                   left.text + ", " + right.text);
       return Value{result, Type::f64()};
     }
 
-    emitter.line(result + " = " + llvmIntegerInstruction(binary.op) + " i32 " + left.text + ", " +
-                 right.text);
+    emitter.line(result + " = " + std::string(info->LLVMIntegerInstruction) + " i32 " +
+                 left.text + ", " + right.text);
     return Value{result, Type::i32()};
   }
 
-  bool LlvmIrTextGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
-                                         LocalBinding binding) const {
+  bool LLVMGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
+                                   LocalBinding binding) const {
     if (scopes.empty())
       scopes.emplace_back();
 
@@ -1169,9 +1309,8 @@ namespace noria {
     return true;
   }
 
-  const LlvmIrTextGenerator::LocalBinding&
-  LlvmIrTextGenerator::lookupLocal(const std::vector<Scope>& scopes,
-                                   const std::string& name) const {
+  const LLVMGenerator::LocalBinding& LLVMGenerator::lookupLocal(const std::vector<Scope>& scopes,
+                                                                const std::string& name) const {
 
     for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
       const auto local = scope->find(name);
@@ -1182,8 +1321,8 @@ namespace noria {
     throw CompileError("codegen: unknown local variable '" + name + "'");
   }
 
-  std::unordered_map<std::string, LlvmIrTextGenerator::FunctionBinding>
-  LlvmIrTextGenerator::collectFunctionBindings(const ast::Module& module) const {
+  std::unordered_map<std::string, LLVMGenerator::FunctionBinding>
+  LLVMGenerator::collectFunctionBindings(const ast::Module& module) const {
     std::unordered_map<std::string, FunctionBinding> functions;
 
     for (const auto& function : module.functions) {
@@ -1202,8 +1341,8 @@ namespace noria {
     return functions;
   }
 
-  std::unordered_map<std::string, LlvmIrTextGenerator::StructLayout>
-  LlvmIrTextGenerator::collectStructLayouts(const ast::Module& module) const {
+  std::unordered_map<std::string, LLVMGenerator::StructLayout>
+  LLVMGenerator::collectStructLayouts(const ast::Module& module) const {
     std::unordered_map<std::string, StructLayout> layouts;
 
     for (const auto& decl : module.structs) {
@@ -1223,7 +1362,7 @@ namespace noria {
     return layouts;
   }
 
-  std::string LlvmIrTextGenerator::emitStructTypeDefinitions(const ast::Module& module) const {
+  std::string LLVMGenerator::emitStructTypeDefinitions(const ast::Module& module) const {
     std::ostringstream out;
 
     for (const auto& decl : module.structs) {
@@ -1234,7 +1373,7 @@ namespace noria {
       for (std::size_t index{}; index < decl.fields.size(); ++index) {
         if (index != 0)
           out << ", ";
-        out << llvmType(decl.fields[index].type);
+        out << LLVMType(decl.fields[index].type);
       }
       out << " }\n";
     }
@@ -1242,9 +1381,8 @@ namespace noria {
     return out.str();
   }
 
-  const LlvmIrTextGenerator::StructLayout&
-  LlvmIrTextGenerator::lookupStructLayout(const CodegenContext& context,
-                                          const Type& structType) const {
+  const LLVMGenerator::StructLayout&
+  LLVMGenerator::lookupStructLayout(const CodegenContext& context, const Type& structType) const {
     const auto layout = context.structs.find(structType.structName);
     if (layout == context.structs.end()) {
       throw CompileError("codegen: unknown struct '" + structType.structName + "'");
@@ -1253,20 +1391,19 @@ namespace noria {
     return layout->second;
   }
 
-  std::string LlvmIrTextGenerator::emitStructFieldPointer(const Type& structType,
-                                                          const std::string& slot,
-                                                          std::size_t fieldIndex,
-                                                          IrEmitter& emitter) const {
+  std::string LLVMGenerator::emitStructFieldPointer(const Type& structType, const std::string& slot,
+                                                    std::size_t fieldIndex,
+                                                    IREmitter& emitter) const {
     const std::string pointer = emitter.freshTemp();
-    emitter.line(pointer + " = getelementptr inbounds " + llvmType(structType) + ", ptr " + slot +
+    emitter.line(pointer + " = getelementptr inbounds " + LLVMType(structType) + ", ptr " + slot +
                  ", i32 0, i32 " + std::to_string(fieldIndex));
     return pointer;
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateStructLiteral(const ast::StructLiteral& literal, IrEmitter& emitter,
-                                             CodegenContext& context,
-                                             const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value
+  LLVMGenerator::generateStructLiteral(const ast::StructLiteral& literal, IREmitter& emitter,
+                                       CodegenContext& context,
+                                       const std::vector<Scope>& scopes) const {
     const Type structType = Type::structType(literal.structName);
     const StructLayout& layout = lookupStructLayout(context, structType);
 
@@ -1295,10 +1432,10 @@ namespace noria {
     return Value{result, structType};
   }
 
-  LlvmIrTextGenerator::Value
-  LlvmIrTextGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
-                                           IrEmitter& emitter, CodegenContext& context,
-                                           const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
+                                                          IREmitter& emitter,
+                                                          CodegenContext& context,
+                                                          const std::vector<Scope>& scopes) const {
     std::string slot;
     Type structType;
 
@@ -1335,166 +1472,5 @@ namespace noria {
     emitter.emitLoad(fieldType, pointer, result);
     return Value{result, fieldType};
   }
-
-  namespace {
-
-    bool isComparison(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Less:
-      case ast::BinaryOperator::LessEqual:
-      case ast::BinaryOperator::Greater:
-      case ast::BinaryOperator::GreaterEqual:
-      case ast::BinaryOperator::Equal:
-      case ast::BinaryOperator::NotEqual:
-        return true;
-      case ast::BinaryOperator::Add:
-      case ast::BinaryOperator::Subtract:
-      case ast::BinaryOperator::Multiply:
-      case ast::BinaryOperator::Divide:
-      case ast::BinaryOperator::Modulo:
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-      case ast::BinaryOperator::BitAnd:
-      case ast::BinaryOperator::BitOr:
-      case ast::BinaryOperator::BitXor:
-      case ast::BinaryOperator::Shl:
-      case ast::BinaryOperator::Shr:
-        return false;
-      }
-
-      return false;
-    }
-
-    std::string llvmIntegerInstruction(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Add:
-        return "add";
-      case ast::BinaryOperator::Subtract:
-        return "sub";
-      case ast::BinaryOperator::Multiply:
-        return "mul";
-      case ast::BinaryOperator::Divide:
-        return "sdiv";
-      case ast::BinaryOperator::Modulo:
-        return "srem";
-      case ast::BinaryOperator::BitAnd:
-        return "and";
-      case ast::BinaryOperator::BitOr:
-        return "or";
-      case ast::BinaryOperator::BitXor:
-        return "xor";
-      case ast::BinaryOperator::Shl:
-        return "shl";
-      case ast::BinaryOperator::Shr:
-        return "ashr";
-      case ast::BinaryOperator::Less:
-      case ast::BinaryOperator::LessEqual:
-      case ast::BinaryOperator::Greater:
-      case ast::BinaryOperator::GreaterEqual:
-      case ast::BinaryOperator::Equal:
-      case ast::BinaryOperator::NotEqual:
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-        break;
-      }
-
-      return "";
-    }
-
-    std::string llvmFloatInstruction(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Add:
-        return "fadd";
-      case ast::BinaryOperator::Subtract:
-        return "fsub";
-      case ast::BinaryOperator::Multiply:
-        return "fmul";
-      case ast::BinaryOperator::Divide:
-        return "fdiv";
-      case ast::BinaryOperator::Modulo:
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-      case ast::BinaryOperator::BitAnd:
-      case ast::BinaryOperator::BitOr:
-      case ast::BinaryOperator::BitXor:
-      case ast::BinaryOperator::Shl:
-      case ast::BinaryOperator::Shr:
-      case ast::BinaryOperator::Less:
-      case ast::BinaryOperator::LessEqual:
-      case ast::BinaryOperator::Greater:
-      case ast::BinaryOperator::GreaterEqual:
-      case ast::BinaryOperator::Equal:
-      case ast::BinaryOperator::NotEqual:
-        break;
-      }
-
-      return "";
-    }
-
-    std::string llvmIntegerComparisonPredicate(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Less:
-        return "slt";
-      case ast::BinaryOperator::LessEqual:
-        return "sle";
-      case ast::BinaryOperator::Greater:
-        return "sgt";
-      case ast::BinaryOperator::GreaterEqual:
-        return "sge";
-      case ast::BinaryOperator::Equal:
-        return "eq";
-      case ast::BinaryOperator::NotEqual:
-        return "ne";
-      case ast::BinaryOperator::Add:
-      case ast::BinaryOperator::Subtract:
-      case ast::BinaryOperator::Multiply:
-      case ast::BinaryOperator::Divide:
-      case ast::BinaryOperator::Modulo:
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-      case ast::BinaryOperator::BitAnd:
-      case ast::BinaryOperator::BitOr:
-      case ast::BinaryOperator::BitXor:
-      case ast::BinaryOperator::Shl:
-      case ast::BinaryOperator::Shr:
-        break;
-      }
-
-      return "";
-    }
-
-    std::string llvmFloatComparisonPredicate(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Less:
-        return "olt";
-      case ast::BinaryOperator::LessEqual:
-        return "ole";
-      case ast::BinaryOperator::Greater:
-        return "ogt";
-      case ast::BinaryOperator::GreaterEqual:
-        return "oge";
-      case ast::BinaryOperator::Equal:
-        return "oeq";
-      case ast::BinaryOperator::NotEqual:
-        return "one";
-      case ast::BinaryOperator::Add:
-      case ast::BinaryOperator::Subtract:
-      case ast::BinaryOperator::Multiply:
-      case ast::BinaryOperator::Divide:
-      case ast::BinaryOperator::Modulo:
-      case ast::BinaryOperator::And:
-      case ast::BinaryOperator::Or:
-      case ast::BinaryOperator::BitAnd:
-      case ast::BinaryOperator::BitOr:
-      case ast::BinaryOperator::BitXor:
-      case ast::BinaryOperator::Shl:
-      case ast::BinaryOperator::Shr:
-        break;
-      }
-
-      return "";
-    }
-
-  } // namespace
 
 } // namespace noria

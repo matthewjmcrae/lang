@@ -223,6 +223,8 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/type_representation_test"
 "${BUILD_DIR}/builtin_registry_test"
 "${BUILD_DIR}/visitor_smoke_test"
+"${BUILD_DIR}/ast_clone_test"
+"${BUILD_DIR}/lfu_cache_test"
 "${BUILD_DIR}/compiler_facade_test"
 "${BUILD_DIR}/module_resolver_test"
 "${BUILD_DIR}/diagnostic_location_test"
@@ -271,6 +273,15 @@ grep -q "typecheck: return type i32 does not match expected str" \
   "${TEST_OUT_DIR}/str_return_mismatch.stderr"
 grep -q "typecheck: argument 1 of 'take' expects str, got i32" \
   "${TEST_OUT_DIR}/str_argument_mismatch.stderr"
+
+grep -q "typecheck: cannot infer local variable 'x' from void initializer" \
+  "${TEST_OUT_DIR}/void_inferred_local.stderr"
+grep -q "typecheck: unknown local variable 'a'" \
+  "${TEST_OUT_DIR}/bare_inferred_declaration.stderr"
+grep -q "typecheck: cannot initialize 'x' of type i32 with bool" \
+  "${TEST_OUT_DIR}/declaration_shorthand_mismatch.stderr"
+grep -q "typecheck: cannot initialize 'x' of type i32 with bool" \
+  "${TEST_OUT_DIR}/declaration_type_first_mismatch.stderr"
 
 grep -q "typecheck: unknown type 'widget'" \
   "${TEST_OUT_DIR}/unknown_future_type.stderr"
@@ -364,6 +375,10 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
     missing_semicolon.noria)
       expect_compile_failure_contains "${source}" \
         "3:3: expected ';' after variable declaration"
+      ;;
+    let_missing_type_initializer.noria)
+      expect_compile_failure_contains "${source}" \
+        "local declaration 'x' requires a type or initializer"
       ;;
     unclosed_block.noria)
       expect_compile_failure_contains "${source}" \
@@ -474,6 +489,9 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/variables_multiple.noria" 20
 run_native_exit_test "${ROOT_DIR}/examples/basic/variables_initializer_reference.noria" 15
 run_native_exit_test "${ROOT_DIR}/examples/basic/variables_expression_reuse.noria" 27
 run_native_exit_test "${ROOT_DIR}/examples/basic/variables_division.noria" 7
+run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_shorthand_locals.noria" 30
+run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_inferred_locals.noria" 15
+run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_mixed_params_fields.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/iterative_factorial.noria" 120
 run_native_exit_test "${ROOT_DIR}/examples/basic/iterative_fibonacci.noria" 13
 run_native_exit_test "${ROOT_DIR}/examples/basic/while_count.noria" 5
@@ -667,6 +685,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
 
 echo "[noria-tests] phase 7 sequence acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
+run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_container_type_first.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_pop_set.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_growth_mutation.noria" 51

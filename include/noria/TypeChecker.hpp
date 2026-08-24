@@ -7,6 +7,7 @@
 #include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,6 +25,9 @@ namespace noria {
   class TypeChecker {
   public:
     void check(const ast::Module& module, const SymbolOrigins& symbolOrigins = {});
+    void checkSpecializationFrontier(const ast::Module& module, std::size_t firstNewStruct,
+                                     std::size_t firstNewFunction,
+                                     const SymbolOrigins& symbolOrigins = {});
 
     void registerFunctionSpecialization(std::string mangledName, std::vector<Type> typeArgs);
 
@@ -38,6 +42,10 @@ namespace noria {
     void clearSpecializationRequests() { specializationRequests_.clear(); }
 
     void clearStructSpecializationRequests() { structSpecializationRequests_.clear(); }
+
+    std::vector<SpecializationRequest> takeSpecializationRequests();
+
+    std::vector<StructSpecializationRequest> takeStructSpecializationRequests() const;
 
   private:
     class StatementVisitor final : public ast::AstVisitor {
@@ -179,8 +187,30 @@ namespace noria {
     void requireKnownType(const Type& type, SourceLocation location,
                           const std::unordered_set<std::string>* allowedTypeParams = nullptr,
                           bool allowImplTags = false, bool allowInternalTypes = false) const;
+    void requireRawPtrUsable(const Type& type, SourceLocation location,
+                             bool allowInternalTypes) const;
+    void requireImplTagUsable(const Type& type, SourceLocation location, bool allowImplTags) const;
+    void requireTypeParamKnown(const Type& type, SourceLocation location,
+                               const std::unordered_set<std::string>* allowedTypeParams) const;
+    void requireArrayTypeKnown(const Type& type, SourceLocation location,
+                               const std::unordered_set<std::string>* allowedTypeParams,
+                               bool allowImplTags, bool allowInternalTypes) const;
+    void requireStructTypeKnown(const Type& type, SourceLocation location,
+                                const std::unordered_set<std::string>* allowedTypeParams,
+                                bool allowInternalTypes) const;
     void unifyTypes(const Type& expected, const Type& actual,
                     std::unordered_map<std::string, Type>& bindings, SourceLocation location) const;
+    void bindTypeParam(const Type& expected, const Type& actual,
+                       std::unordered_map<std::string, Type>& bindings,
+                       SourceLocation location) const;
+    void unifyArrayTypes(const Type& expected, const Type& actual,
+                         std::unordered_map<std::string, Type>& bindings,
+                         SourceLocation location) const;
+    void unifyImplTagTypes(const Type& expected, const Type& actual,
+                           SourceLocation location) const;
+    void unifyStructTypes(const Type& expected, const Type& actual,
+                          std::unordered_map<std::string, Type>& bindings,
+                          SourceLocation location) const;
     bool isAssignable(Type expected, Type actual) const;
 
     struct StructFieldInfo {
@@ -196,6 +226,11 @@ namespace noria {
     };
 
     void collectStructDecls(const ast::Module& module);
+    void collectGenericStructDecl(const ast::StructDecl& decl, std::size_t moduleIndex);
+    void collectConcreteStructDecl(const ast::StructDecl& decl);
+    void validateConcreteStructFieldTypes(const ast::Module& module, std::size_t firstStruct = 0);
+    bool allowsInternalStructTypes(const ast::StructDecl& decl) const;
+    bool allowsInternalFunctionTypes(const ast::Function& function) const;
     void checkStructAcyclic(const std::string& structName, SourceLocation location) const;
     const StructInfo& lookupStruct(const std::string& name, SourceLocation location) const;
     StructInfo resolveStructInfo(const Type& structType, SourceLocation location) const;
@@ -205,8 +240,49 @@ namespace noria {
     void recordStructSpecialization(const std::string& templateName,
                                     const std::vector<Type>& typeArgs,
                                     SourceLocation location) const;
+    Type checkBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                               const Type& right) const;
+    Type checkLogicalBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                                      const Type& right) const;
+    Type checkAdditiveBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                                       const Type& right) const;
+    Type checkIntegerBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                                      const Type& right) const;
+    Type checkOrderedComparisonExpression(const ast::BinaryExpression& binary, const Type& left,
+                                          const Type& right) const;
+    Type checkEqualityExpression(const ast::BinaryExpression& binary, const Type& left,
+                                 const Type& right) const;
+    Type checkUnaryExpression(const ast::UnaryExpression& unary, const Type& operandType) const;
+    Type checkNumericUnaryExpression(const ast::UnaryExpression& unary, const Type& operandType) const;
+    Type checkBooleanUnaryExpression(const ast::UnaryExpression& unary, const Type& operandType) const;
+    Type checkIntegerUnaryExpression(const ast::UnaryExpression& unary, const Type& operandType) const;
+    Type checkGenericFunctionCall(const ast::CallExpression& call,
+                                  const std::vector<std::size_t>& family,
+                                  const std::optional<Type>& expectedType);
+    Type checkConcreteFunctionCall(const ast::CallExpression& call,
+                                   const FunctionSignature& signature);
+    std::vector<Type> inferGenericCallTypeArgs(
+        const ast::CallExpression& call, const ast::Function& signature,
+        bool seedFromSpecializedCaller, const std::optional<Type>& expectedType,
+        std::unordered_map<std::string, Type>& bindings);
+    Type checkStructLiteral(const ast::StructLiteral& literal);
+    Type checkGenericStructLiteral(const ast::StructLiteral& literal,
+                                   const ast::StructDecl& templated);
+    Type checkConcreteStructLiteral(const ast::StructLiteral& literal, const StructInfo& structInfo,
+                                    std::vector<Type> typeArgs);
+    std::vector<Type> inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
+                                                 const ast::StructDecl& templated);
+    std::unordered_map<std::string, Type>
+    checkStructLiteralFields(const ast::StructLiteral& literal, const StructInfo& structInfo);
+    void requireStructLiteralComplete(const ast::StructLiteral& literal,
+                                      const StructInfo& structInfo,
+                                      const std::unordered_map<std::string, Type>& provided) const;
 
     void collectFunctionSignatures(const ast::Module& module);
+    void collectGenericFunctionSignature(const ast::Function& function, std::size_t moduleIndex);
+    void collectConcreteFunctionSignature(const ast::Function& function);
+    void validateGenericFunctionFamily(std::string_view name,
+                                       const std::vector<std::size_t>& family) const;
     void checkFunction(const ast::Function& function);
     bool checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
                          Type expectedReturnType);
@@ -215,6 +291,17 @@ namespace noria {
     Type checkRvalue(const ast::Expression& expression,
                      std::optional<Type> expectedType = std::nullopt);
     Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
+    void requireBuiltinCallable(const ast::CallExpression& call,
+                                const BuiltinSignature& descriptor) const;
+    Type checkLenBuiltin(const ast::CallExpression& call);
+    Type checkRtSizeofBuiltin(const ast::CallExpression& call) const;
+    Type checkRtHashBuiltin(const ast::CallExpression& call);
+    Type checkRtLoadBuiltin(const ast::CallExpression& call, const BuiltinSignature& descriptor);
+    Type checkRtStoreBuiltin(const ast::CallExpression& call, const BuiltinSignature& descriptor);
+    Type checkAllArgumentsBuiltin(const ast::CallExpression& call,
+                                  const BuiltinSignature& descriptor);
+    Type checkDeclaredBuiltinArguments(const ast::CallExpression& call,
+                                       const BuiltinSignature& descriptor);
     Type resolveWitnessType(SourceLocation location) const;
     bool isEnclosingFunctionSpecialized() const;
     const std::vector<Type>* enclosingFunctionSpecializationTypeArgs() const;
@@ -241,11 +328,14 @@ namespace noria {
     std::string currentModuleOrigin() const;
     void requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
                              SourceLocation location) const;
+    const ast::Function& genericFunctionAt(std::size_t moduleIndex) const;
+    const ast::StructDecl& genericStructAt(std::size_t moduleIndex) const;
 
+    const ast::Module* activeModule_ = nullptr;
     SymbolOrigins symbolOrigins_;
     std::unordered_map<std::string, FunctionSignature> functions_;
-    std::unordered_map<std::string, std::vector<const ast::Function*>> genericFunctions_;
-    std::unordered_map<std::string, const ast::StructDecl*> genericStructs_;
+    std::unordered_map<std::string, std::vector<std::size_t>> genericFunctions_;
+    std::unordered_map<std::string, std::size_t> genericStructs_;
     std::vector<SpecializationRequest> specializationRequests_;
     mutable std::vector<StructSpecializationRequest> structSpecializationRequests_;
     std::string currentFunctionName_;

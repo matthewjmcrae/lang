@@ -1,7 +1,7 @@
 #include "noria/Parser.hpp"
 
-#include "noria/AstVisitor.hpp"
 #include "noria/Diagnostic.hpp"
+#include "noria/SemanticTables.hpp"
 
 #include <charconv>
 #include <cstdint>
@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -17,54 +18,29 @@ namespace noria {
 
   namespace {
 
-    class IdentifierNameProbe final : public ast::AstVisitor {
-    public:
-      std::optional<std::string> name() const { return name_; }
+    std::optional<std::string> identifierName(const ast::Expression& expression) {
+      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(&expression)) {
+        return identifier->name;
+      }
+      return std::nullopt;
+    }
 
-      void visit(const ast::IdentifierExpression& node) override { name_ = node.name; }
+    std::optional<Type> builtinTypeFromName(std::string_view name) {
+      using TypeFactory = Type (*)();
+      static const std::unordered_map<std::string_view, TypeFactory> builtinTypes = {
+          {"i32", Type::i32}, {"f64", Type::f64},         {"bool", Type::boolean},
+          {"str", Type::str}, {"__rt_ptr", Type::rawPtr},
+      };
 
-      void visit(const ast::IntegerLiteral& node) override;
-      void visit(const ast::FloatLiteral& node) override;
-      void visit(const ast::StringLiteral& node) override;
-      void visit(const ast::BoolLiteral& node) override;
-      void visit(const ast::UnaryExpression& node) override;
-      void visit(const ast::CastExpression& node) override;
-      void visit(const ast::BinaryExpression& node) override;
-      void visit(const ast::CallExpression& node) override;
-      void visit(const ast::ArrayLiteral& node) override;
-      void visit(const ast::IndexExpression& node) override;
-      void visit(const ast::StructLiteral& node) override;
-      void visit(const ast::FieldAccessExpression& node) override;
+      if (const auto type = builtinTypes.find(name); type != builtinTypes.end()) {
+        return type->second();
+      }
+      return std::nullopt;
+    }
 
-      void visit(const ast::ReturnStatement& node) override;
-      void visit(const ast::LetStatement& node) override;
-      void visit(const ast::IfStatement& node) override;
-      void visit(const ast::WhileStatement& node) override;
-      void visit(const ast::AssignmentStatement& node) override;
-      void visit(const ast::ExpressionStatement& node) override;
-
-    private:
-      std::optional<std::string> name_;
-    };
-
-    void IdentifierNameProbe::visit(const ast::IntegerLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::FloatLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::StringLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::BoolLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::UnaryExpression&) {}
-    void IdentifierNameProbe::visit(const ast::CastExpression&) {}
-    void IdentifierNameProbe::visit(const ast::BinaryExpression&) {}
-    void IdentifierNameProbe::visit(const ast::CallExpression&) {}
-    void IdentifierNameProbe::visit(const ast::ArrayLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::IndexExpression&) {}
-    void IdentifierNameProbe::visit(const ast::StructLiteral&) {}
-    void IdentifierNameProbe::visit(const ast::FieldAccessExpression&) {}
-    void IdentifierNameProbe::visit(const ast::ReturnStatement&) {}
-    void IdentifierNameProbe::visit(const ast::LetStatement&) {}
-    void IdentifierNameProbe::visit(const ast::IfStatement&) {}
-    void IdentifierNameProbe::visit(const ast::WhileStatement&) {}
-    void IdentifierNameProbe::visit(const ast::AssignmentStatement&) {}
-    void IdentifierNameProbe::visit(const ast::ExpressionStatement&) {}
+    std::optional<ast::BinaryOperator> binaryOperatorForToken(TokenKind kind) {
+      return binaryOperatorFromSymbol(tokenKindName(kind));
+    }
 
     std::int64_t parseIntegerToken(const Token& integer) {
       std::int64_t value = 0;
@@ -81,16 +57,16 @@ namespace noria {
   // take in Tokens[] return the root of a fully built AST
   Parser::Parser(std::span<const Token> tokens) : tokens_(tokens) {}
 
-  // parse order is module -> functions[] -> parameters[] -> block -> statements[] -> expressions[]
+  // parse order is module -> functions[]/structs[]/imports[] -> parameters[] -> block ->
+  // statements[] -> expressions[]
   ast::Module Parser::parseModule() {
     ast::Module module;
     bool seenNonImportDecl = false;
 
-    for (std::size_t index{}; index + 2 < tokens_.size(); ++index) {
+    for (std::size_t index{}; index + 1 < tokens_.size(); ++index) {
       if (tokens_[index].kind == TokenKind::Struct &&
-          tokens_[index + 1].kind == TokenKind::Identifier &&
-          tokens_[index + 2].kind == TokenKind::Less) {
-        genericStructNames_.insert(tokens_[index + 1].text);
+          tokens_[index + 1].kind == TokenKind::Identifier) {
+        structNames_.insert(tokens_[index + 1].text);
       }
     }
 
@@ -195,12 +171,10 @@ namespace noria {
         continue;
       }
 
-      const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
-      expect(TokenKind::Colon, "expected ':' after field name");
-      Type fieldType = parseTypeAnnotation("expected field type");
+      TypedBinding field = parseTypedBinding("expected field name", "expected field type");
       expect(TokenKind::Semicolon, "expected ';' after field declaration");
-      decl.fields.push_back(ast::StructField{fieldName.text, std::move(fieldType),
-                                             fieldName.location, currentVisibility});
+      decl.fields.push_back(ast::StructField{field.name, std::move(field.type), field.location,
+                                             currentVisibility});
     }
 
     typeParamsInScope_ = std::move(savedTypeParams);
@@ -315,10 +289,10 @@ namespace noria {
     }
 
     while (true) {
-      const Token& name = expect(TokenKind::Identifier, "expected parameter name");
-      expect(TokenKind::Colon, "expected ':' after parameter name");
+      TypedBinding parameter =
+          parseTypedBinding("expected parameter name", "expected parameter type");
       parameters.push_back(
-          ast::Parameter{name.text, parseTypeAnnotation("expected parameter type"), name.location});
+          ast::Parameter{parameter.name, std::move(parameter.type), parameter.location});
 
       if (!match(TokenKind::Comma)) {
         // parameters tokens are either identifiers colons typenames or commas, comma is the only
@@ -347,22 +321,15 @@ namespace noria {
 
   std::unique_ptr<ast::Statement> Parser::parseStatement() {
     if (peek().kind == TokenKind::Return) {
-      const Token& returnToken = advance();
-      auto expression = parseExpression();
-      expect(TokenKind::Semicolon, "expected ';' after return expression");
-      return std::make_unique<ast::ReturnStatement>(std::move(expression), returnToken.location);
+      return parseReturnStatement();
     }
 
     if (peek().kind == TokenKind::Let) {
-      const Token& letToken = advance();
-      const Token& name = expect(TokenKind::Identifier, "expected identifier");
-      expect(TokenKind::Colon, "expected ':' after variable name");
-      Type variableType = parseTypeAnnotation("expected variable type");
-      expect(TokenKind::Equal, "expected '=' after variable type");
-      auto initializer = parseExpression();
-      expect(TokenKind::Semicolon, "expected ';' after variable declaration");
-      return std::make_unique<ast::LetStatement>(name.text, std::move(variableType),
-                                                 std::move(initializer), letToken.location);
+      return parseLetStatement();
+    }
+
+    if (auto localDeclaration = tryParseLocalDeclarationStatement()) {
+      return localDeclaration;
     }
 
     if (auto assignment = tryParseAssignmentStatement()) {
@@ -370,50 +337,173 @@ namespace noria {
     }
 
     if (peek().kind == TokenKind::If) {
-      const Token& ifToken = advance();
-      const bool savedStructLiteralAllowed = structLiteralAllowed_;
-      structLiteralAllowed_ = false;
-      auto condition = parseExpression();
-      structLiteralAllowed_ = savedStructLiteralAllowed;
-      auto thenBlock = parseBlock();
-
-      std::vector<std::unique_ptr<ast::Statement>> elseBranch;
-      if (match(TokenKind::Else)) {
-        if (peek().kind == TokenKind::If) {
-          elseBranch.push_back(parseStatement());
-        } else {
-          elseBranch = parseBlock();
-        }
-      }
-
-      return std::make_unique<ast::IfStatement>(std::move(condition), std::move(thenBlock),
-                                                std::move(elseBranch), ifToken.location);
+      return parseIfStatement();
     }
 
     if (peek().kind == TokenKind::While) {
-      const Token& whileToken = advance();
-      const bool savedStructLiteralAllowed = structLiteralAllowed_;
-      structLiteralAllowed_ = false;
-      auto condition = parseExpression();
-      structLiteralAllowed_ = savedStructLiteralAllowed;
-      auto body = parseBlock();
-      return std::make_unique<ast::WhileStatement>(std::move(condition), std::move(body),
-                                                   whileToken.location);
+      return parseWhileStatement();
     }
 
-    if (peek().kind == TokenKind::LeftParen || peek().kind == TokenKind::Minus ||
-        peek().kind == TokenKind::Bang || peek().kind == TokenKind::Tilde ||
-        peek().kind == TokenKind::True || peek().kind == TokenKind::False ||
-        peek().kind == TokenKind::Integer || peek().kind == TokenKind::Float ||
-        peek().kind == TokenKind::String ||
-        (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::LeftParen)) {
-      const Token& start = peek();
-      auto expression = parseExpression();
-      expect(TokenKind::Semicolon, "expected ';' after expression");
-      return std::make_unique<ast::ExpressionStatement>(std::move(expression), start.location);
+    if (isExpressionStatementStart()) {
+      return parseExpressionStatement();
     }
 
     throw CompileError(formatDiagnostic(peek().location, "expected statement"));
+  }
+
+  std::unique_ptr<ast::Statement> Parser::parseReturnStatement() {
+    const Token& returnToken = advance();
+    auto expression = parseExpression();
+    expect(TokenKind::Semicolon, "expected ';' after return expression");
+    return std::make_unique<ast::ReturnStatement>(std::move(expression), returnToken.location);
+  }
+
+  std::unique_ptr<ast::Statement> Parser::parseLetStatement() {
+    const Token& letToken = advance();
+
+    std::string name;
+    std::optional<Type> declaredType;
+    std::unique_ptr<ast::Expression> initializer;
+
+    if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Equal) {
+      const Token& nameToken = advance();
+      name = nameToken.text;
+      advance();
+      initializer = parseExpression();
+    } else if (isTypedBindingStart()) {
+      TypedBinding binding = parseTypedBinding("expected variable name", "expected variable type");
+      name = std::move(binding.name);
+      declaredType = std::move(binding.type);
+      if (match(TokenKind::Equal)) {
+        initializer = parseExpression();
+      }
+    } else if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Semicolon) {
+      const Token& nameToken = advance();
+      throw CompileError(formatDiagnostic(
+          nameToken.location, "local declaration '" + nameToken.text +
+                                  "' requires a type or initializer"));
+    } else {
+      const Token& nameToken = expect(TokenKind::Identifier, "expected identifier");
+      throw CompileError(formatDiagnostic(
+          nameToken.location, "local declaration '" + nameToken.text +
+                                  "' requires a type or initializer"));
+    }
+
+    if (!declaredType && !initializer) {
+      throw CompileError(formatDiagnostic(letToken.location,
+                                          "local declaration requires a type or initializer"));
+    }
+
+    expect(TokenKind::Semicolon, "expected ';' after variable declaration");
+    return std::make_unique<ast::LetStatement>(std::move(name), std::move(declaredType),
+                                               std::move(initializer), letToken.location);
+  }
+
+  std::unique_ptr<ast::Statement> Parser::parseIfStatement() {
+    const Token& ifToken = advance();
+    const bool savedStructLiteralAllowed = structLiteralAllowed_;
+    structLiteralAllowed_ = false;
+    auto condition = parseExpression();
+    structLiteralAllowed_ = savedStructLiteralAllowed;
+    auto thenBlock = parseBlock();
+
+    std::vector<std::unique_ptr<ast::Statement>> elseBranch;
+    if (match(TokenKind::Else)) {
+      if (peek().kind == TokenKind::If) {
+        elseBranch.push_back(parseStatement());
+      } else {
+        elseBranch = parseBlock();
+      }
+    }
+
+    return std::make_unique<ast::IfStatement>(std::move(condition), std::move(thenBlock),
+                                              std::move(elseBranch), ifToken.location);
+  }
+
+  std::unique_ptr<ast::Statement> Parser::parseWhileStatement() {
+    const Token& whileToken = advance();
+    const bool savedStructLiteralAllowed = structLiteralAllowed_;
+    structLiteralAllowed_ = false;
+    auto condition = parseExpression();
+    structLiteralAllowed_ = savedStructLiteralAllowed;
+    auto body = parseBlock();
+    return std::make_unique<ast::WhileStatement>(std::move(condition), std::move(body),
+                                                 whileToken.location);
+  }
+
+  std::unique_ptr<ast::Statement> Parser::parseExpressionStatement() {
+    const Token& start = peek();
+    auto expression = parseExpression();
+    expect(TokenKind::Semicolon, "expected ';' after expression");
+    return std::make_unique<ast::ExpressionStatement>(std::move(expression), start.location);
+  }
+
+  bool Parser::isExpressionStatementStart() const {
+    return peek().kind == TokenKind::LeftParen || peek().kind == TokenKind::Minus ||
+           peek().kind == TokenKind::Bang || peek().kind == TokenKind::Tilde ||
+           peek().kind == TokenKind::True || peek().kind == TokenKind::False ||
+           peek().kind == TokenKind::Integer || peek().kind == TokenKind::Float ||
+           peek().kind == TokenKind::String ||
+           (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::LeftParen);
+  }
+
+  std::unique_ptr<ast::Statement> Parser::tryParseLocalDeclarationStatement() {
+    if (!isTypedBindingStart()) {
+      return nullptr;
+    }
+
+    const SourceLocation location = peek().location;
+    TypedBinding binding = parseTypedBinding("expected variable name", "expected variable type");
+    std::unique_ptr<ast::Expression> initializer;
+    if (match(TokenKind::Equal)) {
+      initializer = parseExpression();
+    }
+    expect(TokenKind::Semicolon, "expected ';' after variable declaration");
+    return std::make_unique<ast::LetStatement>(
+        std::move(binding.name), std::make_optional(std::move(binding.type)),
+        std::move(initializer), location);
+  }
+
+  bool Parser::isTypedBindingStart() const {
+    return peek().kind == TokenKind::LeftBracket ||
+           (peek().kind == TokenKind::Identifier &&
+            (peek(1).kind == TokenKind::Colon || peek(1).kind == TokenKind::Less));
+  }
+
+  bool Parser::isClearSimpleTypeName(std::string_view name) const {
+    return builtinTypeFromName(name).has_value() || typeParamsInScope_.contains(std::string(name)) ||
+           structNames_.contains(std::string(name));
+  }
+
+  bool Parser::shouldParseTypeFirstBinding() const {
+    if (peek().kind == TokenKind::LeftBracket) {
+      return true;
+    }
+
+    if (peek().kind != TokenKind::Identifier) {
+      return false;
+    }
+
+    if (peek(1).kind == TokenKind::Less) {
+      return true;
+    }
+
+    return peek(1).kind == TokenKind::Colon && isClearSimpleTypeName(peek().text);
+  }
+
+  Parser::TypedBinding Parser::parseTypedBinding(std::string_view nameMessage,
+                                                 std::string_view typeMessage) {
+    if (shouldParseTypeFirstBinding()) {
+      Type type = parseTypeAnnotation(typeMessage);
+      expect(TokenKind::Colon, "expected ':' after type");
+      const Token& name = expect(TokenKind::Identifier, nameMessage);
+      return TypedBinding{name.text, std::move(type), name.location};
+    }
+
+    const Token& name = expect(TokenKind::Identifier, nameMessage);
+    expect(TokenKind::Colon, "expected ':' after name");
+    Type type = parseTypeAnnotation(typeMessage);
+    return TypedBinding{name.text, std::move(type), name.location};
   }
 
   std::unique_ptr<ast::Statement> Parser::tryParseAssignmentStatement() {
@@ -455,8 +545,9 @@ namespace noria {
     while (peek().kind == TokenKind::PipePipe) {
       const Token& opToken = advance();
       auto right = parseLogicalAnd();
-      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::Or, std::move(left),
-                                                     std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -468,8 +559,9 @@ namespace noria {
     while (peek().kind == TokenKind::AmpAmp) {
       const Token& opToken = advance();
       auto right = parseEquality();
-      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::And, std::move(left),
-                                                     std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -510,8 +602,9 @@ namespace noria {
     while (peek().kind == TokenKind::Pipe) {
       const Token& opToken = advance();
       auto right = parseBitXor();
-      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitOr, std::move(left),
-                                                     std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -523,8 +616,9 @@ namespace noria {
     while (peek().kind == TokenKind::Caret) {
       const Token& opToken = advance();
       auto right = parseBitAnd();
-      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitXor, std::move(left),
-                                                     std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -536,8 +630,9 @@ namespace noria {
     while (peek().kind == TokenKind::Amp) {
       const Token& opToken = advance();
       auto right = parseShift();
-      left = std::make_unique<ast::BinaryExpression>(ast::BinaryOperator::BitAnd, std::move(left),
-                                                     std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -549,9 +644,9 @@ namespace noria {
     while (peek().kind == TokenKind::Shl || peek().kind == TokenKind::Shr) {
       const Token& opToken = advance();
       auto right = parseAddition();
-      left = std::make_unique<ast::BinaryExpression>(
-          opToken.kind == TokenKind::Shl ? ast::BinaryOperator::Shl : ast::BinaryOperator::Shr,
-          std::move(left), std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -564,10 +659,9 @@ namespace noria {
       const Token& opToken = advance();
       auto right = parseMultiplication();
 
-      left = std::make_unique<ast::BinaryExpression>(
-          opToken.kind == TokenKind::Plus ? ast::BinaryOperator::Add
-                                          : ast::BinaryOperator::Subtract,
-          std::move(left), std::move(right), opToken.location);
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
+                                                     opToken.location);
     }
 
     return left;
@@ -581,13 +675,8 @@ namespace noria {
       const Token& opToken = advance();
       auto right = parseUnary();
 
-      ast::BinaryOperator op = ast::BinaryOperator::Multiply;
-      if (opToken.kind == TokenKind::Slash)
-        op = ast::BinaryOperator::Divide;
-      else if (opToken.kind == TokenKind::Percent)
-        op = ast::BinaryOperator::Modulo;
-
-      left = std::make_unique<ast::BinaryExpression>(op, std::move(left), std::move(right),
+      left = std::make_unique<ast::BinaryExpression>(binaryOperatorFromToken(opToken.kind),
+                                                     std::move(left), std::move(right),
                                                      opToken.location);
     }
 
@@ -598,7 +687,8 @@ namespace noria {
     if (peek().kind == TokenKind::Bang) {
       const Token& opToken = advance();
       auto operand = parseUnary();
-      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::Not, std::move(operand),
+      return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
+                                                    std::move(operand),
                                                     opToken.location);
     }
 
@@ -614,14 +704,16 @@ namespace noria {
       }
 
       auto operand = parseUnary();
-      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::Negate, std::move(operand),
+      return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
+                                                    std::move(operand),
                                                     opToken.location);
     }
 
     if (peek().kind == TokenKind::Tilde) {
       const Token& opToken = advance();
       auto operand = parseUnary();
-      return std::make_unique<ast::UnaryExpression>(ast::UnaryOperator::BitNot, std::move(operand),
+      return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
+                                                    std::move(operand),
                                                     opToken.location);
     }
 
@@ -646,20 +738,19 @@ namespace noria {
     auto expression = parsePrimary();
     bool calledOnce = false;
 
-    // Extension point for [expr] / .ident suffixes (Phase 3+).
+    // Extension point for [expr] / .ident suffixes
     while (true) {
       if (bareCallee && !calledOnce && peek().kind == TokenKind::LeftParen) {
         advance();
         auto arguments = parseCallArguments();
         expect(TokenKind::RightParen, "expected ')' after function call arguments");
 
-        IdentifierNameProbe probe;
-        expression->accept(probe);
-        if (!probe.name().has_value()) {
+        const std::optional<std::string> calleeName = identifierName(*expression);
+        if (!calleeName.has_value()) {
           throw CompileError(formatDiagnostic(expression->location, "expected expression"));
         }
 
-        expression = std::make_unique<ast::CallExpression>(*probe.name(), std::move(arguments),
+        expression = std::make_unique<ast::CallExpression>(*calleeName, std::move(arguments),
                                                            expression->location);
         calledOnce = true;
         continue;
@@ -694,102 +785,24 @@ namespace noria {
 
     //(expr)
     if (match(TokenKind::LeftParen)) {
-      const bool savedStructLiteralAllowed = structLiteralAllowed_;
-      structLiteralAllowed_ = true;
-      auto expression = parseExpression();
-      structLiteralAllowed_ = savedStructLiteralAllowed;
-      expect(TokenKind::RightParen, "expected ')' after expression");
-      return expression;
+      return parseParenthesizedExpression();
     }
 
     // identifier or struct literal
     if (peek().kind == TokenKind::Identifier) {
-      const Token& name = advance();
-
-      if (structLiteralAllowed_ && peek().kind == TokenKind::Less) {
-        const std::size_t savedIndex = index_;
-        std::vector<Type> typeArgs;
-        bool parsedStructLiteral = false;
-        try {
-          typeArgs = parseTypeArguments();
-          parsedStructLiteral = peek().kind == TokenKind::LeftBrace;
-        } catch (const CompileError&) {
-          parsedStructLiteral = false;
-        }
-
-        if (parsedStructLiteral) {
-          const SourceLocation location = peek().location;
-          advance();
-
-          std::vector<ast::StructLiteralField> fields;
-          if (peek().kind != TokenKind::RightBrace) {
-            while (true) {
-              const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
-              expect(TokenKind::Colon, "expected ':' after field name");
-              auto value = parseExpression();
-              fields.push_back(
-                  ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
-
-              if (!match(TokenKind::Comma))
-                break;
-            }
-          }
-
-          expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
-          return std::make_unique<ast::StructLiteral>(name.text, std::move(typeArgs),
-                                                      std::move(fields), location);
-        }
-
-        index_ = savedIndex;
-      }
-
-      if (structLiteralAllowed_ && peek().kind == TokenKind::LeftBrace) {
-        const SourceLocation location = peek().location;
-        advance();
-
-        std::vector<ast::StructLiteralField> fields;
-        if (peek().kind != TokenKind::RightBrace) {
-          while (true) {
-            const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
-            expect(TokenKind::Colon, "expected ':' after field name");
-            auto value = parseExpression();
-            fields.push_back(
-                ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
-
-            if (!match(TokenKind::Comma))
-              break;
-          }
-        }
-
-        expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
-        return std::make_unique<ast::StructLiteral>(name.text, std::vector<Type>{},
-                                                    std::move(fields), location);
-      }
-
-      return std::make_unique<ast::IdentifierExpression>(name.text, name.location);
+      return parseIdentifierOrStructLiteral();
     }
 
     if (peek().kind == TokenKind::True) {
-      const Token& token = advance();
-      return std::make_unique<ast::BoolLiteral>(true, token.location);
+      return parseBoolLiteral(true);
     }
 
     if (peek().kind == TokenKind::False) {
-      const Token& token = advance();
-      return std::make_unique<ast::BoolLiteral>(false, token.location);
+      return parseBoolLiteral(false);
     }
 
     if (peek().kind == TokenKind::Float) {
-      const Token& token = advance();
-      double value = 0.0;
-      try {
-        value = std::stod(token.text);
-      } catch (const std::invalid_argument&) {
-        throw CompileError(formatDiagnostic(token.location, "invalid float literal"));
-      } catch (const std::out_of_range&) {
-        throw CompileError(formatDiagnostic(token.location, "float literal out of range"));
-      }
-      return std::make_unique<ast::FloatLiteral>(value, token.location);
+      return parseFloatLiteral();
     }
 
     if (peek().kind == TokenKind::String) {
@@ -798,19 +811,7 @@ namespace noria {
     }
 
     if (peek().kind == TokenKind::LeftBracket) {
-      const SourceLocation location = advance().location;
-      std::vector<std::unique_ptr<ast::Expression>> elements;
-
-      if (peek().kind != TokenKind::RightBracket) {
-        while (true) {
-          elements.push_back(parseExpression());
-          if (!match(TokenKind::Comma))
-            break;
-        }
-      }
-
-      expect(TokenKind::RightBracket, "expected ']' after array literal elements");
-      return std::make_unique<ast::ArrayLiteral>(std::move(elements), location);
+      return parseArrayLiteral();
     }
 
     if (peek().kind == TokenKind::Integer) {
@@ -819,6 +820,118 @@ namespace noria {
     }
 
     throw CompileError(formatDiagnostic(peek().location, "expected expression"));
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseParenthesizedExpression() {
+    const bool savedStructLiteralAllowed = structLiteralAllowed_;
+    structLiteralAllowed_ = true;
+    auto expression = parseExpression();
+    structLiteralAllowed_ = savedStructLiteralAllowed;
+    expect(TokenKind::RightParen, "expected ')' after expression");
+    return expression;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseIdentifierOrStructLiteral() {
+    const Token& name = advance();
+
+    if (auto literal = tryParseGenericStructLiteral(name)) {
+      return literal;
+    }
+
+    if (structLiteralAllowed_ && peek().kind == TokenKind::LeftBrace) {
+      return parseStructLiteralAfterName(name, {});
+    }
+
+    return std::make_unique<ast::IdentifierExpression>(name.text, name.location);
+  }
+
+  std::unique_ptr<ast::Expression> Parser::tryParseGenericStructLiteral(const Token& name) {
+    if (!structLiteralAllowed_ || peek().kind != TokenKind::Less) {
+      return nullptr;
+    }
+
+    // Generic struct literals share '<...>' syntax with comparisons, so failed type-argument
+    // parsing must rewind and let the expression parser continue normally.
+    const std::size_t savedIndex = index_;
+    std::vector<Type> typeArgs;
+    bool parsedStructLiteral = false;
+    try {
+      typeArgs = parseTypeArguments();
+      parsedStructLiteral = peek().kind == TokenKind::LeftBrace;
+    } catch (const CompileError&) {
+      parsedStructLiteral = false;
+    }
+
+    if (parsedStructLiteral) {
+      return parseStructLiteralAfterName(name, std::move(typeArgs));
+    }
+
+    index_ = savedIndex;
+    return nullptr;
+  }
+
+  std::unique_ptr<ast::Expression>
+  Parser::parseStructLiteralAfterName(const Token& name, std::vector<Type> typeArgs) {
+    const SourceLocation location = peek().location;
+    advance();
+    std::vector<ast::StructLiteralField> fields = parseStructLiteralFields();
+    expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
+    return std::make_unique<ast::StructLiteral>(name.text, std::move(typeArgs), std::move(fields),
+                                                location);
+  }
+
+  std::vector<ast::StructLiteralField> Parser::parseStructLiteralFields() {
+    std::vector<ast::StructLiteralField> fields;
+    if (peek().kind == TokenKind::RightBrace) {
+      return fields;
+    }
+
+    while (true) {
+      const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
+      expect(TokenKind::Colon, "expected ':' after field name");
+      auto value = parseExpression();
+      fields.push_back(
+          ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
+
+      if (!match(TokenKind::Comma))
+        break;
+    }
+
+    return fields;
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseBoolLiteral(bool value) {
+    const Token& token = advance();
+    return std::make_unique<ast::BoolLiteral>(value, token.location);
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseFloatLiteral() {
+    const Token& token = advance();
+    double value = 0.0;
+    try {
+      value = std::stod(token.text);
+    } catch (const std::invalid_argument&) {
+      throw CompileError(formatDiagnostic(token.location, "invalid float literal"));
+    } catch (const std::out_of_range&) {
+      throw CompileError(formatDiagnostic(token.location, "float literal out of range"));
+    }
+    return std::make_unique<ast::FloatLiteral>(value, token.location);
+  }
+
+  std::unique_ptr<ast::Expression> Parser::parseArrayLiteral() {
+    const SourceLocation location = advance().location;
+    std::vector<std::unique_ptr<ast::Expression>> elements;
+
+    if (peek().kind != TokenKind::RightBracket) {
+      while (true) {
+        elements.push_back(parseExpression());
+        if (!match(TokenKind::Comma))
+          break;
+      }
+    }
+
+    expect(TokenKind::RightBracket, "expected ']' after array literal elements");
+    return std::make_unique<ast::ArrayLiteral>(std::move(elements), location);
   }
 
   std::vector<std::unique_ptr<ast::Expression>> Parser::parseCallArguments() {
@@ -900,16 +1013,9 @@ namespace noria {
       return Type::typeParam(token.text);
     }
 
-    if (token.text == "i32")
-      return Type::i32();
-    if (token.text == "f64")
-      return Type::f64();
-    if (token.text == "bool")
-      return Type::boolean();
-    if (token.text == "str")
-      return Type::str();
-    if (token.text == "__rt_ptr")
-      return Type::rawPtr();
+    if (std::optional<Type> builtinType = builtinTypeFromName(token.text)) {
+      return *builtinType;
+    }
 
     if (const std::optional<ImplementationTag> tag = implementationTagFromName(token.text)) {
       return Type::implementationTag(*tag);
@@ -924,22 +1030,11 @@ namespace noria {
   }
 
   ast::BinaryOperator Parser::binaryOperatorFromToken(TokenKind kind) const {
-    switch (kind) {
-    case TokenKind::EqualEqual:
-      return ast::BinaryOperator::Equal;
-    case TokenKind::BangEqual:
-      return ast::BinaryOperator::NotEqual;
-    case TokenKind::Less:
-      return ast::BinaryOperator::Less;
-    case TokenKind::LessEqual:
-      return ast::BinaryOperator::LessEqual;
-    case TokenKind::Greater:
-      return ast::BinaryOperator::Greater;
-    case TokenKind::GreaterEqual:
-      return ast::BinaryOperator::GreaterEqual;
-    default:
-      throw CompileError("internal parser error: expected binary operator");
+    if (std::optional<ast::BinaryOperator> op = binaryOperatorForToken(kind)) {
+      return *op;
     }
+
+    throw CompileError("internal parser error: expected binary operator");
   }
 
 } // namespace noria

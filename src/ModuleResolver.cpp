@@ -1,5 +1,7 @@
 #include "noria/ModuleResolver.hpp"
 
+#include "noria/AstClone.hpp"
+#include "noria/CompilerCache.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/Parser.hpp"
@@ -9,6 +11,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace noria {
 
@@ -58,8 +61,9 @@ namespace noria {
                          "module '" + modulePath + "' is internal and cannot be imported");
     }
 
-    std::optional<ast::Function*> findFunction(ast::Module& module, const std::string& name) {
-      for (auto& function : module.functions) {
+    std::optional<const ast::Function*> findFunction(const ast::Module& module,
+                                                     const std::string& name) {
+      for (const auto& function : module.functions) {
         if (function.name == name) {
           return &function;
         }
@@ -67,8 +71,9 @@ namespace noria {
       return std::nullopt;
     }
 
-    std::optional<ast::StructDecl*> findStruct(ast::Module& module, const std::string& name) {
-      for (auto& structDecl : module.structs) {
+    std::optional<const ast::StructDecl*> findStruct(const ast::Module& module,
+                                                     const std::string& name) {
+      for (const auto& structDecl : module.structs) {
         if (structDecl.name == name) {
           return &structDecl;
         }
@@ -76,15 +81,13 @@ namespace noria {
       return std::nullopt;
     }
 
-    std::vector<ast::Function> takeFunctionFamily(ast::Module& module, const std::string& name) {
+    std::vector<ast::Function> cloneFunctionFamily(const ast::Module& module,
+                                                   const std::string& name) {
       std::vector<ast::Function> family;
-      for (auto iterator = module.functions.begin(); iterator != module.functions.end();) {
-        if (iterator->name == name) {
-          family.push_back(std::move(*iterator));
-          iterator = module.functions.erase(iterator);
-          continue;
+      for (const auto& function : module.functions) {
+        if (function.name == name) {
+          family.push_back(ast::cloneFunction(function));
         }
-        ++iterator;
       }
 
       if (family.empty()) {
@@ -107,7 +110,8 @@ namespace noria {
       }
     }
 
-    void validateModuleExports(const ast::Module& module, const std::string& modulePath) {
+    std::unordered_set<std::string> collectStructExportNames(const ast::Module& module,
+                                                             const std::string& modulePath) {
       std::unordered_set<std::string> structNames;
       for (const auto& structDecl : module.structs) {
         if (!structNames.insert(structDecl.name).second) {
@@ -115,7 +119,61 @@ namespace noria {
                              "duplicate struct '" + structDecl.name + "'");
         }
       }
+      return structNames;
+    }
 
+    void validateConcreteFunctionExport(const ast::Function& function,
+                                        std::unordered_set<std::string>& exportedFunctionNames,
+                                        const std::unordered_map<std::string,
+                                                                 std::vector<const ast::Function*>>&
+                                            genericFamilies,
+                                        const std::string& modulePath) {
+      if (exportedFunctionNames.contains(function.name) || genericFamilies.contains(function.name)) {
+        throwResolverError(function.location, modulePath,
+                           "duplicate function '" + function.name + "'");
+      }
+      exportedFunctionNames.insert(function.name);
+    }
+
+    void validateGenericFamilyMember(const ast::Function& function,
+                                     const std::vector<const ast::Function*>& family,
+                                     const std::string& modulePath) {
+      for (const ast::Function* candidate : family) {
+        if (function.implTag && candidate->implTag && *function.implTag == *candidate->implTag) {
+          throwResolverError(function.location, modulePath,
+                             "duplicate implementation '" +
+                                 std::string(implementationTagName(*function.implTag)) +
+                                 "' for function '" + function.name + "'");
+        }
+        if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate->implTag)) {
+          throwResolverError(function.location, modulePath,
+                             "function '" + function.name +
+                                 "' mixes tagged and untagged implementations");
+        }
+        if (!function.implTag && !candidate->implTag) {
+          throwResolverError(function.location, modulePath,
+                             "duplicate function '" + function.name + "'");
+        }
+      }
+    }
+
+    void validateGenericFunctionExport(
+        const ast::Function& function, std::unordered_set<std::string>& exportedFunctionNames,
+        std::unordered_map<std::string, std::vector<const ast::Function*>>& genericFamilies,
+        const std::string& modulePath) {
+      if (exportedFunctionNames.contains(function.name)) {
+        throwResolverError(function.location, modulePath,
+                           "duplicate function '" + function.name + "'");
+      }
+
+      std::vector<const ast::Function*>& family = genericFamilies[function.name];
+      validateGenericFamilyMember(function, family, modulePath);
+      family.push_back(&function);
+    }
+
+    void validateFunctionExports(const ast::Module& module,
+                                 const std::unordered_set<std::string>& structNames,
+                                 const std::string& modulePath) {
       std::unordered_map<std::string, std::vector<const ast::Function*>> genericFamilies;
       std::unordered_set<std::string> exportedFunctionNames;
 
@@ -126,81 +184,116 @@ namespace noria {
         }
 
         if (function.typeParams.empty()) {
-          if (exportedFunctionNames.contains(function.name) ||
-              genericFamilies.contains(function.name)) {
-            throwResolverError(function.location, modulePath,
-                               "duplicate function '" + function.name + "'");
-          }
-          exportedFunctionNames.insert(function.name);
+          validateConcreteFunctionExport(function, exportedFunctionNames, genericFamilies,
+                                         modulePath);
           continue;
         }
 
-        if (exportedFunctionNames.contains(function.name)) {
-          throwResolverError(function.location, modulePath,
-                             "duplicate function '" + function.name + "'");
-        }
-
-        std::vector<const ast::Function*>& family = genericFamilies[function.name];
-        for (const ast::Function* candidate : family) {
-          if (function.implTag && candidate->implTag && *function.implTag == *candidate->implTag) {
-            throwResolverError(function.location, modulePath,
-                               "duplicate implementation '" +
-                                   std::string(implementationTagName(*function.implTag)) +
-                                   "' for function '" + function.name + "'");
-          }
-          if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate->implTag)) {
-            throwResolverError(function.location, modulePath,
-                               "function '" + function.name +
-                                   "' mixes tagged and untagged implementations");
-          }
-          if (!function.implTag && !candidate->implTag) {
-            throwResolverError(function.location, modulePath,
-                               "duplicate function '" + function.name + "'");
-          }
-        }
-        family.push_back(&function);
+        validateGenericFunctionExport(function, exportedFunctionNames, genericFamilies, modulePath);
       }
+    }
+
+    void validateModuleExports(const ast::Module& module, const std::string& modulePath) {
+      const std::unordered_set<std::string> structNames =
+          collectStructExportNames(module, modulePath);
+      validateFunctionExports(module, structNames, modulePath);
 
       validateImportLists(module.imports, modulePath);
     }
 
-    ast::StructDecl takeStruct(ast::Module& module, const std::string& name) {
-      for (auto iterator = module.structs.begin(); iterator != module.structs.end(); ++iterator) {
-        if (iterator->name == name) {
-          ast::StructDecl moved = std::move(*iterator);
-          module.structs.erase(iterator);
-          return moved;
-        }
-      }
-      throw CompileError("internal error: missing struct '" + name + "'");
-    }
-
     class Resolver {
     public:
-      Resolver(ModuleSourceProvider& provider, std::vector<std::string>& ownedSources)
-          : provider_(provider), ownedSources_(ownedSources) {}
+      Resolver(ModuleSourceProvider& provider, std::vector<std::string>& ownedSources,
+               CompilerCache* compilerCache, std::string stdlibRootKey)
+          : provider_(provider), ownedSources_(ownedSources), compilerCache_(compilerCache),
+            stdlibRootKey_(std::move(stdlibRootKey)) {}
 
-      ast::Module& loadModule(const std::vector<std::string>& path, SourceLocation location) {
+      const ast::Module& loadModule(const std::vector<std::string>& path,
+                                    SourceLocation location) {
         const std::string modulePath = formatModulePath(path);
 
-        if (const auto cached = cache_.find(modulePath); cached != cache_.end()) {
-          return cached->second.module;
+        if (const ast::Module* cached = cachedModule(modulePath)) {
+          return *cached;
         }
 
-        if (visiting_.contains(modulePath)) {
-          std::ostringstream cyclePath;
-          bool first = true;
-          for (const auto& segment : visitingStack_) {
-            if (!first) {
-              cyclePath << " -> ";
-            }
-            first = false;
-            cyclePath << segment;
+        rejectImportCycle(modulePath, location);
+        validateLoadableModulePath(path, modulePath, location);
+
+        if (compilerCache_ != nullptr && isStdlibModulePath(modulePath)) {
+          const std::string cacheKey = parsedStdlibModuleCacheKey(stdlibRootKey_, modulePath);
+          if (std::optional<ast::Module> cached =
+                  compilerCache_->cloneParsedStdlibModule(cacheKey)) {
+            ParsedModule parsed;
+            parsed.module = std::move(*cached);
+            auto [iterator, inserted] = cache_.emplace(modulePath, std::move(parsed));
+            (void)inserted;
+            return iterator->second.module;
           }
-          cyclePath << " -> " << modulePath;
-          throwResolverError(location, modulePath, "import cycle detected: " + cyclePath.str());
         }
 
+        const ParsedSourceModule parsedSource = parseModuleSource(modulePath, location);
+        ast::Module module = ast::cloneModule(parsedSource.module);
+
+        beginVisit(modulePath);
+
+        for (const auto& importDecl : module.imports) {
+          loadModule(importDecl.path, importDecl.location);
+        }
+
+        endVisit(modulePath);
+
+        ParsedModule parsed;
+        parsed.module = std::move(module);
+        if (compilerCache_ != nullptr && isStdlibModulePath(modulePath)) {
+          const std::string cacheKey = parsedStdlibModuleCacheKey(stdlibRootKey_, modulePath);
+          compilerCache_->storeParsedStdlibModule(cacheKey, parsed.module,
+                                                  parsedSource.sourceBytes);
+        }
+        auto [iterator, inserted] = cache_.emplace(modulePath, std::move(parsed));
+        (void)inserted;
+        return iterator->second.module;
+      }
+
+    private:
+      struct ParsedModule {
+        ast::Module module;
+      };
+
+      struct ParsedSourceModule {
+        ast::Module module;
+        std::size_t sourceBytes = 0;
+      };
+
+      const ast::Module* cachedModule(const std::string& modulePath) {
+        const auto cached = cache_.find(modulePath);
+        if (cached == cache_.end()) {
+          return nullptr;
+        }
+        return &cached->second.module;
+      }
+
+      void rejectImportCycle(const std::string& modulePath, SourceLocation location) const {
+        if (!visiting_.contains(modulePath)) {
+          return;
+        }
+
+        // The stack is kept in import order so diagnostics can show the full cycle path.
+        std::ostringstream cyclePath;
+        bool first = true;
+        for (const auto& segment : visitingStack_) {
+          if (!first) {
+            cyclePath << " -> ";
+          }
+          first = false;
+          cyclePath << segment;
+        }
+        cyclePath << " -> " << modulePath;
+        throwResolverError(location, modulePath, "import cycle detected: " + cyclePath.str());
+      }
+
+      void validateLoadableModulePath(const std::vector<std::string>& path,
+                                      const std::string& modulePath,
+                                      SourceLocation location) const {
         if (path[0] != "std") {
           throwResolverError(location, modulePath,
                              "unsupported module root '" + path[0] +
@@ -210,7 +303,9 @@ namespace noria {
         if (path.size() < 2) {
           throwResolverError(location, modulePath, "unsupported module path '" + modulePath + "'");
         }
+      }
 
+      ParsedSourceModule parseModuleSource(const std::string& modulePath, SourceLocation location) {
         const std::optional<std::string> source = provider_.loadModuleSource(modulePath);
         if (!source.has_value()) {
           throwResolverError(location, modulePath, "unknown module '" + modulePath + "'");
@@ -224,39 +319,29 @@ namespace noria {
         Parser parser(tokens);
         ast::Module module = parser.parseModule();
         validateModuleExports(module, modulePath);
-
-        visiting_.insert(modulePath);
-        visitingStack_.push_back(modulePath);
-
-        for (const auto& importDecl : module.imports) {
-          loadModule(importDecl.path, importDecl.location);
-        }
-
-        visitingStack_.pop_back();
-        visiting_.erase(modulePath);
-
-        ParsedModule parsed;
-        parsed.module = std::move(module);
-        parsed.source = ownedSources_.back();
-        auto [iterator, inserted] = cache_.emplace(modulePath, std::move(parsed));
-        (void)inserted;
-        return iterator->second.module;
+        return ParsedSourceModule{std::move(module), source->size()};
       }
 
-    private:
-      struct ParsedModule {
-        std::string source;
-        ast::Module module;
-      };
+      void beginVisit(const std::string& modulePath) {
+        visiting_.insert(modulePath);
+        visitingStack_.push_back(modulePath);
+      }
+
+      void endVisit(const std::string& modulePath) {
+        visitingStack_.pop_back();
+        visiting_.erase(modulePath);
+      }
 
       ModuleSourceProvider& provider_;
       std::vector<std::string>& ownedSources_;
+      CompilerCache* compilerCache_ = nullptr;
+      std::string stdlibRootKey_;
       std::unordered_map<std::string, ParsedModule> cache_;
       std::unordered_set<std::string> visiting_;
       std::vector<std::string> visitingStack_;
     };
 
-    void mergeImportedName(ast::Module& merged, ast::Module& sourceModule,
+    void mergeImportedName(ast::Module& merged, const ast::Module& sourceModule,
                            const std::string& modulePath, const ast::ImportedName& importedName,
                            SymbolOrigins& symbolOrigins) {
       if (findFunction(sourceModule, importedName.name)) {
@@ -269,7 +354,7 @@ namespace noria {
                              "duplicate symbol '" + importedName.name + "'");
         }
 
-        for (ast::Function& function : takeFunctionFamily(sourceModule, importedName.name)) {
+        for (ast::Function& function : cloneFunctionFamily(sourceModule, importedName.name)) {
           merged.functions.push_back(std::move(function));
         }
         symbolOrigins.functions.emplace(importedName.name, modulePath);
@@ -286,7 +371,7 @@ namespace noria {
                              "duplicate symbol '" + importedName.name + "'");
         }
 
-        merged.structs.push_back(takeStruct(sourceModule, importedName.name));
+        merged.structs.push_back(ast::cloneStructDecl(**findStruct(sourceModule, importedName.name)));
         symbolOrigins.structs.emplace(importedName.name, modulePath);
         return;
       }
@@ -318,7 +403,7 @@ namespace noria {
       for (const auto& importDecl : stdlibModule.imports) {
         rejectInternalImport(importDecl.path, importDecl.location, stdlibModulePath);
 
-        ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
+        const ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
         const std::string dependencyPath = formatModulePath(importDecl.path);
 
         for (const auto& importedName : importDecl.names) {
@@ -341,7 +426,7 @@ namespace noria {
       for (const auto& importDecl : imports) {
         rejectInternalImport(importDecl.path, importDecl.location, importingModulePath);
 
-        ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
+        const ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
         const std::string modulePath = formatModulePath(importDecl.path);
 
         for (const auto& importedName : importDecl.names) {
@@ -402,8 +487,8 @@ namespace noria {
   }
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
-                                 ModuleSourceProvider& provider) {
-    (void)options;
+                                 ModuleSourceProvider& provider,
+                                 CompilerCache* compilerCache) {
     ResolvedProgram resolved;
     resolved.module.imports = std::move(rootModule.imports);
     resolved.module.structs = std::move(rootModule.structs);
@@ -415,7 +500,12 @@ namespace noria {
 
     validateImportLists(resolved.module.imports, "");
 
-    Resolver resolver(provider, resolved.ownedSources);
+    std::string stdlibRootKey;
+    if (compilerCache != nullptr && options.stdlibRoot.has_value()) {
+      stdlibRootKey = stdlibRootCacheKey(*options.stdlibRoot);
+    }
+
+    Resolver resolver(provider, resolved.ownedSources, compilerCache, std::move(stdlibRootKey));
     SymbolOrigins symbolOrigins;
     std::unordered_set<std::string> mergedStdlibModules;
     for (const auto& function : resolved.module.functions) {

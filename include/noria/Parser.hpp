@@ -5,6 +5,8 @@
 #include "noria/Types.hpp"
 
 #include <span>
+#include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -17,6 +19,12 @@ namespace noria {
     ast::Module parseModule();
 
   private:
+    struct TypedBinding {
+      std::string name;
+      Type type;
+      SourceLocation location;
+    };
+
     const Token& peek(std::size_t offset = 0) const;
     const Token& advance();
     bool match(TokenKind kind);
@@ -30,7 +38,18 @@ namespace noria {
     std::vector<ast::Parameter> parseFunctionParameters();
     std::vector<std::unique_ptr<ast::Statement>> parseBlock();
     std::unique_ptr<ast::Statement> parseStatement();
+    std::unique_ptr<ast::Statement> parseReturnStatement();
+    std::unique_ptr<ast::Statement> parseLetStatement();
+    std::unique_ptr<ast::Statement> parseIfStatement();
+    std::unique_ptr<ast::Statement> parseWhileStatement();
+    std::unique_ptr<ast::Statement> parseExpressionStatement();
+    std::unique_ptr<ast::Statement> tryParseLocalDeclarationStatement();
     std::unique_ptr<ast::Statement> tryParseAssignmentStatement();
+    bool isExpressionStatementStart() const;
+    bool isTypedBindingStart() const;
+    bool isClearSimpleTypeName(std::string_view name) const;
+    bool shouldParseTypeFirstBinding() const;
+    TypedBinding parseTypedBinding(std::string_view nameMessage, std::string_view typeMessage);
     std::unique_ptr<ast::Expression> parseExpression();
     std::unique_ptr<ast::Expression> parseLogicalOr();
     std::unique_ptr<ast::Expression> parseLogicalAnd();
@@ -48,6 +67,15 @@ namespace noria {
     Type parseTypeArgument(std::string_view message);
     std::unique_ptr<ast::Expression> parsePostfix();
     std::unique_ptr<ast::Expression> parsePrimary();
+    std::unique_ptr<ast::Expression> parseParenthesizedExpression();
+    std::unique_ptr<ast::Expression> parseIdentifierOrStructLiteral();
+    std::unique_ptr<ast::Expression> parseFloatLiteral();
+    std::unique_ptr<ast::Expression> parseBoolLiteral(bool value);
+    std::unique_ptr<ast::Expression> parseArrayLiteral();
+    std::unique_ptr<ast::Expression> parseStructLiteralAfterName(const Token& name,
+                                                                 std::vector<Type> typeArgs);
+    std::unique_ptr<ast::Expression> tryParseGenericStructLiteral(const Token& name);
+    std::vector<ast::StructLiteralField> parseStructLiteralFields();
     std::vector<std::unique_ptr<ast::Expression>> parseCallArguments();
     ast::BinaryOperator binaryOperatorFromToken(TokenKind kind) const;
 
@@ -55,7 +83,7 @@ namespace noria {
     std::size_t index_ = 0;
     bool structLiteralAllowed_ = true;
     std::unordered_set<std::string> typeParamsInScope_;
-    std::unordered_set<std::string> genericStructNames_;
+    std::unordered_set<std::string> structNames_;
   };
 
 } // namespace noria

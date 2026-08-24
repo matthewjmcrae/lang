@@ -1,10 +1,12 @@
 #include "noria/AstPrinter.hpp"
+#include "noria/CompilerCache.hpp"
 #include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -101,9 +103,9 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput reuseOutput =
+  const noria::PipelineOutput reuseOutput =
       noria::compileSource(reuseSource, noria::StopAfter::Ir);
-  expect(countDefines(reuseOutput.llvmIr, "id$s.i32") == 1,
+  expect(countDefines(reuseOutput.LLVM, "id$s.i32") == 1,
          "same concrete call twice yields one define");
 
   constexpr std::string_view twoTypesSource = R"(
@@ -121,15 +123,15 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput twoTypesOutput =
+  const noria::PipelineOutput twoTypesOutput =
       noria::compileSource(twoTypesSource, noria::StopAfter::Typed);
   expect(countSpecializations(twoTypesOutput.module, "id") == 2,
          "two distinct type arguments yield two specializations");
   expect(
-      countDefines(noria::compileSource(twoTypesSource, noria::StopAfter::Ir).llvmIr, "id$s.i32") ==
+      countDefines(noria::compileSource(twoTypesSource, noria::StopAfter::Ir).LLVM, "id$s.i32") ==
           1,
       "i32 specialization is emitted once");
-  expect(countDefines(noria::compileSource(twoTypesSource, noria::StopAfter::Ir).llvmIr,
+  expect(countDefines(noria::compileSource(twoTypesSource, noria::StopAfter::Ir).LLVM,
                        "id$s.bool") == 1,
          "bool specialization is emitted once");
 
@@ -145,14 +147,14 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput collisionOutput =
+  const noria::PipelineOutput collisionOutput =
       noria::compileSource(collisionSource, noria::StopAfter::Typed);
   expect(countSpecializations(collisionOutput.module, "tag") == 2,
          "scalar i32 and struct i32 produce two tag specializations");
-  expect(countDefines(noria::compileSource(collisionSource, noria::StopAfter::Ir).llvmIr,
+  expect(countDefines(noria::compileSource(collisionSource, noria::StopAfter::Ir).LLVM,
                        "tag$s.i32") == 1,
          "scalar tag specialization is emitted");
-  expect(countDefines(noria::compileSource(collisionSource, noria::StopAfter::Ir).llvmIr,
+  expect(countDefines(noria::compileSource(collisionSource, noria::StopAfter::Ir).LLVM,
                        "tag$st.i32") == 1,
          "struct tag specialization is emitted");
 
@@ -166,7 +168,7 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput unusedOutput =
+  const noria::PipelineOutput unusedOutput =
       noria::compileSource(unusedTemplateSource, noria::StopAfter::Typed);
   expect(countSpecializations(unusedOutput.module, "unused") == 0,
          "uncalled template yields no specializations");
@@ -182,11 +184,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput structBoxOutput =
+  const noria::PipelineOutput structBoxOutput =
       noria::compileSource(structBoxSource, noria::StopAfter::Ir);
-  expect(structBoxOutput.llvmIr.find("%Box$s.i32 = type") != std::string::npos,
+  expect(structBoxOutput.LLVM.find("%Box$s.i32 = type") != std::string::npos,
          "generic struct specialization emits concrete struct type");
-  expect(structBoxOutput.llvmIr.find("struct Box<T>") == std::string::npos,
+  expect(structBoxOutput.LLVM.find("struct Box<T>") == std::string::npos,
          "template struct is not emitted in IR");
 
   constexpr std::string_view unusedStructTemplateSource = R"(
@@ -199,9 +201,9 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput unusedStructOutput =
+  const noria::PipelineOutput unusedStructOutput =
       noria::compileSource(unusedStructTemplateSource, noria::StopAfter::Ir);
-  expect(unusedStructOutput.llvmIr.find("%Box = type") == std::string::npos,
+  expect(unusedStructOutput.LLVM.find("%Box = type") == std::string::npos,
          "uncalled generic struct template is not emitted in IR");
 
   expectEqual(noria::mangleType(Type::structType("Box", {Type::i32()})), "st.Box$s.i32",
@@ -238,11 +240,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput implTagDistinctOutput =
+  const noria::PipelineOutput implTagDistinctOutput =
       noria::compileSource(implTagDistinctSource, noria::StopAfter::Ir);
-  expect(implTagDistinctOutput.llvmIr.find("%Box$s.i32$tag.arr = type") != std::string::npos,
+  expect(implTagDistinctOutput.LLVM.find("%Box$s.i32$tag.arr = type") != std::string::npos,
          "arr-tagged specialization is emitted");
-  expect(implTagDistinctOutput.llvmIr.find("%Box$s.i32$tag.list = type") != std::string::npos,
+  expect(implTagDistinctOutput.LLVM.find("%Box$s.i32$tag.list = type") != std::string::npos,
          "list-tagged specialization is emitted");
 
   constexpr std::string_view implSelectSource = R"(
@@ -265,11 +267,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput implSelectOutput =
+  const noria::PipelineOutput implSelectOutput =
       noria::compileSource(implSelectSource, noria::StopAfter::Ir);
-  expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.arr") == 1,
+  expect(countDefines(implSelectOutput.LLVM, "kind$s.i32$tag.arr") == 1,
          "arr-tagged kind specialization is emitted");
-  expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.list") == 1,
+  expect(countDefines(implSelectOutput.LLVM, "kind$s.i32$tag.list") == 1,
          "list-tagged kind specialization is emitted");
 
   constexpr std::string_view letHintSource = R"(
@@ -291,11 +293,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintOutput =
+  const noria::PipelineOutput letHintOutput =
       noria::compileSource(letHintSource, noria::StopAfter::Ir);
-  expect(countDefines(letHintOutput.llvmIr, "box_new$s.i32$tag.list") == 1,
+  expect(countDefines(letHintOutput.LLVM, "box_new$s.i32$tag.list") == 1,
          "let-declared type seeds list constructor specialization");
-  expect(letHintOutput.llvmIr.find("box_new$s.i32$tag.arr") == std::string::npos,
+  expect(letHintOutput.LLVM.find("box_new$s.i32$tag.arr") == std::string::npos,
          "let-declared type does not select arr constructor specialization");
 
   constexpr std::string_view letHintIdentitySource = R"(
@@ -313,11 +315,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintIdentityOutput =
+  const noria::PipelineOutput letHintIdentityOutput =
       noria::compileSource(letHintIdentitySource, noria::StopAfter::Ir);
-  expect(countDefines(letHintIdentityOutput.llvmIr, "id$st.Box$s.i32$tag.list") == 1,
+  expect(countDefines(letHintIdentityOutput.LLVM, "id$st.Box$s.i32$tag.list") == 1,
          "let-declared type does not append impl tag to untagged generic identity");
-  expect(letHintIdentityOutput.llvmIr.find("id$st.Box$s.i32$tag.list$tag.") == std::string::npos,
+  expect(letHintIdentityOutput.LLVM.find("id$st.Box$s.i32$tag.list$tag.") == std::string::npos,
          "let-declared type does not double-append impl tags");
 
   constexpr std::string_view letHintNestedCallSource = R"(
@@ -339,13 +341,13 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintNestedCallOutput =
+  const noria::PipelineOutput letHintNestedCallOutput =
       noria::compileSource(letHintNestedCallSource, noria::StopAfter::Ir);
-  expect(countDefines(letHintNestedCallOutput.llvmIr, "make$s.i32$tag.list") == 1,
+  expect(countDefines(letHintNestedCallOutput.LLVM, "make$s.i32$tag.list") == 1,
          "let-declared type seeds outer constructor through nested call");
-  expect(countDefines(letHintNestedCallOutput.llvmIr, "id$s.i32") == 1,
+  expect(countDefines(letHintNestedCallOutput.LLVM, "id$s.i32") == 1,
          "nested generic call is not unified with let-declared outer type");
-  expect(letHintNestedCallOutput.llvmIr.find("id$st.Box$s.i32$tag.list") == std::string::npos,
+  expect(letHintNestedCallOutput.LLVM.find("id$st.Box$s.i32$tag.list") == std::string::npos,
          "nested id is not specialized to let-declared outer type");
 
   constexpr std::string_view letHintCastSource = R"(
@@ -359,11 +361,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintCastOutput =
+  const noria::PipelineOutput letHintCastOutput =
       noria::compileSource(letHintCastSource, noria::StopAfter::Ir);
-  expect(countDefines(letHintCastOutput.llvmIr, "id$s.i32") == 1,
+  expect(countDefines(letHintCastOutput.LLVM, "id$s.i32") == 1,
          "generic call under cast infers from argument, not let-declared type");
-  expect(letHintCastOutput.llvmIr.find("id$s.f64") == std::string::npos,
+  expect(letHintCastOutput.LLVM.find("id$s.f64") == std::string::npos,
          "generic call under cast is not specialized to let-declared f64");
 
   constexpr std::string_view letHintStructFieldSource = R"(
@@ -381,11 +383,11 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintStructFieldOutput =
+  const noria::PipelineOutput letHintStructFieldOutput =
       noria::compileSource(letHintStructFieldSource, noria::StopAfter::Ir);
-  expect(countDefines(letHintStructFieldOutput.llvmIr, "id$s.i32") == 1,
+  expect(countDefines(letHintStructFieldOutput.LLVM, "id$s.i32") == 1,
          "generic call in struct field infers from argument, not let-declared type");
-  expect(letHintStructFieldOutput.llvmIr.find("id$st.Box$s.i32") == std::string::npos,
+  expect(letHintStructFieldOutput.LLVM.find("id$st.Box$s.i32") == std::string::npos,
          "generic call in struct field is not specialized to let-declared Box");
 
   constexpr std::string_view letHintArrayElemSource = R"(
@@ -399,9 +401,9 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput letHintArrayElemOutput =
+  const noria::PipelineOutput letHintArrayElemOutput =
       noria::compileSource(letHintArrayElemSource, noria::StopAfter::Ir);
-  expect(countDefines(letHintArrayElemOutput.llvmIr, "id$s.i32") == 1,
+  expect(countDefines(letHintArrayElemOutput.LLVM, "id$s.i32") == 1,
          "generic call in array element infers from argument, not let-declared type");
 
   noria::SpecializationCache cache;
@@ -478,7 +480,7 @@ fn main() -> i32 {
 }
 )";
 
-  const noria::CompileOutput privateFieldAstOutput =
+  const noria::PipelineOutput privateFieldAstOutput =
       noria::compileSource(privateFieldSource, noria::StopAfter::Ast);
   std::ostringstream astOut;
   noria::printAst(privateFieldAstOutput.module, astOut);
@@ -487,10 +489,120 @@ fn main() -> i32 {
   expect(astOut.str().find("Field value: T\n") != std::string::npos,
          "public field visibility has no suffix in AST");
 
-  const noria::CompileOutput privateFieldIrOutput =
+  const noria::PipelineOutput privateFieldIrOutput =
       noria::compileSource(privateFieldSource, noria::StopAfter::Ir);
-  expect(privateFieldIrOutput.llvmIr.find("%Box$s.i32 = type") != std::string::npos,
+  expect(privateFieldIrOutput.LLVM.find("%Box$s.i32 = type") != std::string::npos,
          "private generic struct field survives specialization");
+
+  constexpr std::string_view sameLocationNestedCallsSource = R"(
+fn id<T>(x: T) -> T {
+  return x;
+}
+
+fn wrap<T>(x: T) -> T {
+  return id(x);
+}
+
+fn main() -> i32 {
+  let a: i32 = wrap(1);
+  let b: bool = wrap(true);
+  if b {
+    return a;
+  }
+  return 0;
+}
+)";
+
+  const noria::PipelineOutput sameLocationNestedCallsOutput =
+      noria::compileSource(sameLocationNestedCallsSource, noria::StopAfter::Ir);
+  expect(countDefines(sameLocationNestedCallsOutput.LLVM, "wrap$s.i32") == 1,
+         "i32 wrapper specialization is emitted once");
+  expect(countDefines(sameLocationNestedCallsOutput.LLVM, "wrap$s.bool") == 1,
+         "bool wrapper specialization is emitted once");
+  expect(countDefines(sameLocationNestedCallsOutput.LLVM, "id$s.i32") == 1,
+         "nested same-location i32 call is rewritten in its enclosing specialization");
+  expect(countDefines(sameLocationNestedCallsOutput.LLVM, "id$s.bool") == 1,
+         "nested same-location bool call is rewritten in its enclosing specialization");
+
+  constexpr std::string_view inferredStructLiteralFrontierSource = R"(
+struct Box<T> {
+  value: T;
+}
+
+fn make<T>(x: T) -> Box<T> {
+  return Box { value: x };
+}
+
+fn main() -> i32 {
+  let b: Box<i32> = make(9);
+  return b.value;
+}
+)";
+
+  const noria::PipelineOutput inferredStructLiteralFrontierOutput =
+      noria::compileSource(inferredStructLiteralFrontierSource, noria::StopAfter::Ir);
+  expect(inferredStructLiteralFrontierOutput.LLVM.find("%Box$s.i32 = type") !=
+             std::string::npos,
+         "inferred generic struct literal in specialization is normalized");
+  expect(countDefines(inferredStructLiteralFrontierOutput.LLVM, "make$s.i32") == 1,
+         "function with inferred struct literal is specialized once");
+
+  constexpr std::string_view nestedGenericStructFrontierSource = R"(
+struct Pair<T> {
+  left: T;
+  right: T;
+}
+
+struct Holder<T> {
+  pair: Pair<T>;
+}
+
+fn makeHolder<T>(x: T) -> Holder<T> {
+  return Holder<T> { pair: Pair<T> { left: x, right: x } };
+}
+
+fn main() -> i32 {
+  let h: Holder<i32> = makeHolder(5);
+  return h.pair.left;
+}
+)";
+
+  const noria::PipelineOutput nestedGenericStructFrontierOutput =
+      noria::compileSource(nestedGenericStructFrontierSource, noria::StopAfter::Ir);
+  expect(nestedGenericStructFrontierOutput.LLVM.find("%Holder$s.i32 = type") !=
+             std::string::npos,
+         "outer generic struct specialization is emitted");
+  expect(nestedGenericStructFrontierOutput.LLVM.find("%Pair$s.i32 = type") != std::string::npos,
+         "nested generic struct specialization discovered from frontier is emitted");
+
+  constexpr std::string_view stdlibGenericSource = R"(
+import std::generic_id::{id};
+
+fn main() -> i32 {
+  return id(7);
+}
+)";
+  noria::processCompilerCache().clear();
+  noria::CompileOptions stdlibOptions;
+  std::filesystem::path stdlibRoot = std::filesystem::path("stdlib");
+  if (!std::filesystem::is_directory(stdlibRoot)) {
+    stdlibRoot = std::filesystem::path("../stdlib");
+  }
+  stdlibOptions.stdlibRoot = stdlibRoot;
+  const noria::PipelineOutput stdlibFirst =
+      noria::compileSource(stdlibGenericSource, noria::StopAfter::Ir, stdlibOptions);
+  const std::size_t specializationCacheCount =
+      noria::processCompilerCache().stdlibSpecializationCount();
+  const noria::PipelineOutput stdlibSecond =
+      noria::compileSource(stdlibGenericSource, noria::StopAfter::Ir, stdlibOptions);
+  expect(stdlibFirst.LLVM == stdlibSecond.LLVM,
+         "repeated stdlib generic compiles produce identical IR");
+  expect(countDefines(stdlibSecond.LLVM, "id$s.i32") == 1,
+         "tiny stdlib generic specialization emits one define");
+  expect(specializationCacheCount == 0,
+         "tiny stdlib generic specialization is not retained in process cache");
+  expect(noria::processCompilerCache().stdlibSpecializationCount() == 0,
+         "repeated tiny stdlib generic compile still avoids specialization cache admission");
 
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";

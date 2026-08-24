@@ -2,13 +2,17 @@
 
 #include "noria/Diagnostic.hpp"
 
+#include <array>
 #include <cctype>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace noria {
 
   namespace {
+
+    using TwoCharacterTokens = std::unordered_map<char, TokenKind>;
 
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character);
   } // namespace
@@ -26,169 +30,99 @@ namespace noria {
       if (isAtEnd())
         break;
 
-      const auto start = location_;
       const char current = peek();
-
-      if (std::isalpha(static_cast<unsigned char>(current)) || current == '_') {
-        tokens.push_back(lexIdentifierOrKeyword());
+      if (current == '/' && peek(1) == '/') {
+        skipLineComment();
         continue;
       }
 
-      if (std::isdigit(static_cast<unsigned char>(current)) ||
-          (current == '.' && std::isdigit(static_cast<unsigned char>(peek(1))))) {
-        tokens.push_back(lexNumber());
-        continue;
-      }
-
-      if (current == '"') {
-        tokens.push_back(lexString());
-        continue;
-      }
-
-      switch (current) {
-      case '-':
-        if (peek(1) == '>') { // trailing return type case
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::Arrow, "->", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Minus, std::string(1, advance()), start));
-        break;
-      case '(':
-        tokens.push_back(makeToken(TokenKind::LeftParen, std::string(1, advance()), start));
-        break;
-      case ')':
-        tokens.push_back(makeToken(TokenKind::RightParen, std::string(1, advance()), start));
-        break;
-      case '[':
-        tokens.push_back(makeToken(TokenKind::LeftBracket, std::string(1, advance()), start));
-        break;
-      case ']':
-        tokens.push_back(makeToken(TokenKind::RightBracket, std::string(1, advance()), start));
-        break;
-      case '{':
-        tokens.push_back(makeToken(TokenKind::LeftBrace, std::string(1, advance()), start));
-        break;
-      case '}':
-        tokens.push_back(makeToken(TokenKind::RightBrace, std::string(1, advance()), start));
-        break;
-      case '.':
-        tokens.push_back(makeToken(TokenKind::Dot, std::string(1, advance()), start));
-        break;
-      case ';':
-        tokens.push_back(makeToken(TokenKind::Semicolon, std::string(1, advance()), start));
-        break;
-      case ',':
-        tokens.push_back(makeToken(TokenKind::Comma, std::string(1, advance()), start));
-        break;
-      case ':':
-        if (peek(1) == ':') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::ColonColon, "::", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Colon, std::string(1, advance()), start));
-        break;
-      case '=':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::EqualEqual, "==", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Equal, std::string(1, advance()), start));
-        break;
-      case '+':
-        tokens.push_back(makeToken(TokenKind::Plus, std::string(1, advance()), start));
-        break;
-      case '*':
-        tokens.push_back(makeToken(TokenKind::Star, std::string(1, advance()), start));
-        break;
-      case '/':
-        if (peek(1) == '/') {
-          while (!isAtEnd() && peek() != '\n')
-            advance();
-
-          // skip whole line
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Slash, std::string(1, advance()), start));
-        break;
-      case '<':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::LessEqual, "<=", start));
-          break;
-        }
-        if (peek(1) == '<') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::Shl, "<<", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Less, std::string(1, advance()), start));
-        break;
-      case '>':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::GreaterEqual, ">=", start));
-          break;
-        }
-        if (peek(1) == '>') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::Shr, ">>", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Greater, std::string(1, advance()), start));
-        break;
-      case '!':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::BangEqual, "!=", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Bang, std::string(1, advance()), start));
-        break;
-      case '&':
-        if (peek(1) == '&') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::AmpAmp, "&&", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Amp, std::string(1, advance()), start));
-        break;
-      case '|':
-        if (peek(1) == '|') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::PipePipe, "||", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Pipe, std::string(1, advance()), start));
-        break;
-      case '^':
-        tokens.push_back(makeToken(TokenKind::Caret, std::string(1, advance()), start));
-        break;
-      case '~':
-        tokens.push_back(makeToken(TokenKind::Tilde, std::string(1, advance()), start));
-        break;
-      case '%':
-        tokens.push_back(makeToken(TokenKind::Percent, std::string(1, advance()), start));
-        break;
-      default:
-        throwUnexpectedCharacter(start, current);
-      }
+      tokens.push_back(lexToken());
     }
 
     tokens.push_back(makeToken(TokenKind::End, "", location_));
     return tokens;
+  }
+
+  Token Lexer::lexToken() {
+    const auto start = location_;
+    const char current = peek();
+
+    if (std::isalpha(static_cast<unsigned char>(current)) || current == '_') {
+      return lexIdentifierOrKeyword();
+    }
+
+    if (std::isdigit(static_cast<unsigned char>(current)) ||
+        (current == '.' && std::isdigit(static_cast<unsigned char>(peek(1))))) {
+      return lexNumber();
+    }
+
+    if (current == '"') {
+      return lexString();
+    }
+
+    if (auto token = tryLexTwoCharacterToken(start)) {
+      return *token;
+    }
+
+    if (auto token = tryLexSingleCharacterToken(start)) {
+      return *token;
+    }
+
+    throwUnexpectedCharacter(start, current);
+  }
+
+  std::optional<Token> Lexer::tryLexTwoCharacterToken(SourceLocation start) {
+    static const std::unordered_map<char, TwoCharacterTokens> twoCharacterTokens = {
+        {'-', {{'>', TokenKind::Arrow}}},
+        {':', {{':', TokenKind::ColonColon}}},
+        {'=', {{'=', TokenKind::EqualEqual}}},
+        {'<', {{'=', TokenKind::LessEqual}, {'<', TokenKind::Shl}}},
+        {'>', {{'=', TokenKind::GreaterEqual}, {'>', TokenKind::Shr}}},
+        {'!', {{'=', TokenKind::BangEqual}}},
+        {'&', {{'&', TokenKind::AmpAmp}}},
+        {'|', {{'|', TokenKind::PipePipe}}},
+    };
+
+    const char current = peek();
+    const auto first = twoCharacterTokens.find(current);
+    if (first == twoCharacterTokens.end()) {
+      return std::nullopt;
+    }
+
+    const char next = peek(1);
+    const auto second = first->second.find(next);
+    if (second == first->second.end()) {
+      return std::nullopt;
+    }
+
+    advance();
+    advance();
+    return makeToken(second->second, std::string{current, next}, start);
+  }
+
+  std::optional<Token> Lexer::tryLexSingleCharacterToken(SourceLocation start) {
+    static const std::unordered_map<char, TokenKind> singleCharacterTokens = {
+        {'(', TokenKind::LeftParen},   {')', TokenKind::RightParen},
+        {'[', TokenKind::LeftBracket}, {']', TokenKind::RightBracket},
+        {'{', TokenKind::LeftBrace},   {'}', TokenKind::RightBrace},
+        {'.', TokenKind::Dot},         {';', TokenKind::Semicolon},
+        {',', TokenKind::Comma},       {':', TokenKind::Colon},
+        {'=', TokenKind::Equal},       {'+', TokenKind::Plus},
+        {'-', TokenKind::Minus},       {'*', TokenKind::Star},
+        {'/', TokenKind::Slash},       {'<', TokenKind::Less},
+        {'>', TokenKind::Greater},     {'!', TokenKind::Bang},
+        {'&', TokenKind::Amp},         {'|', TokenKind::Pipe},
+        {'^', TokenKind::Caret},       {'~', TokenKind::Tilde},
+        {'%', TokenKind::Percent},
+    };
+
+    const char current = peek();
+    const auto token = singleCharacterTokens.find(current);
+    if (token == singleCharacterTokens.end()) {
+      return std::nullopt;
+    }
+
+    return makeToken(token->second, std::string(1, advance()), start);
   }
 
   Token Lexer::lexIdentifierOrKeyword() {
@@ -316,119 +250,75 @@ namespace noria {
     }
   }
 
+  void Lexer::skipLineComment() {
+    while (!isAtEnd() && peek() != '\n')
+      advance();
+  }
+
   Token Lexer::makeToken(TokenKind kind, std::string text, SourceLocation location) const {
     return Token{kind, std::move(text), location};
   }
 
-  // string view is ok on string literals since those live the entire lifetime of the program
   std::string_view tokenKindName(TokenKind kind) {
-    switch (kind) {
-    case TokenKind::End:
-      return "end of file";
-    case TokenKind::Identifier:
-      return "identifier";
-    case TokenKind::Integer:
-      return "integer";
-    case TokenKind::Float:
-      return "float";
-    case TokenKind::String:
-      return "string";
-    case TokenKind::Fn:
-      return "fn";
-    case TokenKind::Import:
-      return "import";
-    case TokenKind::Struct:
-      return "struct";
-    case TokenKind::Return:
-      return "return";
-    case TokenKind::Let:
-      return "let";
-    case TokenKind::If:
-      return "if";
-    case TokenKind::Else:
-      return "else";
-    case TokenKind::While:
-      return "while";
-    case TokenKind::True:
-      return "true";
-    case TokenKind::False:
-      return "false";
-    case TokenKind::Arrow:
-      return "->";
-    case TokenKind::LeftParen:
-      return "(";
-    case TokenKind::RightParen:
-      return ")";
-    case TokenKind::LeftBracket:
-      return "[";
-    case TokenKind::RightBracket:
-      return "]";
-    case TokenKind::LeftBrace:
-      return "{";
-    case TokenKind::RightBrace:
-      return "}";
-    case TokenKind::Semicolon:
-      return ";";
-    case TokenKind::Dot:
-      return ".";
-    case TokenKind::Colon:
-      return ":";
-    case TokenKind::ColonColon:
-      return "::";
-    case TokenKind::Comma:
-      return ",";
-    case TokenKind::Equal:
-      return "=";
-    case TokenKind::Plus:
-      return "+";
-    case TokenKind::Minus:
-      return "-";
-    case TokenKind::Star:
-      return "*";
-    case TokenKind::Slash:
-      return "/";
-    case TokenKind::EqualEqual:
-      return "==";
-    case TokenKind::BangEqual:
-      return "!=";
-    case TokenKind::Less:
-      return "<";
-    case TokenKind::LessEqual:
-      return "<=";
-    case TokenKind::Greater:
-      return ">";
-    case TokenKind::GreaterEqual:
-      return ">=";
-    case TokenKind::Bang:
-      return "!";
-    case TokenKind::AmpAmp:
-      return "&&";
-    case TokenKind::PipePipe:
-      return "||";
-    case TokenKind::Amp:
-      return "&";
-    case TokenKind::Pipe:
-      return "|";
-    case TokenKind::Caret:
-      return "^";
-    case TokenKind::Tilde:
-      return "~";
-    case TokenKind::Shl:
-      return "<<";
-    case TokenKind::Shr:
-      return ">>";
-    case TokenKind::Percent:
-      return "%";
-    case TokenKind::As:
-      return "as";
-    case TokenKind::Impl:
-      return "impl";
-    case TokenKind::Private:
-      return "private";
-    case TokenKind::Public:
-      return "public";
-    case TokenKind::Unknown:
-      return "unknown";
+    static constexpr std::array<std::pair<TokenKind, std::string_view>, 52> names{{
+        {TokenKind::End, "end of file"},
+        {TokenKind::Identifier, "identifier"},
+        {TokenKind::Integer, "integer"},
+        {TokenKind::Float, "float"},
+        {TokenKind::String, "string"},
+        {TokenKind::Import, "import"},
+        {TokenKind::Fn, "fn"},
+        {TokenKind::Struct, "struct"},
+        {TokenKind::Return, "return"},
+        {TokenKind::Arrow, "->"},
+        {TokenKind::LeftParen, "("},
+        {TokenKind::RightParen, ")"},
+        {TokenKind::LeftBracket, "["},
+        {TokenKind::RightBracket, "]"},
+        {TokenKind::LeftBrace, "{"},
+        {TokenKind::RightBrace, "}"},
+        {TokenKind::Semicolon, ";"},
+        {TokenKind::Dot, "."},
+        {TokenKind::Let, "let"},
+        {TokenKind::If, "if"},
+        {TokenKind::Else, "else"},
+        {TokenKind::While, "while"},
+        {TokenKind::True, "true"},
+        {TokenKind::False, "false"},
+        {TokenKind::Colon, ":"},
+        {TokenKind::ColonColon, "::"},
+        {TokenKind::Comma, ","},
+        {TokenKind::Equal, "="},
+        {TokenKind::Plus, "+"},
+        {TokenKind::Minus, "-"},
+        {TokenKind::Star, "*"},
+        {TokenKind::Slash, "/"},
+        {TokenKind::EqualEqual, "=="},
+        {TokenKind::BangEqual, "!="},
+        {TokenKind::Less, "<"},
+        {TokenKind::LessEqual, "<="},
+        {TokenKind::Greater, ">"},
+        {TokenKind::GreaterEqual, ">="},
+        {TokenKind::Bang, "!"},
+        {TokenKind::AmpAmp, "&&"},
+        {TokenKind::PipePipe, "||"},
+        {TokenKind::Amp, "&"},
+        {TokenKind::Pipe, "|"},
+        {TokenKind::Caret, "^"},
+        {TokenKind::Tilde, "~"},
+        {TokenKind::Shl, "<<"},
+        {TokenKind::Shr, ">>"},
+        {TokenKind::Percent, "%"},
+        {TokenKind::As, "as"},
+        {TokenKind::Impl, "impl"},
+        {TokenKind::Private, "private"},
+        {TokenKind::Public, "public"},
+    }};
+
+    for (const auto& [candidate, name] : names) {
+      if (candidate == kind) {
+        return name;
+      }
     }
 
     return "unknown";

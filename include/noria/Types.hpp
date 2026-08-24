@@ -63,6 +63,6 @@ namespace noria {
   std::optional<ImplementationTag> implementationTagFromName(std::string_view name);
   std::string_view implementationTagName(ImplementationTag tag);
 
-  std::string llvmType(const Type& type);
+  std::string LLVMType(const Type& type);
 
 } // namespace noria

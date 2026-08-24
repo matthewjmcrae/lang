@@ -1,42 +1,31 @@
 #include "noria/Constraints.hpp"
 
+#include "noria/SemanticTables.hpp"
+
+#include <algorithm>
+
 namespace noria {
 
   std::vector<RequiredOperation> requiredOperations(ImplementationTag tag) {
-    switch (tag) {
-    case ImplementationTag::Arr:
-    case ImplementationTag::List:
-      return {};
-    case ImplementationTag::Bst:
-      return {RequiredOperation::LessThan, RequiredOperation::Equality};
-    case ImplementationTag::Hashmap:
-      return {RequiredOperation::Equality, RequiredOperation::Hash};
+    if (const ImplementationTagInfo* info = implementationTagInfo(tag)) {
+      return info->requiredOperations;
     }
     return {};
   }
 
   bool supportsOperation(const Type& type, RequiredOperation operation) {
-    switch (operation) {
-    case RequiredOperation::LessThan:
-      return type.kind == TypeKind::I32 || type.kind == TypeKind::F64;
-    case RequiredOperation::Equality:
-      return type.kind == TypeKind::I32 || type.kind == TypeKind::F64 ||
-             type.kind == TypeKind::Bool || type.kind == TypeKind::Str;
-    case RequiredOperation::Hash:
-      return type.kind == TypeKind::I32 || type.kind == TypeKind::Bool ||
-             type.kind == TypeKind::Str;
+    const RequiredOperationInfo* info = requiredOperationInfo(operation);
+    if (info == nullptr) {
+      return false;
     }
-    return false;
+
+    return std::find(info->supportedTypeKinds.begin(), info->supportedTypeKinds.end(), type.kind) !=
+           info->supportedTypeKinds.end();
   }
 
   std::string_view operationName(RequiredOperation operation) {
-    switch (operation) {
-    case RequiredOperation::LessThan:
-      return "<";
-    case RequiredOperation::Equality:
-      return "==";
-    case RequiredOperation::Hash:
-      return "hash";
+    if (const RequiredOperationInfo* info = requiredOperationInfo(operation)) {
+      return info->name;
     }
     return "";
   }

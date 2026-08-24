@@ -12,6 +12,8 @@
 
 namespace noria {
 
+  class CompilerCache;
+
   class ModuleSourceProvider {
   public:
     virtual ~ModuleSourceProvider() = default;
@@ -41,7 +43,8 @@ namespace noria {
   };
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
-                                 ModuleSourceProvider& provider);
+                                 ModuleSourceProvider& provider,
+                                 CompilerCache* compilerCache = nullptr);
 
   std::string formatModulePath(const std::vector<std::string>& path);
 

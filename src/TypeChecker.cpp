@@ -4,12 +4,14 @@
 #include "noria/Constraints.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
+#include "noria/SemanticTables.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace noria {
@@ -115,15 +117,15 @@ namespace noria {
     }
 
     const ast::Function*
-    selectGenericImplementation(const std::vector<const ast::Function*>& family,
+    selectGenericImplementation(const ast::Module& module, const std::vector<std::size_t>& family,
                                 std::optional<ImplementationTag> callTag,
                                 std::string_view functionName, SourceLocation location) {
       if (family.empty()) {
         return nullptr;
       }
 
-      if (family.size() == 1 && !family.front()->implTag) {
-        return family.front();
+      if (family.size() == 1 && !module.functions.at(family.front()).implTag) {
+        return &module.functions.at(family.front());
       }
 
       if (!callTag) {
@@ -133,9 +135,10 @@ namespace noria {
                                  "' without an implementation tag in inferred type arguments"));
       }
 
-      for (const ast::Function* candidate : family) {
-        if (candidate->implTag && *candidate->implTag == *callTag) {
-          return candidate;
+      for (std::size_t candidateIndex : family) {
+        const ast::Function& candidate = module.functions.at(candidateIndex);
+        if (candidate.implTag && *candidate.implTag == *callTag) {
+          return &candidate;
         }
       }
 
@@ -171,21 +174,51 @@ namespace noria {
       : checker_(checker), expectedReturnType_(expectedReturnType) {}
 
   void TypeChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
-    checker_.requireKnownType(letStatement.type, letStatement.location, nullptr, false,
-                              checker_.isStdlibContext());
-    const Type declaredType = letStatement.type;
-    const Type initializerType = checker_.checkRvalue(*letStatement.initializer, declaredType);
-
-    if (!checker_.declareLocal(letStatement.name, declaredType)) {
-      throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
-                                          "duplicate local variable '" + letStatement.name + "'"));
+    const bool allowInternal = checker_.isStdlibContext();
+    std::optional<Type> declaredType = letStatement.declaredType;
+    if (declaredType) {
+      checker_.requireKnownType(*declaredType, letStatement.location, nullptr, false,
+                                allowInternal);
     }
 
-    if (!checker_.isAssignable(declaredType, initializerType)) {
-      throw CompileError(
-          formatDiagnostic(letStatement.initializer->location, DiagnosticStage::TypeCheck,
-                           "cannot initialize '" + letStatement.name + "' of type " +
-                               declaredType.name() + " with " + initializerType.name()));
+    Type localType;
+    if (letStatement.initializer) {
+      const Type initializerType = checker_.checkRvalue(*letStatement.initializer, declaredType);
+      if (declaredType) {
+        localType = *declaredType;
+        if (!checker_.isAssignable(localType, initializerType)) {
+          throw CompileError(
+              formatDiagnostic(letStatement.initializer->location, DiagnosticStage::TypeCheck,
+                               "cannot initialize '" + letStatement.name + "' of type " +
+                                   localType.name() + " with " + initializerType.name()));
+        }
+      } else {
+        localType = initializerType;
+        if (localType == Type::voidType()) {
+          throw CompileError(formatDiagnostic(
+              letStatement.initializer->location, DiagnosticStage::TypeCheck,
+              "cannot infer local variable '" + letStatement.name + "' from void initializer"));
+        }
+        checker_.requireKnownType(localType, letStatement.location, nullptr, false, allowInternal);
+      }
+    } else {
+      if (!declaredType) {
+        throw CompileError(formatDiagnostic(
+            letStatement.location, DiagnosticStage::TypeCheck,
+            "local declaration '" + letStatement.name + "' requires a type or initializer"));
+      }
+      localType = *declaredType;
+    }
+
+    if (localType == Type::voidType()) {
+      throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
+                                          "local variable '" + letStatement.name +
+                                              "' cannot have type void"));
+    }
+
+    if (!checker_.declareLocal(letStatement.name, localType)) {
+      throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
+                                          "duplicate local variable '" + letStatement.name + "'"));
     }
 
     returned_ = false;
@@ -341,116 +374,166 @@ namespace noria {
   void TypeChecker::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
     const Type left = checker_.checkRvalue(*binary.left);
     const Type right = checker_.checkRvalue(*binary.right);
+    result_ = checker_.checkBinaryExpression(binary, left, right);
+  }
 
+  Type TypeChecker::checkBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                                          const Type& right) const {
     if (left.kind == TypeKind::RawPtr || right.kind == TypeKind::RawPtr) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
                                           "invalid operation on __rt_ptr"));
     }
 
-    switch (binary.op) {
-    case ast::BinaryOperator::And:
-    case ast::BinaryOperator::Or:
-      if (left != Type::boolean() || right != Type::boolean()) {
-        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                            "logical operator requires bool operands, got " +
-                                                left.name() + " and " + right.name()));
-      }
-      result_ = Type::boolean();
-      return;
-    case ast::BinaryOperator::Add:
-      if (left == Type::str() && right == Type::str()) {
-        result_ = Type::str();
-        return;
-      }
-      if (left == Type::str() || right == Type::str()) {
-        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                            "string concatenation requires str operands, got " +
-                                                left.name() + " and " + right.name()));
-      }
-      [[fallthrough]];
-    case ast::BinaryOperator::Subtract:
-    case ast::BinaryOperator::Multiply:
-    case ast::BinaryOperator::Divide:
-      if (left == Type::f64() && right == Type::f64()) {
-        result_ = Type::f64();
-        return;
-      }
-      if (left == Type::i32() && right == Type::i32()) {
-        result_ = Type::i32();
-        return;
-      }
-      throw CompileError(
-          formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                           "arithmetic operator requires matching numeric operands, got " +
-                               left.name() + " and " + right.name()));
-    case ast::BinaryOperator::Modulo:
-    case ast::BinaryOperator::BitAnd:
-    case ast::BinaryOperator::BitOr:
-    case ast::BinaryOperator::BitXor:
-    case ast::BinaryOperator::Shl:
-    case ast::BinaryOperator::Shr:
-      if (left != Type::i32() || right != Type::i32()) {
-        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                            "integer operator requires i32 operands, got " +
-                                                left.name() + " and " + right.name()));
-      }
-      result_ = Type::i32();
-      return;
-    case ast::BinaryOperator::Less:
-    case ast::BinaryOperator::LessEqual:
-    case ast::BinaryOperator::Greater:
-    case ast::BinaryOperator::GreaterEqual:
-      if (left == right && (left == Type::i32() || left == Type::f64())) {
-        result_ = Type::boolean();
-        return;
-      }
+    using BinaryCheck = Type (TypeChecker::*)(const ast::BinaryExpression&, const Type&,
+                                              const Type&) const;
+    static const std::unordered_map<BinaryTypeCheckRule, BinaryCheck,
+                                    EnumHash<BinaryTypeCheckRule>>
+        checks = {
+            {BinaryTypeCheckRule::Logical, &TypeChecker::checkLogicalBinaryExpression},
+            {BinaryTypeCheckRule::Numeric, &TypeChecker::checkAdditiveBinaryExpression},
+            {BinaryTypeCheckRule::Integer, &TypeChecker::checkIntegerBinaryExpression},
+            {BinaryTypeCheckRule::OrderedComparison,
+             &TypeChecker::checkOrderedComparisonExpression},
+            {BinaryTypeCheckRule::Equality, &TypeChecker::checkEqualityExpression},
+        };
+
+    const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
+    if (info == nullptr) {
+      throw CompileError("typecheck: internal error: unknown binary operator");
+    }
+
+    const auto check = checks.find(info->typeCheckRule);
+    if (check == checks.end()) {
+      throw CompileError("typecheck: internal error: unknown binary type-check rule");
+    }
+
+    return (this->*check->second)(binary, left, right);
+  }
+
+  Type TypeChecker::checkLogicalBinaryExpression(const ast::BinaryExpression& binary,
+                                                 const Type& left, const Type& right) const {
+    if (left != Type::boolean() || right != Type::boolean()) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                          "ordered comparison requires matching numeric operands, "
-                                          "got " +
-                                              left.name() + " and " + right.name()));
-    case ast::BinaryOperator::Equal:
-    case ast::BinaryOperator::NotEqual:
-      if (left == right && (left == Type::i32() || left == Type::f64() || left == Type::boolean() ||
-                            left == Type::str())) {
-        result_ = Type::boolean();
-        return;
-      }
-      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
-                                          "equality requires matching i32, f64, bool, or str "
-                                          "operands, got " +
+                                          "logical operator requires bool operands, got " +
                                               left.name() + " and " + right.name()));
     }
+    return Type::boolean();
+  }
+
+  Type TypeChecker::checkAdditiveBinaryExpression(const ast::BinaryExpression& binary,
+                                                  const Type& left, const Type& right) const {
+    if (binary.op == ast::BinaryOperator::Add && left == Type::str() && right == Type::str()) {
+      return Type::str();
+    }
+    if (binary.op == ast::BinaryOperator::Add && (left == Type::str() || right == Type::str())) {
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                          "string concatenation requires str operands, got " +
+                                              left.name() + " and " + right.name()));
+    }
+    if (left == Type::f64() && right == Type::f64()) {
+      return Type::f64();
+    }
+    if (left == Type::i32() && right == Type::i32()) {
+      return Type::i32();
+    }
+    throw CompileError(
+        formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                         "arithmetic operator requires matching numeric operands, got " +
+                             left.name() + " and " + right.name()));
+  }
+
+  Type TypeChecker::checkIntegerBinaryExpression(const ast::BinaryExpression& binary,
+                                                 const Type& left, const Type& right) const {
+    if (left != Type::i32() || right != Type::i32()) {
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                          "integer operator requires i32 operands, got " +
+                                              left.name() + " and " + right.name()));
+    }
+    return Type::i32();
+  }
+
+  Type TypeChecker::checkOrderedComparisonExpression(const ast::BinaryExpression& binary,
+                                                     const Type& left, const Type& right) const {
+    if (left == right && (left == Type::i32() || left == Type::f64())) {
+      return Type::boolean();
+    }
+    throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                        "ordered comparison requires matching numeric operands, "
+                                        "got " +
+                                            left.name() + " and " + right.name()));
+  }
+
+  Type TypeChecker::checkEqualityExpression(const ast::BinaryExpression& binary, const Type& left,
+                                            const Type& right) const {
+    if (left == right && (left == Type::i32() || left == Type::f64() || left == Type::boolean() ||
+                          left == Type::str())) {
+      return Type::boolean();
+    }
+    throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                        "equality requires matching i32, f64, bool, or str "
+                                        "operands, got " +
+                                            left.name() + " and " + right.name()));
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
     const Type operandType = checker_.checkRvalue(*unary.operand);
+    result_ = checker_.checkUnaryExpression(unary, operandType);
+  }
 
-    switch (unary.op) {
-    case ast::UnaryOperator::Negate:
-      if (operandType == Type::i32() || operandType == Type::f64()) {
-        result_ = operandType;
-        return;
-      }
-      throw CompileError(
-          formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
-                           "unary negation requires numeric operand, got " + operandType.name()));
-    case ast::UnaryOperator::BitNot:
-      if (operandType != Type::i32()) {
-        throw CompileError(
-            formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
-                             "unary operator requires i32 operand, got " + operandType.name()));
-      }
-      result_ = Type::i32();
-      return;
-    case ast::UnaryOperator::Not:
-      if (operandType != Type::boolean()) {
-        throw CompileError(
-            formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
-                             "logical not requires bool operand, got " + operandType.name()));
-      }
-      result_ = Type::boolean();
-      return;
+  Type TypeChecker::checkUnaryExpression(const ast::UnaryExpression& unary,
+                                         const Type& operandType) const {
+    using UnaryCheck = Type (TypeChecker::*)(const ast::UnaryExpression&, const Type&) const;
+    static const std::unordered_map<UnaryTypeCheckRule, UnaryCheck, EnumHash<UnaryTypeCheckRule>>
+        checks = {
+            {UnaryTypeCheckRule::Numeric, &TypeChecker::checkNumericUnaryExpression},
+            {UnaryTypeCheckRule::Boolean, &TypeChecker::checkBooleanUnaryExpression},
+            {UnaryTypeCheckRule::Integer, &TypeChecker::checkIntegerUnaryExpression},
+        };
+
+    const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
+    if (info == nullptr) {
+      throw CompileError("typecheck: internal error: unknown unary operator");
     }
+
+    const auto check = checks.find(info->typeCheckRule);
+    if (check == checks.end()) {
+      throw CompileError("typecheck: internal error: unknown unary type-check rule");
+    }
+
+    return (this->*check->second)(unary, operandType);
+  }
+
+  Type TypeChecker::checkNumericUnaryExpression(const ast::UnaryExpression& unary,
+                                                const Type& operandType) const {
+    if (operandType == Type::i32() || operandType == Type::f64()) {
+      return operandType;
+    }
+
+    throw CompileError(
+        formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                         "unary negation requires numeric operand, got " + operandType.name()));
+  }
+
+  Type TypeChecker::checkBooleanUnaryExpression(const ast::UnaryExpression& unary,
+                                                const Type& operandType) const {
+    if (operandType == Type::boolean()) {
+      return Type::boolean();
+    }
+
+    throw CompileError(formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                                        "logical not requires bool operand, got " +
+                                            operandType.name()));
+  }
+
+  Type TypeChecker::checkIntegerUnaryExpression(const ast::UnaryExpression& unary,
+                                                const Type& operandType) const {
+    if (operandType == Type::i32()) {
+      return Type::i32();
+    }
+
+    throw CompileError(formatDiagnostic(unary.location, DiagnosticStage::TypeCheck,
+                                        "unary operator requires i32 operand, got " +
+                                            operandType.name()));
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
@@ -502,27 +585,7 @@ namespace noria {
 
     const auto concreteFunction = checker_.functions_.find(call.callee);
     if (concreteFunction != checker_.functions_.end()) {
-      if (call.arguments.size() != concreteFunction->second.parameterTypes.size()) {
-        std::ostringstream out;
-        out << "function '" << call.callee << "' expects "
-            << concreteFunction->second.parameterTypes.size() << " argument(s), got "
-            << call.arguments.size();
-        throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
-      }
-
-      for (std::size_t index{}; index < call.arguments.size(); ++index) {
-        const Type actual = checker_.checkRvalue(*call.arguments[index]);
-        const Type expected = concreteFunction->second.parameterTypes[index];
-        if (!checker_.isAssignable(expected, actual)) {
-          std::ostringstream out;
-          out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
-              << expected.name() << ", got " << actual.name();
-          throw CompileError(formatDiagnostic(call.arguments[index]->location,
-                                              DiagnosticStage::TypeCheck, out.str()));
-        }
-      }
-
-      result_ = concreteFunction->second.returnType;
+      result_ = checker_.checkConcreteFunctionCall(call, concreteFunction->second);
       return;
     }
 
@@ -532,14 +595,70 @@ namespace noria {
                                           "unknown function '" + call.callee + "'"));
     }
 
-    const std::vector<const ast::Function*>& family = genericFunction->second;
-    const bool calleeHasImplTags =
-        std::any_of(family.begin(), family.end(),
-                    [](const ast::Function* candidate) { return candidate->implTag.has_value(); });
-    const bool specializedNestedImplCall =
-        calleeHasImplTags && checker_.enclosingFunctionSpecializationTypeArgs() != nullptr;
+    result_ = checker_.checkGenericFunctionCall(call, genericFunction->second, expectedType_);
+  }
 
-    const ast::Function& signature = *family.front();
+  Type TypeChecker::checkConcreteFunctionCall(const ast::CallExpression& call,
+                                              const FunctionSignature& signature) {
+    if (call.arguments.size() != signature.parameterTypes.size()) {
+      std::ostringstream out;
+      out << "function '" << call.callee << "' expects " << signature.parameterTypes.size()
+          << " argument(s), got " << call.arguments.size();
+      throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
+    }
+
+    for (std::size_t index{}; index < call.arguments.size(); ++index) {
+      const Type actual = checkRvalue(*call.arguments[index]);
+      const Type expected = signature.parameterTypes[index];
+      if (!isAssignable(expected, actual)) {
+        std::ostringstream out;
+        out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
+            << expected.name() << ", got " << actual.name();
+        throw CompileError(formatDiagnostic(call.arguments[index]->location,
+                                            DiagnosticStage::TypeCheck, out.str()));
+      }
+    }
+
+    return signature.returnType;
+  }
+
+  Type TypeChecker::checkGenericFunctionCall(const ast::CallExpression& call,
+                                             const std::vector<std::size_t>& family,
+                                             const std::optional<Type>& expectedType) {
+    const bool calleeHasImplTags =
+        std::any_of(family.begin(), family.end(), [&](std::size_t candidateIndex) {
+          return genericFunctionAt(candidateIndex).implTag.has_value();
+        });
+    const bool specializedNestedImplCall =
+        calleeHasImplTags && enclosingFunctionSpecializationTypeArgs() != nullptr;
+
+    const ast::Function& signature = genericFunctionAt(family.front());
+    std::unordered_map<std::string, Type> bindings;
+    const std::vector<Type> typeArgs =
+        inferGenericCallTypeArgs(call, signature, specializedNestedImplCall, expectedType, bindings);
+
+    if (activeModule_ == nullptr) {
+      throw CompileError("typecheck: internal error: generic function lookup without active module");
+    }
+    const ast::Function* selected =
+        selectGenericImplementation(*activeModule_, family, findImplTag(typeArgs), call.callee,
+                                    call.location);
+
+    Substitution substitution;
+    for (const auto& typeParam : selected->typeParams) {
+      substitution.emplace(typeParam.name, bindings.at(typeParam.name));
+    }
+
+    checkSpecializationConstraints(call.callee, typeArgs, call.location);
+    specializationRequests_.push_back(
+        SpecializationRequest{call.callee, typeArgs, call.location, currentFunctionName_});
+    return substitute(selected->returnType, substitution);
+  }
+
+  std::vector<Type> TypeChecker::inferGenericCallTypeArgs(
+      const ast::CallExpression& call, const ast::Function& signature,
+      bool seedFromSpecializedCaller, const std::optional<Type>& expectedType,
+      std::unordered_map<std::string, Type>& bindings) {
     if (call.arguments.size() != signature.parameters.size()) {
       std::ostringstream out;
       out << "function '" << call.callee << "' expects " << signature.parameters.size()
@@ -547,26 +666,25 @@ namespace noria {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck, out.str()));
     }
 
-    std::unordered_map<std::string, Type> bindings;
-    if (specializedNestedImplCall) {
-      checker_.seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
+    if (seedFromSpecializedCaller) {
+      seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
     }
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
-      const Type actual = checker_.checkRvalue(*call.arguments[index]);
+      const Type actual = checkRvalue(*call.arguments[index]);
       Type expectedParam = signature.parameters[index].type;
-      if (specializedNestedImplCall) {
+      if (seedFromSpecializedCaller) {
         Substitution substitution(bindings.begin(), bindings.end());
         if (allTypeParamsSubstituted(expectedParam, substitution)) {
           expectedParam = substituteSpecializationType(expectedParam, substitution);
         }
       }
-      checker_.unifyTypes(expectedParam, actual, bindings, call.arguments[index]->location);
+      unifyTypes(expectedParam, actual, bindings, call.arguments[index]->location);
     }
 
-    checker_.seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
-    checker_.seedUnboundTypeParamsFromExpectedType(bindings, signature.returnType, expectedType_,
-                                                   call.location);
-    checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
+    seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
+    seedUnboundTypeParamsFromExpectedType(bindings, signature.returnType, expectedType,
+                                          call.location);
+    seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
 
     std::vector<Type> typeArgs;
     typeArgs.reserve(signature.typeParams.size());
@@ -580,18 +698,7 @@ namespace noria {
       typeArgs.push_back(bound->second);
     }
 
-    const ast::Function* selected =
-        selectGenericImplementation(family, findImplTag(typeArgs), call.callee, call.location);
-
-    Substitution substitution;
-    for (const auto& typeParam : selected->typeParams) {
-      substitution.emplace(typeParam.name, bindings.at(typeParam.name));
-    }
-
-    checker_.checkSpecializationConstraints(call.callee, typeArgs, call.location);
-    checker_.specializationRequests_.push_back(
-        SpecializationRequest{call.callee, typeArgs, call.location, checker_.currentFunctionName_});
-    result_ = substitute(selected->returnType, substitution);
+    return typeArgs;
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
@@ -649,118 +756,13 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
-    const auto genericStruct = checker_.genericStructs_.find(literal.structName);
-    if (genericStruct != checker_.genericStructs_.end()) {
-      const ast::StructDecl& templated = *genericStruct->second;
-      std::vector<Type> typeArgs = literal.typeArgs;
+    result_ = checker_.checkStructLiteral(literal);
+  }
 
-      if (typeArgs.empty()) {
-        std::unordered_map<std::string, Type> bindings;
-        std::unordered_map<std::string, Type> provided;
-        for (const auto& field : literal.fields) {
-          if (provided.contains(field.name)) {
-            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                                "duplicate field '" + field.name +
-                                                    "' in struct literal for '" +
-                                                    literal.structName + "'"));
-          }
-
-          const auto templateField = std::find_if(
-              templated.fields.begin(), templated.fields.end(),
-              [&](const ast::StructField& candidate) { return candidate.name == field.name; });
-          if (templateField == templated.fields.end()) {
-            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                                "struct '" + literal.structName +
-                                                    "' has no field '" + field.name + "'"));
-          }
-
-          checker_.requireFieldVisible(literal.structName,
-                                       StructFieldInfo{templateField->name, templateField->type, 0,
-                                                       templateField->visibility},
-                                       field.location);
-
-          const Type actual = checker_.checkRvalue(*field.value);
-          checker_.unifyTypes(templateField->type, actual, bindings, field.location);
-          provided.emplace(field.name, actual);
-        }
-
-        for (const auto& expectedField : templated.fields) {
-          if (!provided.contains(expectedField.name)) {
-            throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
-                                                "struct literal for '" + literal.structName +
-                                                    "' is missing field '" + expectedField.name +
-                                                    "'"));
-          }
-        }
-
-        typeArgs.reserve(templated.typeParams.size());
-        for (const auto& typeParam : templated.typeParams) {
-          const auto bound = bindings.find(typeParam.name);
-          if (bound == bindings.end()) {
-            throw CompileError(
-                formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
-                                 "cannot infer type parameter '" + typeParam.name + "'"));
-          }
-          typeArgs.push_back(bound->second);
-        }
-      } else if (typeArgs.size() != templated.typeParams.size()) {
-        std::ostringstream out;
-        out << "struct '" << literal.structName << "' expects " << templated.typeParams.size()
-            << " type argument(s), got " << typeArgs.size();
-        throw CompileError(
-            formatDiagnostic(literal.location, DiagnosticStage::TypeCheck, out.str()));
-      }
-
-      for (const Type& typeArg : typeArgs) {
-        checker_.requireKnownType(typeArg, literal.location, nullptr, true);
-      }
-
-      checker_.recordStructSpecialization(literal.structName, typeArgs, literal.location);
-
-      const StructInfo structInfo = checker_.resolveStructInfo(
-          Type::structType(literal.structName, typeArgs), literal.location);
-
-      std::unordered_map<std::string, Type> provided;
-      for (const auto& field : literal.fields) {
-        if (provided.contains(field.name)) {
-          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                              "duplicate field '" + field.name +
-                                                  "' in struct literal for '" + literal.structName +
-                                                  "'"));
-        }
-
-        if (!structInfo.fieldIndex.contains(field.name)) {
-          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                              "struct '" + literal.structName + "' has no field '" +
-                                                  field.name + "'"));
-        }
-
-        const StructFieldInfo& fieldInfo =
-            structInfo.fields.at(structInfo.fieldIndex.at(field.name));
-        checker_.requireFieldVisible(literal.structName, fieldInfo, field.location);
-
-        provided.emplace(field.name, checker_.checkRvalue(*field.value));
-      }
-
-      for (const auto& expectedField : structInfo.fields) {
-        const auto actual = provided.find(expectedField.name);
-        if (actual == provided.end()) {
-          throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
-                                              "struct literal for '" + literal.structName +
-                                                  "' is missing field '" + expectedField.name +
-                                                  "'"));
-        }
-
-        if (!checker_.isAssignable(expectedField.type, actual->second)) {
-          throw CompileError(formatDiagnostic(
-              literal.location, DiagnosticStage::TypeCheck,
-              "field '" + expectedField.name + "' of '" + literal.structName + "' expects " +
-                  expectedField.type.name() + ", got " + actual->second.name()));
-        }
-      }
-
-      result_ = Type::structType(literal.structName, typeArgs);
-      return;
+  Type TypeChecker::checkStructLiteral(const ast::StructLiteral& literal) {
+    const auto genericStruct = genericStructs_.find(literal.structName);
+    if (genericStruct != genericStructs_.end()) {
+      return checkGenericStructLiteral(literal, genericStructAt(genericStruct->second));
     }
 
     if (!literal.typeArgs.empty()) {
@@ -769,8 +771,99 @@ namespace noria {
                                               "' is not generic and cannot take type arguments"));
     }
 
-    const StructInfo& structInfo = checker_.lookupStruct(literal.structName, literal.location);
+    const StructInfo& structInfo = lookupStruct(literal.structName, literal.location);
+    return checkConcreteStructLiteral(literal, structInfo, {});
+  }
 
+  Type TypeChecker::checkGenericStructLiteral(const ast::StructLiteral& literal,
+                                              const ast::StructDecl& templated) {
+    std::vector<Type> typeArgs = literal.typeArgs;
+    if (typeArgs.empty()) {
+      typeArgs = inferStructLiteralTypeArgs(literal, templated);
+    } else if (typeArgs.size() != templated.typeParams.size()) {
+      std::ostringstream out;
+      out << "struct '" << literal.structName << "' expects " << templated.typeParams.size()
+          << " type argument(s), got " << typeArgs.size();
+      throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck, out.str()));
+    }
+
+    for (const Type& typeArg : typeArgs) {
+      requireKnownType(typeArg, literal.location, nullptr, true);
+    }
+
+    recordStructSpecialization(literal.structName, typeArgs, literal.location);
+    const StructInfo structInfo =
+        resolveStructInfo(Type::structType(literal.structName, typeArgs), literal.location);
+    return checkConcreteStructLiteral(literal, structInfo, typeArgs);
+  }
+
+  std::vector<Type> TypeChecker::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
+                                                            const ast::StructDecl& templated) {
+    std::unordered_map<std::string, Type> bindings;
+    std::unordered_map<std::string, Type> provided;
+
+    // Infer generic struct arguments from provided field values before resolving concrete fields.
+    for (const auto& field : literal.fields) {
+      if (provided.contains(field.name)) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "duplicate field '" + field.name +
+                                                "' in struct literal for '" + literal.structName +
+                                                "'"));
+      }
+
+      const auto templateField = std::find_if(
+          templated.fields.begin(), templated.fields.end(),
+          [&](const ast::StructField& candidate) { return candidate.name == field.name; });
+      if (templateField == templated.fields.end()) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "struct '" + literal.structName + "' has no field '" +
+                                                field.name + "'"));
+      }
+
+      requireFieldVisible(literal.structName,
+                          StructFieldInfo{templateField->name, templateField->type, 0,
+                                          templateField->visibility},
+                          field.location);
+
+      const Type actual = checkRvalue(*field.value);
+      unifyTypes(templateField->type, actual, bindings, field.location);
+      provided.emplace(field.name, actual);
+    }
+
+    for (const auto& expectedField : templated.fields) {
+      if (!provided.contains(expectedField.name)) {
+        throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                                            "struct literal for '" + literal.structName +
+                                                "' is missing field '" + expectedField.name + "'"));
+      }
+    }
+
+    std::vector<Type> typeArgs;
+    typeArgs.reserve(templated.typeParams.size());
+    for (const auto& typeParam : templated.typeParams) {
+      const auto bound = bindings.find(typeParam.name);
+      if (bound == bindings.end()) {
+        throw CompileError(
+            formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
+                             "cannot infer type parameter '" + typeParam.name + "'"));
+      }
+      typeArgs.push_back(bound->second);
+    }
+    return typeArgs;
+  }
+
+  Type TypeChecker::checkConcreteStructLiteral(const ast::StructLiteral& literal,
+                                               const StructInfo& structInfo,
+                                               std::vector<Type> typeArgs) {
+    const std::unordered_map<std::string, Type> provided =
+        checkStructLiteralFields(literal, structInfo);
+    requireStructLiteralComplete(literal, structInfo, provided);
+    return Type::structType(literal.structName, std::move(typeArgs));
+  }
+
+  std::unordered_map<std::string, Type>
+  TypeChecker::checkStructLiteralFields(const ast::StructLiteral& literal,
+                                        const StructInfo& structInfo) {
     std::unordered_map<std::string, Type> provided;
     for (const auto& field : literal.fields) {
       if (provided.contains(field.name)) {
@@ -787,11 +880,15 @@ namespace noria {
       }
 
       const StructFieldInfo& fieldInfo = structInfo.fields.at(structInfo.fieldIndex.at(field.name));
-      checker_.requireFieldVisible(literal.structName, fieldInfo, field.location);
-
-      provided.emplace(field.name, checker_.checkRvalue(*field.value));
+      requireFieldVisible(literal.structName, fieldInfo, field.location);
+      provided.emplace(field.name, checkRvalue(*field.value));
     }
+    return provided;
+  }
 
+  void TypeChecker::requireStructLiteralComplete(
+      const ast::StructLiteral& literal, const StructInfo& structInfo,
+      const std::unordered_map<std::string, Type>& provided) const {
     for (const auto& expectedField : structInfo.fields) {
       const auto actual = provided.find(expectedField.name);
       if (actual == provided.end()) {
@@ -800,15 +897,13 @@ namespace noria {
                                                 "' is missing field '" + expectedField.name + "'"));
       }
 
-      if (!checker_.isAssignable(expectedField.type, actual->second)) {
+      if (!isAssignable(expectedField.type, actual->second)) {
         throw CompileError(formatDiagnostic(
             literal.location, DiagnosticStage::TypeCheck,
             "field '" + expectedField.name + "' of '" + literal.structName + "' expects " +
                 expectedField.type.name() + ", got " + actual->second.name()));
       }
     }
-
-    result_ = Type::structType(literal.structName);
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
@@ -1055,85 +1150,27 @@ namespace noria {
       return;
 
     if (type.kind == TypeKind::RawPtr) {
-      if (!allowInternalTypes) {
-        throw CompileError(
-            formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "__rt_ptr cannot be used outside the standard library"));
-      }
+      requireRawPtrUsable(type, location, allowInternalTypes);
       return;
     }
 
     if (type.kind == TypeKind::ImplTag) {
-      if (allowImplTags) {
-        return;
-      }
-      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                          "implementation tag '" +
-                                              std::string(implementationTagName(type.implTag)) +
-                                              "' cannot be used as a type"));
+      requireImplTagUsable(type, location, allowImplTags);
+      return;
     }
 
     if (type.kind == TypeKind::TypeParam) {
-      if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
-        return;
-      }
-      throw CompileError(
-          formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                           "unresolved type parameter '" + type.typeParamName + "'"));
+      requireTypeParamKnown(type, location, allowedTypeParams);
+      return;
     }
 
     if (type.kind == TypeKind::Array) {
-      if (!type.element) {
-        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                            "unknown type '" + type.name() + "'"));
-      }
-      requireKnownType(*type.element, location, allowedTypeParams, allowImplTags,
-                       allowInternalTypes);
-      rejectStructArrayElement(*type.element, location);
+      requireArrayTypeKnown(type, location, allowedTypeParams, allowImplTags, allowInternalTypes);
       return;
     }
 
     if (type.kind == TypeKind::Struct) {
-      if (!type.typeArgs.empty()) {
-        const auto genericStruct = genericStructs_.find(type.structName);
-        if (genericStruct == genericStructs_.end()) {
-          if (structs_.contains(type.structName)) {
-            throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                                "type '" + type.name() +
-                                                    "' is not generic and cannot take type "
-                                                    "arguments"));
-          }
-          throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                              "unknown type '" + type.name() + "'"));
-        }
-
-        const ast::StructDecl& templated = *genericStruct->second;
-        if (type.typeArgs.size() != templated.typeParams.size()) {
-          std::ostringstream out;
-          out << "type '" << type.name() << "' expects " << templated.typeParams.size()
-              << " type argument(s), got " << type.typeArgs.size();
-          throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
-        }
-
-        for (const Type& typeArg : type.typeArgs) {
-          requireKnownType(typeArg, location, allowedTypeParams, true, allowInternalTypes);
-        }
-
-        if (!containsUnboundTypeParam(type)) {
-          recordStructSpecialization(type.structName, type.typeArgs, location);
-        }
-        return;
-      }
-
-      if (!structs_.contains(type.structName)) {
-        if (genericStructs_.contains(type.structName)) {
-          throw CompileError(
-              formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                               "generic struct '" + type.structName + "' requires type arguments"));
-        }
-        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                            "unknown type '" + type.name() + "'"));
-      }
+      requireStructTypeKnown(type, location, allowedTypeParams, allowInternalTypes);
       return;
     }
 
@@ -1141,60 +1178,113 @@ namespace noria {
                                         "unknown type '" + type.name() + "'"));
   }
 
+  void TypeChecker::requireRawPtrUsable(const Type&, SourceLocation location,
+                                        bool allowInternalTypes) const {
+    if (!allowInternalTypes) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "__rt_ptr cannot be used outside the standard library"));
+    }
+  }
+
+  void TypeChecker::requireImplTagUsable(const Type& type, SourceLocation location,
+                                         bool allowImplTags) const {
+    if (allowImplTags) {
+      return;
+    }
+    throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                        "implementation tag '" +
+                                            std::string(implementationTagName(type.implTag)) +
+                                            "' cannot be used as a type"));
+  }
+
+  void TypeChecker::requireTypeParamKnown(
+      const Type& type, SourceLocation location,
+      const std::unordered_set<std::string>* allowedTypeParams) const {
+    if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
+      return;
+    }
+    throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                        "unresolved type parameter '" + type.typeParamName + "'"));
+  }
+
+  void TypeChecker::requireArrayTypeKnown(
+      const Type& type, SourceLocation location,
+      const std::unordered_set<std::string>* allowedTypeParams, bool allowImplTags,
+      bool allowInternalTypes) const {
+    if (!type.element) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "unknown type '" + type.name() + "'"));
+    }
+    requireKnownType(*type.element, location, allowedTypeParams, allowImplTags,
+                     allowInternalTypes);
+    rejectStructArrayElement(*type.element, location);
+  }
+
+  void TypeChecker::requireStructTypeKnown(
+      const Type& type, SourceLocation location,
+      const std::unordered_set<std::string>* allowedTypeParams, bool allowInternalTypes) const {
+    if (!type.typeArgs.empty()) {
+      const auto genericStruct = genericStructs_.find(type.structName);
+      if (genericStruct == genericStructs_.end()) {
+        if (structs_.contains(type.structName)) {
+          throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                              "type '" + type.name() +
+                                                  "' is not generic and cannot take type "
+                                                  "arguments"));
+        }
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "unknown type '" + type.name() + "'"));
+      }
+
+      const ast::StructDecl& templated = genericStructAt(genericStruct->second);
+      if (type.typeArgs.size() != templated.typeParams.size()) {
+        std::ostringstream out;
+        out << "type '" << type.name() << "' expects " << templated.typeParams.size()
+            << " type argument(s), got " << type.typeArgs.size();
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
+      }
+
+      for (const Type& typeArg : type.typeArgs) {
+        requireKnownType(typeArg, location, allowedTypeParams, true, allowInternalTypes);
+      }
+
+      if (!containsUnboundTypeParam(type)) {
+        recordStructSpecialization(type.structName, type.typeArgs, location);
+      }
+      return;
+    }
+
+    if (!structs_.contains(type.structName)) {
+      if (genericStructs_.contains(type.structName)) {
+        throw CompileError(
+            formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                             "generic struct '" + type.structName + "' requires type arguments"));
+      }
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "unknown type '" + type.name() + "'"));
+    }
+  }
+
   void TypeChecker::unifyTypes(const Type& expected, const Type& actual,
                                std::unordered_map<std::string, Type>& bindings,
                                SourceLocation location) const {
     if (expected.kind == TypeKind::TypeParam) {
-      const auto existing = bindings.find(expected.typeParamName);
-      if (existing == bindings.end()) {
-        bindings.emplace(expected.typeParamName, actual);
-        return;
-      }
-
-      if (existing->second != actual) {
-        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                            "conflicting types " + existing->second.name() +
-                                                " and " + actual.name() + " for type parameter '" +
-                                                expected.typeParamName + "'"));
-      }
+      bindTypeParam(expected, actual, bindings, location);
       return;
     }
 
     if (expected.kind == TypeKind::Array) {
-      if (actual.kind != TypeKind::Array || !expected.element || !actual.element) {
-        throw CompileError(
-            formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "expected " + expected.name() + ", got " + actual.name()));
-      }
-      unifyTypes(*expected.element, *actual.element, bindings, location);
+      unifyArrayTypes(expected, actual, bindings, location);
       return;
     }
 
     if (expected.kind == TypeKind::ImplTag) {
-      if (actual.kind != TypeKind::ImplTag || expected.implTag != actual.implTag) {
-        throw CompileError(
-            formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "expected " + expected.name() + ", got " + actual.name()));
-      }
+      unifyImplTagTypes(expected, actual, location);
       return;
     }
 
     if (expected.kind == TypeKind::Struct) {
-      if (actual.kind != TypeKind::Struct || expected.structName != actual.structName) {
-        throw CompileError(
-            formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "expected " + expected.name() + ", got " + actual.name()));
-      }
-
-      if (expected.typeArgs.size() != actual.typeArgs.size()) {
-        throw CompileError(
-            formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "expected " + expected.name() + ", got " + actual.name()));
-      }
-
-      for (std::size_t index{}; index < expected.typeArgs.size(); ++index) {
-        unifyTypes(expected.typeArgs[index], actual.typeArgs[index], bindings, location);
-      }
+      unifyStructTypes(expected, actual, bindings, location);
       return;
     }
 
@@ -1202,6 +1292,63 @@ namespace noria {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
+    }
+  }
+
+  void TypeChecker::bindTypeParam(const Type& expected, const Type& actual,
+                                  std::unordered_map<std::string, Type>& bindings,
+                                  SourceLocation location) const {
+    const auto existing = bindings.find(expected.typeParamName);
+    if (existing == bindings.end()) {
+      bindings.emplace(expected.typeParamName, actual);
+      return;
+    }
+
+    if (existing->second != actual) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "conflicting types " + existing->second.name() + " and " +
+                                              actual.name() + " for type parameter '" +
+                                              expected.typeParamName + "'"));
+    }
+  }
+
+  void TypeChecker::unifyArrayTypes(const Type& expected, const Type& actual,
+                                    std::unordered_map<std::string, Type>& bindings,
+                                    SourceLocation location) const {
+    if (actual.kind != TypeKind::Array || !expected.element || !actual.element) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "expected " + expected.name() + ", got " +
+                                              actual.name()));
+    }
+    unifyTypes(*expected.element, *actual.element, bindings, location);
+  }
+
+  void TypeChecker::unifyImplTagTypes(const Type& expected, const Type& actual,
+                                      SourceLocation location) const {
+    if (actual.kind != TypeKind::ImplTag || expected.implTag != actual.implTag) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "expected " + expected.name() + ", got " +
+                                              actual.name()));
+    }
+  }
+
+  void TypeChecker::unifyStructTypes(const Type& expected, const Type& actual,
+                                     std::unordered_map<std::string, Type>& bindings,
+                                     SourceLocation location) const {
+    if (actual.kind != TypeKind::Struct || expected.structName != actual.structName) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "expected " + expected.name() + ", got " +
+                                              actual.name()));
+    }
+
+    if (expected.typeArgs.size() != actual.typeArgs.size()) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "expected " + expected.name() + ", got " +
+                                              actual.name()));
+    }
+
+    for (std::size_t index{}; index < expected.typeArgs.size(); ++index) {
+      unifyTypes(expected.typeArgs[index], actual.typeArgs[index], bindings, location);
     }
   }
 
@@ -1272,7 +1419,7 @@ namespace noria {
                                           "unknown type '" + structType.name() + "'"));
     }
 
-    const ast::StructDecl& templated = *genericStruct->second;
+    const ast::StructDecl& templated = genericStructAt(genericStruct->second);
     if (structType.typeArgs.size() != templated.typeParams.size()) {
       std::ostringstream out;
       out << "type '" << structType.name() << "' expects " << templated.typeParams.size()
@@ -1350,77 +1497,99 @@ namespace noria {
     structs_.clear();
     genericStructs_.clear();
 
-    for (const auto& decl : module.structs) {
+    for (std::size_t index{}; index < module.structs.size(); ++index) {
+      const ast::StructDecl& decl = module.structs[index];
       if (structs_.contains(decl.name) || genericStructs_.contains(decl.name)) {
         throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
                                             "duplicate struct '" + decl.name + "'"));
       }
 
-      const auto origin = symbolOrigins_.structs.find(decl.name);
-      const bool allowInternal =
-          origin != symbolOrigins_.structs.end() && isStdlibOrigin(origin->second);
-
       if (!decl.typeParams.empty()) {
-        std::unordered_set<std::string> allowedTypeParams;
-        for (const auto& typeParam : decl.typeParams) {
-          allowedTypeParams.insert(typeParam.name);
-        }
-
-        std::unordered_set<std::string> seenFields;
-        for (const auto& field : decl.fields) {
-          if (seenFields.contains(field.name)) {
-            throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                                "duplicate field '" + field.name + "' in struct '" +
-                                                    decl.name + "'"));
-          }
-          seenFields.insert(field.name);
-          requireKnownType(field.type, field.location, &allowedTypeParams, false, allowInternal);
-        }
-
-        genericStructs_.emplace(decl.name, &decl);
+        collectGenericStructDecl(decl, index);
         continue;
       }
 
-      StructInfo info;
-      std::unordered_set<std::string> seenFields;
-      for (const auto& field : decl.fields) {
-        if (seenFields.contains(field.name)) {
-          throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
-                                              "duplicate field '" + field.name + "' in struct '" +
-                                                  decl.name + "'"));
-        }
-        seenFields.insert(field.name);
-
-        const std::size_t index = info.fields.size();
-        info.fields.push_back(StructFieldInfo{field.name, field.type, index, field.visibility});
-        info.fieldIndex.emplace(field.name, index);
-      }
-
-      structs_.emplace(decl.name, std::move(info));
+      collectConcreteStructDecl(decl);
     }
 
-    for (const auto& decl : module.structs) {
+    validateConcreteStructFieldTypes(module);
+  }
+
+  void TypeChecker::collectGenericStructDecl(const ast::StructDecl& decl,
+                                             std::size_t moduleIndex) {
+    std::unordered_set<std::string> allowedTypeParams;
+    for (const auto& typeParam : decl.typeParams) {
+      allowedTypeParams.insert(typeParam.name);
+    }
+
+    std::unordered_set<std::string> seenFields;
+    for (const auto& field : decl.fields) {
+      if (seenFields.contains(field.name)) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "duplicate field '" + field.name + "' in struct '" +
+                                                decl.name + "'"));
+      }
+      seenFields.insert(field.name);
+      requireKnownType(field.type, field.location, &allowedTypeParams, false,
+                       allowsInternalStructTypes(decl));
+    }
+
+    genericStructs_.emplace(decl.name, moduleIndex);
+  }
+
+  void TypeChecker::collectConcreteStructDecl(const ast::StructDecl& decl) {
+    if (structs_.contains(decl.name) || genericStructs_.contains(decl.name)) {
+      throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
+                                          "duplicate struct '" + decl.name + "'"));
+    }
+
+    StructInfo info;
+    std::unordered_set<std::string> seenFields;
+    for (const auto& field : decl.fields) {
+      if (seenFields.contains(field.name)) {
+        throw CompileError(formatDiagnostic(field.location, DiagnosticStage::TypeCheck,
+                                            "duplicate field '" + field.name + "' in struct '" +
+                                                decl.name + "'"));
+      }
+      seenFields.insert(field.name);
+
+      const std::size_t index = info.fields.size();
+      info.fields.push_back(StructFieldInfo{field.name, field.type, index, field.visibility});
+      info.fieldIndex.emplace(field.name, index);
+    }
+
+    structs_.emplace(decl.name, std::move(info));
+  }
+
+  void TypeChecker::validateConcreteStructFieldTypes(const ast::Module& module,
+                                                     std::size_t firstStruct) {
+    for (std::size_t index = firstStruct; index < module.structs.size(); ++index) {
+      const ast::StructDecl& decl = module.structs[index];
       if (!decl.typeParams.empty()) {
         continue;
       }
 
-      const auto origin = symbolOrigins_.structs.find(decl.name);
-      const bool allowInternal =
-          origin != symbolOrigins_.structs.end() && isStdlibOrigin(origin->second);
-
       for (const auto& field : decl.fields) {
-        requireKnownType(field.type, field.location, nullptr, false, allowInternal);
+        requireKnownType(field.type, field.location, nullptr, false,
+                         allowsInternalStructTypes(decl));
       }
       checkStructAcyclic(decl.name, decl.location);
     }
   }
 
+  bool TypeChecker::allowsInternalStructTypes(const ast::StructDecl& decl) const {
+    const auto origin = symbolOrigins_.structs.find(decl.name);
+    return origin != symbolOrigins_.structs.end() && isStdlibOrigin(origin->second);
+  }
+
   void TypeChecker::check(const ast::Module& module, const SymbolOrigins& symbolOrigins) {
+    activeModule_ = &module;
     functions_.clear();
     genericFunctions_.clear();
     specializationRequests_.clear();
     structSpecializationRequests_.clear();
     scopes_.clear();
+    currentFunctionName_.clear();
     symbolOrigins_ = symbolOrigins;
 
     collectStructDecls(module);
@@ -1430,6 +1599,45 @@ namespace noria {
       if (function.typeParams.empty()) {
         checkFunction(function);
       }
+    }
+  }
+
+  void TypeChecker::checkSpecializationFrontier(const ast::Module& module,
+                                                std::size_t firstNewStruct,
+                                                std::size_t firstNewFunction,
+                                                const SymbolOrigins& symbolOrigins) {
+    activeModule_ = &module;
+    symbolOrigins_ = symbolOrigins;
+    specializationRequests_.clear();
+    structSpecializationRequests_.clear();
+    scopes_.clear();
+    currentFunctionName_.clear();
+
+    if (firstNewStruct > module.structs.size() || firstNewFunction > module.functions.size()) {
+      throw CompileError("typecheck: internal error: invalid specialization frontier");
+    }
+
+    for (std::size_t index = firstNewStruct; index < module.structs.size(); ++index) {
+      const ast::StructDecl& decl = module.structs[index];
+      if (!decl.typeParams.empty()) {
+        throw CompileError(
+            "typecheck: internal error: specialization frontier contains generic struct");
+      }
+      collectConcreteStructDecl(decl);
+    }
+    validateConcreteStructFieldTypes(module, firstNewStruct);
+
+    for (std::size_t index = firstNewFunction; index < module.functions.size(); ++index) {
+      const ast::Function& function = module.functions[index];
+      if (!function.typeParams.empty()) {
+        throw CompileError(
+            "typecheck: internal error: specialization frontier contains generic function");
+      }
+      collectConcreteFunctionSignature(function);
+    }
+
+    for (std::size_t index = firstNewFunction; index < module.functions.size(); ++index) {
+      checkFunction(module.functions[index]);
     }
   }
 
@@ -1538,6 +1746,37 @@ namespace noria {
 
   Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
                                      const BuiltinSignature& descriptor) {
+    requireBuiltinCallable(call, descriptor);
+
+    if (descriptor.id == BuiltinId::Len) {
+      return checkLenBuiltin(call);
+    }
+
+    if (descriptor.id == BuiltinId::RtSizeof) {
+      return checkRtSizeofBuiltin(call);
+    }
+
+    if (descriptor.id == BuiltinId::RtHash) {
+      return checkRtHashBuiltin(call);
+    }
+
+    if (descriptor.id == BuiltinId::RtLoad) {
+      return checkRtLoadBuiltin(call, descriptor);
+    }
+
+    if (descriptor.id == BuiltinId::RtStore) {
+      return checkRtStoreBuiltin(call, descriptor);
+    }
+
+    if (descriptor.style == MismatchStyle::AllArguments) {
+      return checkAllArgumentsBuiltin(call, descriptor);
+    }
+
+    return checkDeclaredBuiltinArguments(call, descriptor);
+  }
+
+  void TypeChecker::requireBuiltinCallable(const ast::CallExpression& call,
+                                           const BuiltinSignature& descriptor) const {
     if (descriptor.visibility == Visibility::Internal && !isStdlibContext()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           "internal runtime builtin '" +
@@ -1549,105 +1788,114 @@ namespace noria {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           formatBuiltinArityError(descriptor)));
     }
+  }
 
-    if (descriptor.id == BuiltinId::Len) {
-      const Type actual = checkRvalue(*call.arguments[0]);
-      if (actual == Type::str() || actual.kind == TypeKind::Array)
-        return Type::i32();
-
-      throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                                          "len expects str or array, got " + actual.name()));
-    }
-
-    if (descriptor.id == BuiltinId::RtSizeof) {
-      const Type witness = resolveWitnessType(call.location);
-      if (!isScalarWitnessType(witness)) {
-        throw CompileError(
-            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                             "__rt_sizeof requires a scalar element type, got " + witness.name()));
-      }
+  Type TypeChecker::checkLenBuiltin(const ast::CallExpression& call) {
+    const Type actual = checkRvalue(*call.arguments[0]);
+    if (actual == Type::str() || actual.kind == TypeKind::Array)
       return Type::i32();
+
+    throw CompileError(formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
+                                        "len expects str or array, got " + actual.name()));
+  }
+
+  Type TypeChecker::checkRtSizeofBuiltin(const ast::CallExpression& call) const {
+    const Type witness = resolveWitnessType(call.location);
+    if (!isScalarWitnessType(witness)) {
+      throw CompileError(
+          formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                           "__rt_sizeof requires a scalar element type, got " + witness.name()));
+    }
+    return Type::i32();
+  }
+
+  Type TypeChecker::checkRtHashBuiltin(const ast::CallExpression& call) {
+    const Type witness = resolveWitnessType(call.location);
+    if (!supportsOperation(witness, RequiredOperation::Hash)) {
+      throw CompileError(formatDiagnostic(
+          call.location, DiagnosticStage::TypeCheck,
+          "__rt_hash requires a hashable key type (i32, bool, str), got " + witness.name()));
+    }
+    const Type value = checkRvalue(*call.arguments[0]);
+    if (value != witness) {
+      throw CompileError(
+          formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
+                           "__rt_hash expects " + witness.name() + ", got " + value.name()));
+    }
+    return Type::i32();
+  }
+
+  Type TypeChecker::checkRtLoadBuiltin(const ast::CallExpression& call,
+                                       const BuiltinSignature& descriptor) {
+    const Type pointer = checkRvalue(*call.arguments[0]);
+    const Type index = checkRvalue(*call.arguments[1]);
+    if (pointer != Type::rawPtr()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[0]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
+    }
+    if (index != Type::i32()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[1]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
     }
 
-    if (descriptor.id == BuiltinId::RtHash) {
-      const Type witness = resolveWitnessType(call.location);
-      if (!supportsOperation(witness, RequiredOperation::Hash)) {
-        throw CompileError(formatDiagnostic(
-            call.location, DiagnosticStage::TypeCheck,
-            "__rt_hash requires a hashable key type (i32, bool, str), got " + witness.name()));
-      }
-      const Type value = checkRvalue(*call.arguments[0]);
-      if (value != witness) {
-        throw CompileError(
-            formatDiagnostic(call.arguments[0]->location, DiagnosticStage::TypeCheck,
-                             "__rt_hash expects " + witness.name() + ", got " + value.name()));
-      }
-      return Type::i32();
+    // Runtime load/store builtins use the enclosing specialization as their element witness.
+    const Type witness = resolveWitnessType(call.location);
+    if (!isScalarWitnessType(witness)) {
+      throw CompileError(
+          formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                           "__rt_load requires a scalar element type, got " + witness.name()));
+    }
+    return witness;
+  }
+
+  Type TypeChecker::checkRtStoreBuiltin(const ast::CallExpression& call,
+                                        const BuiltinSignature& descriptor) {
+    const Type pointer = checkRvalue(*call.arguments[0]);
+    const Type index = checkRvalue(*call.arguments[1]);
+    const Type value = checkRvalue(*call.arguments[2]);
+    if (pointer != Type::rawPtr()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[0]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
+    }
+    if (index != Type::i32()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[1]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
     }
 
-    if (descriptor.id == BuiltinId::RtLoad) {
-      const Type pointer = checkRvalue(*call.arguments[0]);
-      const Type index = checkRvalue(*call.arguments[1]);
-      if (pointer != Type::rawPtr()) {
-        throw CompileError(formatDiagnostic(
-            call.arguments[0]->location, DiagnosticStage::TypeCheck,
-            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
-      }
-      if (index != Type::i32()) {
-        throw CompileError(formatDiagnostic(
-            call.arguments[1]->location, DiagnosticStage::TypeCheck,
-            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
-      }
-      const Type witness = resolveWitnessType(call.location);
-      if (!isScalarWitnessType(witness)) {
-        throw CompileError(
-            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                             "__rt_load requires a scalar element type, got " + witness.name()));
-      }
-      return witness;
+    const Type witness = resolveWitnessType(call.location);
+    if (!isScalarWitnessType(witness)) {
+      throw CompileError(
+          formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                           "__rt_store requires a scalar element type, got " + witness.name()));
     }
-
-    if (descriptor.id == BuiltinId::RtStore) {
-      const Type pointer = checkRvalue(*call.arguments[0]);
-      const Type index = checkRvalue(*call.arguments[1]);
-      const Type value = checkRvalue(*call.arguments[2]);
-      if (pointer != Type::rawPtr()) {
-        throw CompileError(formatDiagnostic(
-            call.arguments[0]->location, DiagnosticStage::TypeCheck,
-            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
-      }
-      if (index != Type::i32()) {
-        throw CompileError(formatDiagnostic(
-            call.arguments[1]->location, DiagnosticStage::TypeCheck,
-            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
-      }
-      const Type witness = resolveWitnessType(call.location);
-      if (!isScalarWitnessType(witness)) {
-        throw CompileError(
-            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
-                             "__rt_store requires a scalar element type, got " + witness.name()));
-      }
-      if (value != witness) {
-        throw CompileError(
-            formatDiagnostic(call.arguments[2]->location, DiagnosticStage::TypeCheck,
-                             "__rt_store expects " + witness.name() + ", got " + value.name()));
-      }
-      return Type::voidType();
+    if (value != witness) {
+      throw CompileError(
+          formatDiagnostic(call.arguments[2]->location, DiagnosticStage::TypeCheck,
+                           "__rt_store expects " + witness.name() + ", got " + value.name()));
     }
+    return Type::voidType();
+  }
 
-    if (descriptor.style == MismatchStyle::AllArguments) {
-      const Type firstType = checkRvalue(*call.arguments[0]);
-      const Type secondType = checkRvalue(*call.arguments[1]);
-      const Type expected = Type(descriptor.parameters[0]);
-      if (firstType != expected || secondType != expected) {
-        throw CompileError(formatDiagnostic(
-            call.location, DiagnosticStage::TypeCheck,
-            formatBuiltinAllArgumentsMismatch(descriptor.name, descriptor.parameters[0],
-                                              firstType.name(), secondType.name())));
-      }
-      return Type(descriptor.returnKind);
+  Type TypeChecker::checkAllArgumentsBuiltin(const ast::CallExpression& call,
+                                             const BuiltinSignature& descriptor) {
+    const Type firstType = checkRvalue(*call.arguments[0]);
+    const Type secondType = checkRvalue(*call.arguments[1]);
+    const Type expected = Type(descriptor.parameters[0]);
+    if (firstType != expected || secondType != expected) {
+      throw CompileError(formatDiagnostic(
+          call.location, DiagnosticStage::TypeCheck,
+          formatBuiltinAllArgumentsMismatch(descriptor.name, descriptor.parameters[0],
+                                            firstType.name(), secondType.name())));
     }
+    return Type(descriptor.returnKind);
+  }
 
+  Type TypeChecker::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
+                                                  const BuiltinSignature& descriptor) {
     for (std::size_t index{}; index < descriptor.arity; ++index) {
       const Type actual = checkRvalue(*call.arguments[index]);
       const TypeKind expectedKind = descriptor.parameters[index];
@@ -1701,7 +1949,8 @@ namespace noria {
       return;
     }
 
-    const std::vector<ast::TypeParameter>& callerTypeParams = family->second.front()->typeParams;
+    const std::vector<ast::TypeParameter>& callerTypeParams =
+        genericFunctionAt(family->second.front()).typeParams;
     std::unordered_map<std::string, Type> callerBindings;
     for (std::size_t index{}; index < callerTypeParams.size() && index < callerTypeArgs->size();
          ++index) {
@@ -1781,6 +2030,18 @@ namespace noria {
     functionSpecializationTypeArgs_.emplace(std::move(mangledName), std::move(typeArgs));
   }
 
+  std::vector<SpecializationRequest> TypeChecker::takeSpecializationRequests() {
+    std::vector<SpecializationRequest> requests;
+    requests.swap(specializationRequests_);
+    return requests;
+  }
+
+  std::vector<StructSpecializationRequest> TypeChecker::takeStructSpecializationRequests() const {
+    std::vector<StructSpecializationRequest> requests;
+    requests.swap(structSpecializationRequests_);
+    return requests;
+  }
+
   Type TypeChecker::checkRvalue(const ast::Expression& expression,
                                 std::optional<Type> expectedType) {
     ExpressionVisitor visitor(*this, std::move(expectedType));
@@ -1812,6 +2073,20 @@ namespace noria {
                                         "unknown local variable '" + name + "'"));
   }
 
+  const ast::Function& TypeChecker::genericFunctionAt(std::size_t moduleIndex) const {
+    if (activeModule_ == nullptr || moduleIndex >= activeModule_->functions.size()) {
+      throw CompileError("typecheck: internal error: invalid generic function index");
+    }
+    return activeModule_->functions[moduleIndex];
+  }
+
+  const ast::StructDecl& TypeChecker::genericStructAt(std::size_t moduleIndex) const {
+    if (activeModule_ == nullptr || moduleIndex >= activeModule_->structs.size()) {
+      throw CompileError("typecheck: internal error: invalid generic struct index");
+    }
+    return activeModule_->structs[moduleIndex];
+  }
+
   bool TypeChecker::isAssignable(Type expected, Type actual) const {
     if (expected == actual) {
       return true;
@@ -1820,98 +2095,115 @@ namespace noria {
   }
 
   void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
-    for (const auto& function : module.functions) {
+    for (std::size_t index{}; index < module.functions.size(); ++index) {
+      const ast::Function& function = module.functions[index];
       if (!function.typeParams.empty()) {
-        const auto existing = genericFunctions_.find(function.name);
-        if (existing != genericFunctions_.end()) {
-          for (const ast::Function* candidate : existing->second) {
-            if (function.implTag && candidate->implTag &&
-                *function.implTag == *candidate->implTag) {
-              throw CompileError(
-                  formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                   "duplicate implementation '" +
-                                       std::string(implementationTagName(*function.implTag)) +
-                                       "' for generic function '" + function.name + "'"));
-            }
-            if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate->implTag)) {
-              throw CompileError(
-                  formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                   "generic function '" + function.name +
-                                       "' mixes tagged and untagged implementations"));
-            }
-            if (!function.implTag && !candidate->implTag) {
-              throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                                  "duplicate function '" + function.name + "'"));
-            }
-          }
-        } else if (functions_.contains(function.name)) {
-          throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                              "duplicate function '" + function.name + "'"));
-        }
-
-        const auto origin = symbolOrigins_.functions.find(function.name);
-        const bool allowInternal =
-            origin != symbolOrigins_.functions.end() && isStdlibOrigin(origin->second);
-        if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
-          throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                              "name '" + function.name + "' is reserved"));
-        }
-
-        std::unordered_set<std::string> allowedTypeParams;
-        for (const auto& typeParam : function.typeParams) {
-          allowedTypeParams.insert(typeParam.name);
-        }
-
-        requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
-                         allowInternal);
-        for (const auto& parameter : function.parameters) {
-          requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
-                           allowInternal);
-        }
-
-        genericFunctions_[function.name].push_back(&function);
+        collectGenericFunctionSignature(function, index);
         continue;
       }
 
-      if (functions_.contains(function.name) || genericFunctions_.contains(function.name)) {
-        throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                            "duplicate function '" + function.name + "'"));
-      }
-
-      const auto origin = symbolOrigins_.functions.find(function.name);
-      const bool allowInternal =
-          origin != symbolOrigins_.functions.end() && isStdlibOrigin(origin->second);
-      if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
-        throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                            "name '" + function.name + "' is reserved"));
-      }
-
-      FunctionSignature signature;
-      requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
-      signature.returnType = function.returnType;
-
-      for (const auto& parameter : function.parameters) {
-        requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
-        signature.parameterTypes.push_back(parameter.type);
-      }
-
-      functions_.emplace(function.name, std::move(signature));
+      collectConcreteFunctionSignature(function);
     }
 
     for (const auto& [name, family] : genericFunctions_) {
-      if (family.size() <= 1) {
-        continue;
-      }
+      validateGenericFunctionFamily(name, family);
+    }
+  }
 
-      const ast::Function& reference = *family.front();
-      for (std::size_t index = 1; index < family.size(); ++index) {
-        if (!sameGenericPublicApi(reference, *family[index])) {
-          throw CompileError(formatDiagnostic(family[index]->location, DiagnosticStage::TypeCheck,
-                                              "implementation signature of '" + name +
-                                                  "' does not match other implementations"));
+  void TypeChecker::collectGenericFunctionSignature(const ast::Function& function,
+                                                    std::size_t moduleIndex) {
+    const auto existing = genericFunctions_.find(function.name);
+    if (existing != genericFunctions_.end()) {
+      for (std::size_t candidateIndex : existing->second) {
+        const ast::Function& candidate = genericFunctionAt(candidateIndex);
+        if (function.implTag && candidate.implTag && *function.implTag == *candidate.implTag) {
+          throw CompileError(formatDiagnostic(
+              function.location, DiagnosticStage::TypeCheck,
+              "duplicate implementation '" +
+                  std::string(implementationTagName(*function.implTag)) +
+                  "' for generic function '" + function.name + "'"));
+        }
+        if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate.implTag)) {
+          throw CompileError(
+              formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                               "generic function '" + function.name +
+                                   "' mixes tagged and untagged implementations"));
+        }
+        if (!function.implTag && !candidate.implTag) {
+          throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                              "duplicate function '" + function.name + "'"));
         }
       }
+    } else if (functions_.contains(function.name)) {
+      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                          "duplicate function '" + function.name + "'"));
     }
+
+    const bool allowInternal = allowsInternalFunctionTypes(function);
+    if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
+      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                          "name '" + function.name + "' is reserved"));
+    }
+
+    std::unordered_set<std::string> allowedTypeParams;
+    for (const auto& typeParam : function.typeParams) {
+      allowedTypeParams.insert(typeParam.name);
+    }
+
+    requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
+                     allowInternal);
+    for (const auto& parameter : function.parameters) {
+      requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
+                       allowInternal);
+    }
+
+    genericFunctions_[function.name].push_back(moduleIndex);
+  }
+
+  void TypeChecker::collectConcreteFunctionSignature(const ast::Function& function) {
+    if (functions_.contains(function.name) || genericFunctions_.contains(function.name)) {
+      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                          "duplicate function '" + function.name + "'"));
+    }
+
+    const bool allowInternal = allowsInternalFunctionTypes(function);
+    if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
+      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                          "name '" + function.name + "' is reserved"));
+    }
+
+    FunctionSignature signature;
+    requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    signature.returnType = function.returnType;
+
+    for (const auto& parameter : function.parameters) {
+      requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
+      signature.parameterTypes.push_back(parameter.type);
+    }
+
+    functions_.emplace(function.name, std::move(signature));
+  }
+
+  void TypeChecker::validateGenericFunctionFamily(
+      std::string_view name, const std::vector<std::size_t>& family) const {
+    if (family.size() <= 1) {
+      return;
+    }
+
+    const ast::Function& reference = genericFunctionAt(family.front());
+    for (std::size_t index = 1; index < family.size(); ++index) {
+      const ast::Function& candidate = genericFunctionAt(family[index]);
+      if (!sameGenericPublicApi(reference, candidate)) {
+        throw CompileError(formatDiagnostic(candidate.location, DiagnosticStage::TypeCheck,
+                                            "implementation signature of '" + std::string(name) +
+                                                "' does not match other implementations"));
+      }
+    }
+  }
+
+  bool TypeChecker::allowsInternalFunctionTypes(const ast::Function& function) const {
+    const auto origin = symbolOrigins_.functions.find(function.name);
+    return origin != symbolOrigins_.functions.end() && isStdlibOrigin(origin->second);
   }
 
   void TypeChecker::pushScope() {

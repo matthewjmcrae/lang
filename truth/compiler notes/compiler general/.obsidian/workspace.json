@@ -4,37 +4,35 @@
     "type": "split",
     "children": [
       {
-        "id": "af2ffbb1b0d949c2",
+        "id": "fac3c7e79a230195",
         "type": "tabs",
         "children": [
           {
-            "id": "4f4748963a16fe84",
+            "id": "b4561b10b8ade485",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Welcome.md",
+                "file": "Performance.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Welcome"
+              "title": "Performance"
             }
-          }
-        ]
-      },
-      {
-        "id": "1c91d5b9ab683847",
-        "type": "tabs",
-        "children": [
+          },
           {
-            "id": "ac133d8dd2d45a06",
+            "id": "d5b243163f465d7c",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "type": "markdown",
+              "state": {
+                "file": "code standards/Code Standard.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Code Standard"
             }
           }
         ]
@@ -99,7 +97,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 200
   },
   "right": {
     "id": "1286e873e1543047",
@@ -110,11 +108,26 @@
         "type": "tabs",
         "children": [
           {
+            "id": "724cdcde1b2d598a",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Lexer.cpp.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Lexer.cpp"
+            }
+          },
+          {
             "id": "9e84bd2ee4bfc0d0",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
+                "file": "Performance.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -133,6 +146,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "Performance.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -175,6 +189,7 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "Performance.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -187,7 +202,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
+    "width": 200,
     "collapsed": true
   },
   "left-ribbon": {
@@ -201,9 +216,27 @@
       "bases:Create new base": false
     }
   },
-  "active": "ac133d8dd2d45a06",
+  "active": "b4561b10b8ade485",
   "lastOpenFiles": [
-    "Welcome.md",
-    "Untitled.md"
+    "stdlib.md",
+    "Performance.md",
+    "Codegen.md",
+    "Compiler.cpp.md",
+    "Lexer.cpp.md",
+    "Parser.cpp.md",
+    "SpecializationCache.md",
+    "monomorphism.md",
+    "LLVMGenerator.md",
+    "astVisitor.md",
+    "code standards/Code Standard.md",
+    "TypeChecker.cpp.md",
+    "TODO.md",
+    "astMutator.md",
+    "ast.md",
+    "[monomorphism.md",
+    "Untitled 1.md",
+    "code standards",
+    "create a link.md",
+    "Welcome.md"
   ]
 }

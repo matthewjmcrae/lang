@@ -23,8 +23,8 @@ namespace {
   }
 
   void expectLlvm(const noria::Type& type, const std::string& expected) {
-    if (noria::llvmType(type) != expected) {
-      std::cerr << "FAIL: expected llvm type '" << expected << "', got '" << noria::llvmType(type)
+    if (noria::LLVMType(type) != expected) {
+      std::cerr << "FAIL: expected llvm type '" << expected << "', got '" << noria::LLVMType(type)
                 << "'\n";
       ++failures;
     }

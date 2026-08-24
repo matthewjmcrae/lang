@@ -164,7 +164,7 @@ int main() {
   expect(Type(lenDescriptor->parameters[0]) == Type::str(), "len parameter type");
   expect(Type(lenDescriptor->returnKind) == Type::i32(), "len return type");
   expect(Type::rawPtr().name() == "__rt_ptr", "raw ptr name");
-  expect(noria::llvmType(Type::rawPtr()) == "ptr", "raw ptr llvm type");
+  expect(noria::LLVMType(Type::rawPtr()) == "ptr", "raw ptr llvm type");
   expect(Type(powDescriptor->parameters[0]) == Type::f64(), "pow first parameter type");
   expect(Type(powDescriptor->parameters[1]) == Type::f64(), "pow second parameter type");
   expect(Type(powDescriptor->returnKind) == Type::f64(), "pow return type");

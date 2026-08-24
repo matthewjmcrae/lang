@@ -1,10 +1,12 @@
 #include "noria/Compiler.hpp"
+#include "noria/CompilerCache.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/ModuleResolver.hpp"
 #include "noria/Parser.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -43,6 +45,7 @@ namespace {
     }
 
     std::optional<std::string> loadModuleSource(const std::string& modulePath) override {
+      ++loadCounts_[modulePath];
       const auto iterator = sources_.find(modulePath);
       if (iterator == sources_.end()) {
         return std::nullopt;
@@ -50,8 +53,17 @@ namespace {
       return iterator->second;
     }
 
+    std::size_t loadCount(const std::string& modulePath) const {
+      const auto iterator = loadCounts_.find(modulePath);
+      if (iterator == loadCounts_.end()) {
+        return 0;
+      }
+      return iterator->second;
+    }
+
   private:
     std::unordered_map<std::string, std::string> sources_;
+    std::unordered_map<std::string, std::size_t> loadCounts_;
   };
 
   noria::ast::Module parseModule(const std::string& source) {
@@ -313,6 +325,37 @@ fn main() -> i32 { return left(); }
       },
       "duplicate import name rejected",
       "import: duplicate import 'left'");
+
+  MemoryModuleSourceProvider cachedProvider;
+  cachedProvider.addModule("std::cached", R"(
+fn cached() -> i32 { return 9; }
+)");
+  noria::CompilerCache resolverCache;
+  noria::CompileOptions cacheOptions;
+  cacheOptions.stdlibRoot = std::filesystem::path("/tmp/noria-cache-test-stdlib");
+
+  const noria::ResolvedProgram cachedFirst = noria::resolveImports(
+      parseModule(R"(
+import std::cached::{cached};
+import std::cached::{cached};
+fn main() -> i32 { return cached(); }
+)"),
+      cacheOptions, cachedProvider, &resolverCache);
+  const noria::ResolvedProgram cachedSecond = noria::resolveImports(
+      parseModule(R"(
+import std::cached::{cached};
+fn main() -> i32 { return cached(); }
+)"),
+      cacheOptions, cachedProvider, &resolverCache);
+
+  expect(countFunction(cachedFirst.module, "cached") == 1,
+         "repeated same-module imports clone one function");
+  expect(countFunction(cachedSecond.module, "cached") == 1,
+         "cached module can be reused by a later resolve");
+  expect(cachedProvider.loadCount("std::cached") == 1,
+         "shared module cache avoids reloading parsed stdlib module");
+  expect(resolverCache.parsedStdlibModuleCount() == 1,
+         "resolver cache retains parsed stdlib module");
 
   if (failures != 0) {
     std::cerr << failures << " module resolver test failure(s)\n";

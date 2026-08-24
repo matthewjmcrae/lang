@@ -29,8 +29,11 @@ function(noria_configure_executable target)
 endfunction()
 
 add_library(noria_core OBJECT
+  src/AstClone.cpp
   src/AstPrinter.cpp
+  src/AstVisitor.cpp
   src/Codegen.cpp
+  src/CompilerCache.cpp
   src/Compiler.cpp
   src/Constraints.cpp
   src/Diagnostic.cpp
@@ -73,11 +76,35 @@ noria_configure_executable(builtin_registry_test)
 add_executable(visitor_smoke_test
   tests/visitor_smoke_test.cpp
   src/AstPrinter.cpp
+  src/AstVisitor.cpp
   src/Types.cpp
 )
 
 target_include_directories(visitor_smoke_test PRIVATE include)
 noria_configure_executable(visitor_smoke_test)
+
+add_executable(ast_clone_test
+  tests/ast_clone_test.cpp
+  $<TARGET_OBJECTS:noria_core>
+)
+
+target_include_directories(ast_clone_test PRIVATE include)
+noria_configure_executable(ast_clone_test)
+
+add_executable(lfu_cache_test
+  tests/lfu_cache_test.cpp
+)
+
+target_include_directories(lfu_cache_test PRIVATE include)
+noria_configure_executable(lfu_cache_test)
+
+add_executable(compiler_cache_test
+  tests/compiler_cache_test.cpp
+  $<TARGET_OBJECTS:noria_core>
+)
+
+target_include_directories(compiler_cache_test PRIVATE include)
+noria_configure_executable(compiler_cache_test)
 
 add_executable(compiler_facade_test
   tests/compiler_facade_test.cpp
@@ -120,12 +147,23 @@ add_executable(constraints_test
 target_include_directories(constraints_test PRIVATE include)
 noria_configure_executable(constraints_test)
 
+add_executable(semantic_tables_test
+  tests/semantic_tables_test.cpp
+)
+
+target_include_directories(semantic_tables_test PRIVATE include)
+noria_configure_executable(semantic_tables_test)
+
 add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
 add_test(NAME type_representation COMMAND type_representation_test)
 add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
+add_test(NAME ast_clone COMMAND ast_clone_test)
+add_test(NAME lfu_cache COMMAND lfu_cache_test)
+add_test(NAME compiler_cache COMMAND compiler_cache_test)
 add_test(NAME compiler_facade COMMAND compiler_facade_test)
 add_test(NAME module_resolver COMMAND module_resolver_test)
 add_test(NAME diagnostic_location COMMAND diagnostic_location_test)
 add_test(NAME generics COMMAND generics_test)
 add_test(NAME constraints COMMAND constraints_test)
+add_test(NAME semantic_tables COMMAND semantic_tables_test)
