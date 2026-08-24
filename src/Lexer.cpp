@@ -13,7 +13,10 @@ namespace noria {
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character);
   } // namespace
 
-  Lexer::Lexer(std::string_view source) : source_(source) {}
+  Lexer::Lexer(std::string_view source, std::string file)
+      : source_(source), file_(std::move(file)) {
+    location_.file = file_;
+  }
 
   std::vector<Token> Lexer::lex() {
     std::vector<Token> tokens;

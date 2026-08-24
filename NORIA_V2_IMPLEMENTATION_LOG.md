@@ -674,4 +674,36 @@ Hardcoded type sets — no trait or user overload system. Key/tag positional pai
 
 Private stdlib runtime ABI, `SourceLocation` file attribution for imported diagnostics, or full ADT stdlib bodies.
 
+## Phase 6 — SourceLocation file attribution
+
+Baseline commit `88ae20e`. Review: APPROVED after Monomorphize file-matching fix.
+
+### Objective and acceptance
+
+Add optional filename to `SourceLocation`; propagate through lexer, `formatDiagnostic`, and module resolution so imported stdlib errors cite the defining module path; preserve line/column-only formatting when file is empty; preserve preexisting IR/AST; all gates green.
+
+### Files and behavior changed
+
+`SourceLocation.file`; `Lexer(source, file)`; `CompileOptions.rootFileName` from CLI input path. `Diagnostic.cpp`: `file:line:col:` prefix when set. `ModuleResolver`: imported parses use module path; resolver errors via `formatDiagnostic`. `Monomorphize`: `locationsMatch`/`locationLess` include file for call-site and struct-literal rewrite keys. New `diagnostic_location_test.cpp`; `bad_stdlib` fixture + `import_bad_type.noria` in `run_examples.sh`; updated `module_resolver_test`.
+
+### Semantic and architectural decisions
+
+File attribution is diagnostic-only — no IR or AST shape change. Empty file preserves legacy `line:col:` output for in-memory and unit-test sources. Imported modules use logical `std::…` paths, not filesystem paths.
+
+### Tests, sanitizer, results
+
+All gates green; 108 preexisting IR/AST byte-identical. `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED after Monomorphize fix: specialization dedup and call-site rewrite matched line/column only, risking collisions across files; fixed with file-aware `locationsMatch`/`locationLess`.
+
+### Limitations and risks
+
+Root file gets CLI path string, not necessarily canonical. User module paths still stdlib-only. Existing negative greps may not assert file prefixes unless updated.
+
+### Next unit
+
+Private stdlib runtime ABI or full ADT stdlib bodies.
+
 

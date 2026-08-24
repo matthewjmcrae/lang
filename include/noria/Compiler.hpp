@@ -14,6 +14,7 @@ namespace noria {
 
   struct CompileOptions {
     std::filesystem::path stdlibRoot;
+    std::string rootFileName;
   };
 
   struct CompileOutput {

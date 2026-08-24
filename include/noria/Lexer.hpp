@@ -9,7 +9,7 @@ namespace noria {
 
   class Lexer {
   public:
-    explicit Lexer(std::string_view source);
+    explicit Lexer(std::string_view source, std::string file = {});
 
     std::vector<Token> lex();
 
@@ -24,6 +24,7 @@ namespace noria {
     Token lexString();
 
     std::string_view source_;
+    std::string file_;
     std::size_t index_ = 0;
     SourceLocation location_;
   };

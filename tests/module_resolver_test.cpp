@@ -91,7 +91,7 @@ fn b_fn() -> i32 { return a_fn(); }
                               noria::CompileOptions{}, provider);
       },
       "cycle diagnostic names both modules",
-      "import cycle detected: std::b -> std::a -> std::b");
+      "std::b:2:1: import cycle detected: std::b -> std::a -> std::b");
 
   MemoryModuleSourceProvider diamondProvider;
   diamondProvider.addModule("std::d", R"(

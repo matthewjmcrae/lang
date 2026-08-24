@@ -15,9 +15,9 @@ namespace noria {
 
     [[noreturn]] void throwResolverError(SourceLocation location, const std::string& modulePath,
                                          std::string_view message) {
-      std::ostringstream formatted;
-      formatted << modulePath << ": " << location.line << ":" << location.column << ": " << message;
-      throw CompileError(formatted.str());
+      SourceLocation diagnosticLocation = location;
+      diagnosticLocation.file = modulePath;
+      throw CompileError(formatDiagnostic(diagnosticLocation, message));
     }
 
     std::optional<std::string> moduleFileName(const std::vector<std::string>& path) {
@@ -112,7 +112,7 @@ namespace noria {
         ownedSources_.push_back(*source);
         const std::string_view sourceView = ownedSources_.back();
 
-        Lexer lexer(sourceView);
+        Lexer lexer(sourceView, modulePath);
         const std::vector<Token> tokens = lexer.lex();
         Parser parser(tokens);
         ast::Module module = parser.parseModule();

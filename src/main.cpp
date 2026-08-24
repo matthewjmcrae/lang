@@ -268,6 +268,7 @@ int main(int argc, char** argv) {
 
     noria::CompileOptions compileOptions;
     compileOptions.stdlibRoot = options.stdlibRoot;
+    compileOptions.rootFileName = options.inputPath.string();
     noria::CompileOutput output = noria::compileSource(source, stopAfter, compileOptions);
 
     if (options.outputMode == OutputMode::Tokens) {

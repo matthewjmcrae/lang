@@ -11,6 +11,29 @@ namespace noria {
 
   namespace {
 
+    bool locationsMatch(const SourceLocation& left, const SourceLocation& right) {
+      if (left.file != right.file) {
+        return false;
+      }
+      return left.line == right.line && left.column == right.column;
+    }
+
+    bool locationLess(const SourceLocation& left, const SourceLocation& right) {
+      if (left.file != right.file) {
+        if (left.file.empty()) {
+          return !right.file.empty();
+        }
+        if (right.file.empty()) {
+          return false;
+        }
+        return left.file < right.file;
+      }
+      if (left.line != right.line) {
+        return left.line < right.line;
+      }
+      return left.column < right.column;
+    }
+
     Type substituteType(const Type& type, const Substitution& substitution) {
       if (type.kind == TypeKind::TypeParam) {
         const auto bound = substitution.find(type.typeParamName);
@@ -243,8 +266,7 @@ namespace noria {
       }
       void visit(const ast::CallExpression& node) override {
         for (const auto& request : requests_) {
-          if (node.location.line == request.callSiteLocation.line &&
-              node.location.column == request.callSiteLocation.column &&
+          if (locationsMatch(node.location, request.callSiteLocation) &&
               node.callee == request.templateName &&
               currentFunction_ == request.enclosingFunction) {
             const_cast<ast::CallExpression&>(node).callee =
@@ -440,8 +462,7 @@ namespace noria {
         }
 
         for (const auto& request : requests_) {
-          if (literal.location.line == request.useSiteLocation.line &&
-              literal.location.column == request.useSiteLocation.column &&
+          if (locationsMatch(literal.location, request.useSiteLocation) &&
               literal.structName == request.templateName) {
             literal.structName = mangleSpecialization(request.templateName, request.typeArgs);
             break;
@@ -563,7 +584,7 @@ namespace noria {
                 if (left.templateName != right.templateName) {
                   return left.templateName < right.templateName;
                 }
-                return left.callSiteLocation.line < right.callSiteLocation.line;
+                return locationLess(left.callSiteLocation, right.callSiteLocation);
               });
 
     std::unordered_set<std::string> seen;
@@ -609,7 +630,7 @@ namespace noria {
           if (left.templateName != right.templateName) {
             return left.templateName < right.templateName;
           }
-          return left.useSiteLocation.line < right.useSiteLocation.line;
+          return locationLess(left.useSiteLocation, right.useSiteLocation);
         });
 
     std::unordered_set<std::string> seen;

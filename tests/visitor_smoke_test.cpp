@@ -112,7 +112,7 @@ namespace {
     using noria::ast::UnaryOperator;
     using noria::ast::WhileStatement;
 
-    const SourceLocation loc{1, 1};
+    const SourceLocation loc{.line = 1, .column = 1};
 
     Function function;
     function.name = "visitor_smoke";
@@ -210,7 +210,7 @@ int main() {
   using noria::ast::UnaryOperator;
   using noria::ast::WhileStatement;
 
-  const SourceLocation loc{1, 1};
+  const SourceLocation loc{.line = 1, .column = 1};
   CountingVisitor counter;
 
   IntegerLiteral integerLiteral(0, loc);

@@ -106,7 +106,7 @@ namespace noria {
 
   CompileOutput compileSource(std::string_view source, StopAfter stopAfter,
                               const CompileOptions& options) {
-    Lexer lexer(source);
+    Lexer lexer(source, options.rootFileName);
     std::vector<Token> tokens = lexer.lex();
     if (stopAfter == StopAfter::Tokens) {
       CompileOutput output;

@@ -102,6 +102,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(module_resolver_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(diagnostic_location_test
+  tests/diagnostic_location_test.cpp
+  src/Diagnostic.cpp
+)
+
+target_include_directories(diagnostic_location_test PRIVATE include)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(diagnostic_location_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(NORIA_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_link_options(noria PRIVATE -fsanitize=address,undefined)
@@ -151,5 +162,6 @@ add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
 add_test(NAME compiler_facade COMMAND compiler_facade_test)
 add_test(NAME module_resolver COMMAND module_resolver_test)
+add_test(NAME diagnostic_location COMMAND diagnostic_location_test)
 add_test(NAME generics COMMAND generics_test)
 add_test(NAME constraints COMMAND constraints_test)

@@ -188,6 +188,7 @@ echo "[noria-tests] type representation unit tests"
 "${BUILD_DIR}/visitor_smoke_test"
 "${BUILD_DIR}/compiler_facade_test"
 "${BUILD_DIR}/module_resolver_test"
+"${BUILD_DIR}/diagnostic_location_test"
 "${BUILD_DIR}/generics_test"
 "${BUILD_DIR}/constraints_test"
 
@@ -554,6 +555,21 @@ grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | gre
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
   -o "${TEST_OUT_DIR}/import_math.ast"
 grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
+
+echo "[noria-tests] phase 6 import diagnostic file attribution"
+BAD_TYPE_STDERR="${TEST_OUT_DIR}/import_bad_type.stderr"
+set +e
+run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+  "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_bad_type.noria" \
+  -o "${TEST_OUT_DIR}/import_bad_type.ll" >"${TEST_OUT_DIR}/import_bad_type.stdout" 2>"${BAD_TYPE_STDERR}"
+bad_type_status="$?"
+set -e
+if [[ "${bad_type_status}" == "0" ]]; then
+  echo "[noria-tests] expected compile failure for import_bad_type.noria" >&2
+  exit 1
+fi
+grep -q "std::badmath:2:10: typecheck: return type bool does not match expected i32" \
+  "${BAD_TYPE_STDERR}"
 
 echo "[noria-tests] phase 6 generic acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
