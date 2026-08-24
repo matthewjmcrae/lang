@@ -5,6 +5,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace noria {
@@ -22,6 +23,30 @@ namespace noria {
     std::string templateName;
     std::vector<Type> typeArgs;
     SourceLocation useSiteLocation;
+    std::string enclosingFunction;
+  };
+
+  class SpecializationCache {
+  public:
+    void seedFromModule(const ast::Module& module);
+
+    bool hasFunction(std::string_view mangledName) const;
+    bool hasStruct(std::string_view mangledName) const;
+
+    void link(std::string_view childMangled, std::string_view parentMangled,
+              SourceLocation location);
+    void clearLinks();
+
+    std::size_t emitFunction(ast::Module& module, const SpecializationRequest& request);
+    std::size_t emitStruct(ast::Module& module, const StructSpecializationRequest& request);
+
+  private:
+    std::unordered_set<std::string> emittedFunctions_;
+    std::unordered_set<std::string> emittedStructs_;
+    std::unordered_map<std::string, std::string> dependencyParent_;
+
+    [[noreturn]] void throwCycle(SourceLocation location, std::string_view childMangled,
+                                 std::string_view parentMangled) const;
   };
 
   Type substitute(const Type& type, const Substitution& substitution);
@@ -31,10 +56,12 @@ namespace noria {
                                    const std::vector<Type>& typeArgs);
 
   std::size_t expandStructSpecializations(ast::Module& module,
-                                          const std::vector<StructSpecializationRequest>& requests);
+                                          const std::vector<StructSpecializationRequest>& requests,
+                                          SpecializationCache& cache);
 
   std::size_t expandSpecializations(ast::Module& module,
-                                    const std::vector<SpecializationRequest>& requests);
+                                    const std::vector<SpecializationRequest>& requests,
+                                    SpecializationCache& cache);
 
   void rewriteGenericCallSites(ast::Module& module,
                                const std::vector<SpecializationRequest>& requests);

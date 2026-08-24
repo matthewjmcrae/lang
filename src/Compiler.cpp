@@ -8,6 +8,8 @@
 #include "noria/Parser.hpp"
 #include "noria/TypeChecker.hpp"
 
+#include <unordered_set>
+
 namespace noria {
 
   namespace {
@@ -34,6 +36,42 @@ namespace noria {
                                     templateOrigin->second);
     }
 
+    std::string parentSpecializationMangled(std::string_view enclosingFunction) {
+      if (enclosingFunction.find('$') == std::string_view::npos) {
+        return {};
+      }
+      return std::string(enclosingFunction);
+    }
+
+    void linkNewSpecializations(SpecializationCache& cache,
+                                const std::vector<StructSpecializationRequest>& structRequests,
+                                const std::vector<SpecializationRequest>& functionRequests) {
+      std::unordered_set<std::string> linked;
+      for (const StructSpecializationRequest& request : structRequests) {
+        const std::string childMangled =
+            mangleSpecialization(request.templateName, request.typeArgs);
+        if (!linked.insert(childMangled).second) {
+          continue;
+        }
+        cache.link(childMangled, parentSpecializationMangled(request.enclosingFunction),
+                   request.useSiteLocation);
+      }
+      for (const SpecializationRequest& request : functionRequests) {
+        const std::string childMangled =
+            mangleSpecialization(request.templateName, request.typeArgs);
+        if (!linked.insert(childMangled).second) {
+          continue;
+        }
+        cache.link(childMangled, parentSpecializationMangled(request.enclosingFunction),
+                   request.callSiteLocation);
+      }
+    }
+
+    [[noreturn]] void throwExpansionLimit(SourceLocation location) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "specialization expansion limit exceeded"));
+    }
+
     CompileOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
                                       StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
       CompileOutput output;
@@ -47,7 +85,10 @@ namespace noria {
       TypeChecker checker;
       checker.check(output.module, symbolOrigins);
 
-      constexpr std::size_t kMaxSpecializationRounds = 8;
+      SpecializationCache cache;
+      cache.seedFromModule(output.module);
+
+      constexpr std::size_t kMaxSpecializationRounds = 64;
       constexpr std::size_t kMaxSpecializations = 64;
       std::size_t totalSpecializations = 0;
       SourceLocation lastSpecializationLocation{};
@@ -55,39 +96,44 @@ namespace noria {
       for (std::size_t round = 0; round < kMaxSpecializationRounds; ++round) {
         bool expanded = false;
 
-        if (!checker.structSpecializationRequests().empty()) {
-          const std::vector<StructSpecializationRequest> structRequests =
-              checker.structSpecializationRequests();
+        const std::vector<StructSpecializationRequest> structRequests =
+            checker.structSpecializationRequests();
+        const std::vector<SpecializationRequest> functionRequests =
+            checker.specializationRequests();
+
+        if (!structRequests.empty() || !functionRequests.empty()) {
+          linkNewSpecializations(cache, structRequests, functionRequests);
+        }
+
+        if (!structRequests.empty()) {
           checker.clearStructSpecializationRequests();
           for (const StructSpecializationRequest& request : structRequests) {
             lastSpecializationLocation = request.useSiteLocation;
             propagateStructSpecializationOrigin(symbolOrigins, request.templateName,
                                                 request.typeArgs);
           }
-          totalSpecializations += expandStructSpecializations(output.module, structRequests);
+          totalSpecializations += expandStructSpecializations(output.module, structRequests, cache);
           expanded = true;
         }
 
-        if (!checker.specializationRequests().empty()) {
-          const std::vector<SpecializationRequest> requests = checker.specializationRequests();
+        if (!functionRequests.empty()) {
           checker.clearSpecializationRequests();
-          for (const SpecializationRequest& request : requests) {
+          for (const SpecializationRequest& request : functionRequests) {
             lastSpecializationLocation = request.callSiteLocation;
             propagateFunctionSpecializationOrigin(symbolOrigins, request.templateName,
                                                   request.typeArgs);
           }
-          totalSpecializations += expandSpecializations(output.module, requests);
+          totalSpecializations += expandSpecializations(output.module, functionRequests, cache);
           expanded = true;
         }
 
         if (!expanded) {
+          cache.clearLinks();
           break;
         }
 
         if (totalSpecializations > kMaxSpecializations) {
-          throw CompileError(formatDiagnostic(lastSpecializationLocation,
-                                              DiagnosticStage::TypeCheck,
-                                              "recursive generic specialization"));
+          throwExpansionLimit(lastSpecializationLocation);
         }
 
         checker.check(output.module, symbolOrigins);
@@ -95,8 +141,7 @@ namespace noria {
 
       if (!checker.specializationRequests().empty() ||
           !checker.structSpecializationRequests().empty()) {
-        throw CompileError(formatDiagnostic(lastSpecializationLocation, DiagnosticStage::TypeCheck,
-                                            "recursive generic specialization"));
+        throwExpansionLimit(lastSpecializationLocation);
       }
 
       stripGenericTemplates(output.module);

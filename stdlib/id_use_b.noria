@@ -1,0 +1,5 @@
+import std::generic_id::{id};
+
+fn use_b(x: i32) -> i32 {
+  return id(x);
+}

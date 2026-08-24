@@ -1,4 +1,5 @@
 #include "noria/Compiler.hpp"
+#include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
@@ -268,6 +269,66 @@ fn main() -> i32 {
          "arr-tagged kind specialization is emitted");
   expect(countDefines(implSelectOutput.llvmIr, "kind$s.i32$tag.list") == 1,
          "list-tagged kind specialization is emitted");
+
+  noria::SpecializationCache cache;
+  noria::ast::Module seededModule;
+  noria::ast::Function existing;
+  existing.name = "seed$s.i32";
+  existing.returnType = noria::Type::i32();
+  seededModule.functions.push_back(std::move(existing));
+  cache.seedFromModule(seededModule);
+  expect(cache.hasFunction("seed$s.i32"), "cache seed records existing specialization");
+  expect(!cache.hasFunction("missing$s.i32"), "cache seed does not invent specializations");
+
+  noria::SpecializationCache linkCache;
+  bool linkCycleDetected = false;
+  try {
+    linkCache.link("b$s.i32", "a$s.i32", noria::SourceLocation{});
+    linkCache.link("a$s.i32", "b$s.i32", noria::SourceLocation{});
+  } catch (const noria::CompileError& error) {
+    linkCycleDetected =
+        std::string(error.what()).find("recursive generic specialization: a$s.i32 -> b$s.i32 -> a$s.i32") !=
+        std::string::npos;
+  }
+  expect(linkCycleDetected, "dependency link detects ancestor cycle");
+
+  constexpr std::string_view acyclicChainSource = R"(
+fn f0<T>(x: T) -> i32 { return f1(x); }
+fn f1<T>(x: T) -> i32 { return f2(x); }
+fn f2<T>(x: T) -> i32 { return f3(x); }
+fn f3<T>(x: T) -> i32 { return f4(x); }
+fn f4<T>(x: T) -> i32 { return f5(x); }
+fn f5<T>(x: T) -> i32 { return f6(x); }
+fn f6<T>(x: T) -> i32 { return f7(x); }
+fn f7<T>(x: T) -> i32 { return f8(x); }
+fn f8<T>(x: T) -> i32 { return f9(x); }
+fn f9<T>(x: T) -> i32 { return 0; }
+fn main() -> i32 { return f0(1); }
+)";
+
+  bool acyclicChainCompiles = false;
+  try {
+    noria::compileSource(acyclicChainSource, noria::StopAfter::Ir);
+    acyclicChainCompiles = true;
+  } catch (const noria::CompileError&) {
+    acyclicChainCompiles = false;
+  }
+  expect(acyclicChainCompiles, "acyclic specialization chain compiles");
+
+  constexpr std::string_view growingTypeSource = R"(
+fn grow<T>(x: T) -> i32 { return shrink(x); }
+fn shrink<T>(x: T) -> i32 { return grow([x]); }
+fn main() -> i32 { return grow(1); }
+)";
+
+  bool growingLimitDetected = false;
+  try {
+    noria::compileSource(growingTypeSource, noria::StopAfter::Ir);
+  } catch (const noria::CompileError& error) {
+    growingLimitDetected =
+        std::string(error.what()).find("specialization expansion limit exceeded") != std::string::npos;
+  }
+  expect(growingLimitDetected, "growing specialization chain hits expansion limit");
 
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";

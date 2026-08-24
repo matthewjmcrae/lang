@@ -259,6 +259,8 @@ grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
   "${TEST_OUT_DIR}/generic_conflicting_inference.stderr"
 grep -q "typecheck: arithmetic operator requires matching numeric operands, got bool and i32" \
   "${TEST_OUT_DIR}/generic_instantiation_body_error.stderr"
+grep -q "typecheck: specialization expansion limit exceeded" \
+  "${TEST_OUT_DIR}/generic_recursive_specialization.stderr"
 grep -q "typecheck: type 'Box<i32, bool>' expects 1 type argument(s), got 2" \
   "${TEST_OUT_DIR}/generic_struct_wrong_arity.stderr"
 grep -q "typecheck: unknown type 'Missing<i32>'" \
@@ -611,10 +613,12 @@ echo "[noria-tests] phase 6 generic acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_instantiations.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_reuse_same_type.noria" 3
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_reuse_two_paths.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_params.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_array_param.noria" 10
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_with_comparison.noria" 42
 grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_same_type.ll" | grep -q "^1$"
+grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_two_paths.ll" | grep -q "^1$"
 
 echo "[noria-tests] phase 6 generic struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_box.noria" 42

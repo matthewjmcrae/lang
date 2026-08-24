@@ -770,4 +770,36 @@ No monomorph cache dedup; recursive specialization cycles only partially capped.
 
 Monomorphization cache/dedup + recursive specialization cycles (still Phase 6), not Phase 7 yet.
 
+## Phase 6 — Monomorphization cache and cycle detection
+
+Baseline commit `d46a59a`. Review: APPROVED after dependency-edge cycle fix (round history rejected).
+
+### Objective and acceptance
+
+Add `SpecializationCache` so identical concrete specializations emit once, including across import paths; detect recursive specialization via per-round dependency edges before emit; allow deep acyclic chains while rejecting true cycles and unbounded type growth; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`SpecializationCache` in `Monomorphize.hpp`/`Monomorphize.cpp`: seed, `emitFunction`/`emitStruct` dedup, `link`/`clearLinks`, cycle diagnostic with mangled path. `Compiler.cpp`: seed cache, link each round, clear at fixpoint; raised expansion caps. `TypeChecker.cpp`: struct requests carry `enclosingFunction`. Examples: `generic_reuse_two_paths`, `generic_recursive_specialization`; stdlib `generic_id`, `id_use_a`, `id_use_b`. Extended `generics_test.cpp`, `run_examples.sh`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Dedup keys on mangled names. Dependency edges link pending child to enclosing parent specialization; ancestor walk detects cycles before cloning. Acyclic chains compile; growing type shapes hit the expansion limit with a distinct message.
+
+### Tests, sanitizer, results
+
+All gates green; preexisting basic IR/AST byte-identical. `just test`; `just sanitize`. IR grep confirms one `id$s.i32` for two-path reuse.
+
+### Review findings and resolutions
+
+First review rejected cycle handling tied to round history alone. Fixed with dependency-edge `link` before emit and per-round `clearLinks`; re-review APPROVED.
+
+### Limitations and risks
+
+Expansion caps still bound depth. Import duplicate-export hardening unchanged. Cycle diagnostic depends on enclosing-function propagation.
+
+### Next unit
+
+Import hardening (duplicate exports) still Phase 6, or Phase 7 ADT bodies if import hardening is intentionally deferred.
+
 

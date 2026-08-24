@@ -351,24 +351,6 @@ namespace noria {
       return nullptr;
     }
 
-    bool hasFunctionSpecialization(const ast::Module& module, std::string_view mangledName) {
-      for (const auto& function : module.functions) {
-        if (function.name == mangledName && function.typeParams.empty()) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    bool hasStructSpecialization(const ast::Module& module, std::string_view mangledName) {
-      for (const auto& structDecl : module.structs) {
-        if (structDecl.name == mangledName && structDecl.typeParams.empty()) {
-          return true;
-        }
-      }
-      return false;
-    }
-
     ast::StructDecl cloneStructSpecialization(const ast::StructDecl& templated,
                                               const std::vector<Type>& typeArgs) {
       Substitution substitution;
@@ -433,6 +415,13 @@ namespace noria {
           const std::vector<StructSpecializationRequest>& requests)
           : requests_(requests) {}
 
+      void rewriteFunction(ast::Function& function) {
+        currentFunction_ = function.name;
+        for (const auto& statement : function.body) {
+          statement->accept(*this);
+        }
+      }
+
       void rewriteModule(ast::Module& module) {
         for (auto& structDecl : module.structs) {
           for (auto& field : structDecl.fields) {
@@ -445,9 +434,7 @@ namespace noria {
           for (auto& parameter : function.parameters) {
             parameter.type = rewriteAppliedStructType(parameter.type);
           }
-          for (const auto& statement : function.body) {
-            statement->accept(*this);
-          }
+          rewriteFunction(function);
         }
       }
 
@@ -508,7 +495,8 @@ namespace noria {
 
         for (const auto& request : requests_) {
           if (locationsMatch(literal.location, request.useSiteLocation) &&
-              literal.structName == request.templateName) {
+              literal.structName == request.templateName &&
+              currentFunction_ == request.enclosingFunction) {
             literal.structName = mangleSpecialization(request.templateName, request.typeArgs);
             break;
           }
@@ -534,6 +522,7 @@ namespace noria {
       }
 
       const std::vector<StructSpecializationRequest>& requests_;
+      std::string currentFunction_;
     };
 
     ast::Function cloneSpecialization(const ast::Function& templated,
@@ -619,8 +608,116 @@ namespace noria {
     return out.str();
   }
 
+  void SpecializationCache::seedFromModule(const ast::Module& module) {
+    for (const auto& function : module.functions) {
+      if (function.typeParams.empty()) {
+        emittedFunctions_.insert(function.name);
+      }
+    }
+
+    for (const auto& structDecl : module.structs) {
+      if (structDecl.typeParams.empty()) {
+        emittedStructs_.insert(structDecl.name);
+      }
+    }
+  }
+
+  bool SpecializationCache::hasFunction(std::string_view mangledName) const {
+    return emittedFunctions_.contains(std::string(mangledName));
+  }
+
+  bool SpecializationCache::hasStruct(std::string_view mangledName) const {
+    return emittedStructs_.contains(std::string(mangledName));
+  }
+
+  void SpecializationCache::throwCycle(SourceLocation location, std::string_view childMangled,
+                                       std::string_view parentMangled) const {
+    std::ostringstream out;
+    out << "recursive generic specialization: " << childMangled;
+    std::string current(parentMangled);
+    while (current != childMangled) {
+      out << " -> " << current;
+      const auto parent = dependencyParent_.find(current);
+      if (parent == dependencyParent_.end()) {
+        break;
+      }
+      current = parent->second;
+    }
+    out << " -> " << childMangled;
+    throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
+  }
+
+  void SpecializationCache::link(std::string_view childMangled, std::string_view parentMangled,
+                                 SourceLocation location) {
+    const std::string child(childMangled);
+    if (hasFunction(child) || hasStruct(child)) {
+      return;
+    }
+
+    if (parentMangled.empty()) {
+      return;
+    }
+
+    std::string current(parentMangled);
+    while (true) {
+      if (current == child) {
+        throwCycle(location, child, parentMangled);
+      }
+      const auto parent = dependencyParent_.find(current);
+      if (parent == dependencyParent_.end()) {
+        break;
+      }
+      current = parent->second;
+    }
+
+    dependencyParent_.emplace(child, std::string(parentMangled));
+  }
+
+  void SpecializationCache::clearLinks() {
+    dependencyParent_.clear();
+  }
+
+  std::size_t SpecializationCache::emitFunction(ast::Module& module,
+                                                const SpecializationRequest& request) {
+    const std::string mangledName = mangleSpecialization(request.templateName, request.typeArgs);
+    if (hasFunction(mangledName)) {
+      return 0;
+    }
+
+    const ast::Function* templated =
+        findTemplateFunction(module, request.templateName, findImplTag(request.typeArgs));
+    if (templated == nullptr) {
+      throw CompileError(
+          formatDiagnostic(request.callSiteLocation, DiagnosticStage::TypeCheck,
+                           "unknown generic function '" + request.templateName + "'"));
+    }
+
+    module.functions.push_back(cloneSpecialization(*templated, request.typeArgs));
+    emittedFunctions_.insert(mangledName);
+    return 1;
+  }
+
+  std::size_t SpecializationCache::emitStruct(ast::Module& module,
+                                              const StructSpecializationRequest& request) {
+    const std::string mangledName = mangleSpecialization(request.templateName, request.typeArgs);
+    if (hasStruct(mangledName)) {
+      return 0;
+    }
+
+    const ast::StructDecl* templated = findTemplateStruct(module, request.templateName);
+    if (templated == nullptr) {
+      throw CompileError(formatDiagnostic(request.useSiteLocation, DiagnosticStage::TypeCheck,
+                                          "unknown generic struct '" + request.templateName + "'"));
+    }
+
+    module.structs.push_back(cloneStructSpecialization(*templated, request.typeArgs));
+    emittedStructs_.insert(mangledName);
+    return 1;
+  }
+
   std::size_t expandSpecializations(ast::Module& module,
-                                    const std::vector<SpecializationRequest>& requests) {
+                                    const std::vector<SpecializationRequest>& requests,
+                                    SpecializationCache& cache) {
     std::vector<SpecializationRequest> sorted = requests;
     std::sort(sorted.begin(), sorted.end(),
               [](const SpecializationRequest& left, const SpecializationRequest& right) {
@@ -645,29 +742,17 @@ namespace noria {
       if (!seen.insert(mangledName).second) {
         continue;
       }
-      if (hasFunctionSpecialization(module, mangledName)) {
-        continue;
-      }
 
-      const ast::Function* templated =
-          findTemplateFunction(module, request.templateName, findImplTag(request.typeArgs));
-      if (templated == nullptr) {
-        throw CompileError(
-            formatDiagnostic(request.callSiteLocation, DiagnosticStage::TypeCheck,
-                             "unknown generic function '" + request.templateName + "'"));
-      }
-
-      module.functions.push_back(cloneSpecialization(*templated, request.typeArgs));
-      ++added;
+      added += cache.emitFunction(module, request);
     }
 
     rewriteGenericCallSites(module, requests);
     return added;
   }
 
-  std::size_t
-  expandStructSpecializations(ast::Module& module,
-                              const std::vector<StructSpecializationRequest>& requests) {
+  std::size_t expandStructSpecializations(ast::Module& module,
+                                          const std::vector<StructSpecializationRequest>& requests,
+                                          SpecializationCache& cache) {
     std::vector<StructSpecializationRequest> sorted = requests;
     std::sort(
         sorted.begin(), sorted.end(),
@@ -692,19 +777,8 @@ namespace noria {
       if (!seen.insert(mangledName).second) {
         continue;
       }
-      if (hasStructSpecialization(module, mangledName)) {
-        continue;
-      }
 
-      const ast::StructDecl* templated = findTemplateStruct(module, request.templateName);
-      if (templated == nullptr) {
-        throw CompileError(
-            formatDiagnostic(request.useSiteLocation, DiagnosticStage::TypeCheck,
-                             "unknown generic struct '" + request.templateName + "'"));
-      }
-
-      module.structs.push_back(cloneStructSpecialization(*templated, request.typeArgs));
-      ++added;
+      added += cache.emitStruct(module, request);
     }
 
     StructApplicationRewriteVisitor rewriter(requests);

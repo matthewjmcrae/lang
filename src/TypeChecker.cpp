@@ -1130,7 +1130,7 @@ namespace noria {
                                                SourceLocation location) const {
     checkSpecializationConstraints(templateName, typeArgs, location);
     structSpecializationRequests_.push_back(
-        StructSpecializationRequest{templateName, typeArgs, location});
+        StructSpecializationRequest{templateName, typeArgs, location, currentFunctionName_});
   }
 
   TypeChecker::StructInfo TypeChecker::resolveStructInfo(const Type& structType,
