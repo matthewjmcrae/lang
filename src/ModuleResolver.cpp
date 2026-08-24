@@ -3,6 +3,7 @@
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/Parser.hpp"
+#include "noria/Types.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -16,7 +17,9 @@ namespace noria {
     [[noreturn]] void throwResolverError(SourceLocation location, const std::string& modulePath,
                                          std::string_view message) {
       SourceLocation diagnosticLocation = location;
-      diagnosticLocation.file = modulePath;
+      if (!modulePath.empty()) {
+        diagnosticLocation.file = modulePath;
+      }
       throw CompileError(formatDiagnostic(diagnosticLocation, DiagnosticStage::Import, message));
     }
 
@@ -91,6 +94,76 @@ namespace noria {
       return family;
     }
 
+    void validateImportLists(const std::vector<ast::ImportDecl>& imports,
+                             const std::string& modulePath) {
+      for (const auto& importDecl : imports) {
+        std::unordered_set<std::string> seenNames;
+        for (const auto& importedName : importDecl.names) {
+          if (!seenNames.insert(importedName.name).second) {
+            throwResolverError(importedName.location, modulePath,
+                               "duplicate import '" + importedName.name + "'");
+          }
+        }
+      }
+    }
+
+    void validateModuleExports(const ast::Module& module, const std::string& modulePath) {
+      std::unordered_set<std::string> structNames;
+      for (const auto& structDecl : module.structs) {
+        if (!structNames.insert(structDecl.name).second) {
+          throwResolverError(structDecl.location, modulePath,
+                             "duplicate struct '" + structDecl.name + "'");
+        }
+      }
+
+      std::unordered_map<std::string, std::vector<const ast::Function*>> genericFamilies;
+      std::unordered_set<std::string> exportedFunctionNames;
+
+      for (const auto& function : module.functions) {
+        if (structNames.contains(function.name)) {
+          throwResolverError(function.location, modulePath,
+                             "export '" + function.name + "' is both a function and a struct");
+        }
+
+        if (function.typeParams.empty()) {
+          if (exportedFunctionNames.contains(function.name) ||
+              genericFamilies.contains(function.name)) {
+            throwResolverError(function.location, modulePath,
+                               "duplicate function '" + function.name + "'");
+          }
+          exportedFunctionNames.insert(function.name);
+          continue;
+        }
+
+        if (exportedFunctionNames.contains(function.name)) {
+          throwResolverError(function.location, modulePath,
+                             "duplicate function '" + function.name + "'");
+        }
+
+        std::vector<const ast::Function*>& family = genericFamilies[function.name];
+        for (const ast::Function* candidate : family) {
+          if (function.implTag && candidate->implTag && *function.implTag == *candidate->implTag) {
+            throwResolverError(function.location, modulePath,
+                               "duplicate implementation '" +
+                                   std::string(implementationTagName(*function.implTag)) +
+                                   "' for function '" + function.name + "'");
+          }
+          if (static_cast<bool>(function.implTag) != static_cast<bool>(candidate->implTag)) {
+            throwResolverError(function.location, modulePath,
+                               "function '" + function.name +
+                                   "' mixes tagged and untagged implementations");
+          }
+          if (!function.implTag && !candidate->implTag) {
+            throwResolverError(function.location, modulePath,
+                               "duplicate function '" + function.name + "'");
+          }
+        }
+        family.push_back(&function);
+      }
+
+      validateImportLists(module.imports, modulePath);
+    }
+
     ast::StructDecl takeStruct(ast::Module& module, const std::string& name) {
       for (auto iterator = module.structs.begin(); iterator != module.structs.end(); ++iterator) {
         if (iterator->name == name) {
@@ -150,6 +223,7 @@ namespace noria {
         const std::vector<Token> tokens = lexer.lex();
         Parser parser(tokens);
         ast::Module module = parser.parseModule();
+        validateModuleExports(module, modulePath);
 
         visiting_.insert(modulePath);
         visitingStack_.push_back(modulePath);
@@ -301,8 +375,6 @@ namespace noria {
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
                                  ModuleSourceProvider& provider) {
-    (void)options;
-
     ResolvedProgram resolved;
     resolved.module.imports = std::move(rootModule.imports);
     resolved.module.structs = std::move(rootModule.structs);
@@ -311,6 +383,8 @@ namespace noria {
     if (resolved.module.imports.empty()) {
       return resolved;
     }
+
+    validateImportLists(resolved.module.imports, "");
 
     Resolver resolver(provider, resolved.ownedSources);
     SymbolOrigins symbolOrigins;

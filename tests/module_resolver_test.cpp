@@ -243,6 +243,77 @@ fn main() -> i32 {
   expect(familyResolved.symbolOrigins.functions.at("kind") == "std::impl_family",
          "imported tagged family keeps stdlib origin");
 
+  MemoryModuleSourceProvider intraDupProvider;
+  intraDupProvider.addModule("std::dupmod", R"(
+fn dup() -> i32 { return 1; }
+fn dup() -> i32 { return 2; }
+)");
+  expectThrowsContains(
+      [&] {
+        noria::resolveImports(parseModule(R"(
+import std::dupmod::{dup};
+fn main() -> i32 { return dup(); }
+)"),
+                              noria::CompileOptions{}, intraDupProvider);
+      },
+      "intra-module duplicate function rejected",
+      "import: duplicate function 'dup'");
+
+  MemoryModuleSourceProvider structDupProvider;
+  structDupProvider.addModule("std::pairmod", R"(
+struct Pair {
+  left: i32;
+  right: i32;
+}
+
+struct Pair {
+  first: i32;
+  second: i32;
+}
+)");
+  expectThrowsContains(
+      [&] {
+        noria::resolveImports(parseModule(R"(
+import std::pairmod::{Pair};
+fn main() -> i32 { return 0; }
+)"),
+                              noria::CompileOptions{}, structDupProvider);
+      },
+      "intra-module duplicate struct rejected",
+      "import: duplicate struct 'Pair'");
+
+  MemoryModuleSourceProvider conflictProvider;
+  conflictProvider.addModule("std::conflict", R"(
+struct Box {
+  value: i32;
+}
+
+fn Box() -> i32 {
+  return 1;
+}
+)");
+  expectThrowsContains(
+      [&] {
+        noria::resolveImports(parseModule(R"(
+import std::conflict::{Box};
+fn main() -> i32 { return Box(); }
+)"),
+                              noria::CompileOptions{}, conflictProvider);
+      },
+      "function and struct export conflict rejected",
+      "import: export 'Box' is both a function and a struct");
+
+  expectThrowsContains(
+      [&] {
+        noria::resolveImports(parseModule(R"(
+import std::left::{left, left};
+fn main() -> i32 { return left(); }
+)"),
+                              noria::CompileOptions{}, orderProvider);
+      },
+      "duplicate import name rejected",
+      "import: duplicate import 'left'");
+
   if (failures != 0) {
     std::cerr << failures << " module resolver test failure(s)\n";
     return EXIT_FAILURE;

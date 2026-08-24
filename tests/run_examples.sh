@@ -609,6 +609,20 @@ fi
 grep -q "std::badmath:2:10: typecheck: return type bool does not match expected i32" \
   "${BAD_TYPE_STDERR}"
 
+echo "[noria-tests] phase 6 duplicate export diagnostic"
+DUPEXPORT_STDERR="${TEST_OUT_DIR}/import_dupexport.stderr"
+set +e
+run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+  "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_dupexport.noria" \
+  -o "${TEST_OUT_DIR}/import_dupexport.ll" >"${TEST_OUT_DIR}/import_dupexport.stdout" 2>"${DUPEXPORT_STDERR}"
+dupexport_status="$?"
+set -e
+if [[ "${dupexport_status}" == "0" ]]; then
+  echo "[noria-tests] expected compile failure for import_dupexport.noria" >&2
+  exit 1
+fi
+grep -q "std::dupexport:5:1: import: duplicate function 'dup'" "${DUPEXPORT_STDERR}"
+
 echo "[noria-tests] phase 6 generic acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_two_instantiations.noria" 1

@@ -802,4 +802,36 @@ Expansion caps still bound depth. Import duplicate-export hardening unchanged. C
 
 Import hardening (duplicate exports) still Phase 6, or Phase 7 ADT bodies if import hardening is intentionally deferred.
 
+## Phase 6 — Import hardening (duplicate exports)
+
+Baseline commit `7fc12a0`. Review: APPROVED after root filename preservation fix.
+
+### Objective and acceptance
+
+Reject duplicate exports and import lists at module resolution: intra-module duplicate functions/structs, function–struct name clashes, duplicate or mixed tagged generic families, and duplicate names in `import …::{…}`; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`ModuleResolver.cpp`: `validateImportLists`, `validateModuleExports` (structs, non-generic functions, generic impl families); run after each stdlib parse and on the root import list. `throwResolverError` sets `SourceLocation.file` only when the module path is non-empty so root diagnostics keep legacy `line:col:` formatting. Extended `module_resolver_test.cpp`; `tests/fixtures/bad_stdlib/dupexport.noria` + `import_dupexport.noria`; `run_examples.sh` grep for `std::dupexport:5:1: import: duplicate function 'dup'`.
+
+### Semantic and architectural decisions
+
+Validation lives in the resolver, before merge/typecheck — import-scoped `formatDiagnostic` with `DiagnosticStage::Import`. Generic families reuse the same tagged/untagged consistency rules as the type checker, applied per defining module.
+
+### Tests, sanitizer, results
+
+All gates green; 113 preexisting basic IR/AST byte-identical. `just test`; `just sanitize`.
+
+### Review findings and resolutions
+
+APPROVED after root filename fix: blank module path on root import validation previously overwrote the empty file field and changed root diagnostic shape.
+
+### Limitations and risks
+
+Cross-module duplicate symbols after merge still rely on later stages. No negative coverage for duplicate impl tags or mixed generic families in stdlib fixtures yet.
+
+### Next unit
+
+Phase 7 — ADT stdlib bodies (Sequence/Dictionary/Set). Phase 6 plan checkbox remains unticked while typed buffer/node primitives or tag-selected struct bodies stay deferred.
+
 
