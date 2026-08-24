@@ -1058,4 +1058,36 @@ No full dictionary release/ownership. String hash is djb2-style over bytes; no c
 
 Set.
 
+## Phase 7 — Set bst and hashmap
+
+Baseline commit `4606b17`. Review: APPROVED.
+
+### Objective and acceptance
+
+Ship `Set<T, bst>` and `Set<T, hashmap>` with tag-selected bodies for new/len/insert/contains/remove; reuse dictionary internal storage with dummy `i32` value; constraint-check keys; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `stdlib/set.noria`: opaque `Set<T, I>` handle; `impl bst` via `dictionary_bst` node helpers; `impl hashmap` via `dictionary_hashmap` slot helpers. Examples: `set_bst_ops`, `set_hashmap_ops`; negatives `set_bst_key_unordered`, `set_hashmap_key_unhashable`. Updated `run_examples.sh` (IR greps, constraint diagnostics), `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Set mirrors Dictionary/Sequence: copy aliases storage, idempotent insert, trap on missing remove (bst). Hashmap remove uses tombstones; no value payload beyond dummy zero slot.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Preexisting IR/AST byte-identical. IR grep confirms monomorphized `Set$s.i32$tag.bst` and `Set$s.i32$tag.hashmap`.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+No full set release/ownership. BST remove traps on missing key; hashmap inherits dictionary table-full trap after rehash. No balancing or traversal API.
+
+### Next unit
+
+Heap.
+
 

@@ -164,6 +164,32 @@ fn main() -> i32 {
 }
 ```
 
+## Set (bst and hashmap)
+
+`std::set` exports a generic `Set<T, I>` struct and tag-selected operation families. Implementations reuse the dictionary BST/hashmap storage layout with a dummy `i32` value (same header, keys, and internal search paths as `Dictionary<T, i32, I>`). `bst` elements require `<` and `==`; `hashmap` elements require `==` and V2 `hash` (`i32`, `bool`, `str`).
+
+| Operation | Signature | bst | hashmap |
+| --- | --- | --- | --- |
+| `set_new` | `fn set_new<T, I>(sample: T) -> Set<T, I>` | Empty tree; sample seeds type inference | Empty table (cap 8); sample seeds type inference |
+| `set_len` | `fn set_len<T, I>(s: Set<T, I>) -> i32` | O(1) | O(1) |
+| `set_insert` | `fn set_insert<T, I>(s: Set<T, I>, elem: T) -> Set<T, I>` | Idempotent insert; O(h) | Idempotent insert; O(1) avg |
+| `set_contains` | `fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool` | O(h) | O(1) avg |
+| `set_remove` | `fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I>` | O(h); traps on missing element | O(1) avg; tombstone; traps on missing element |
+
+```noria
+import std::set::{Set, set_contains, set_insert, set_new, set_len};
+
+fn main() -> i32 {
+  let s: Set<i32, hashmap> = set_new(0);
+  s = set_insert(s, 10);
+  s = set_insert(s, 10);
+  if set_len(s) != 1 {
+    return 1;
+  }
+  return set_contains(s, 10);
+}
+```
+
 ```noria
 import std::memory::{memory_probe};
 

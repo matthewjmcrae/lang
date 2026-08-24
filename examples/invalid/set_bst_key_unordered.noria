@@ -1,0 +1,6 @@
+import std::set::{Set, set_new};
+
+fn main() -> i32 {
+  let _: Set<str, bst> = set_new("key");
+  return 0;
+}

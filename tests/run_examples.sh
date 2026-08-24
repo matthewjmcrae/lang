@@ -683,11 +683,24 @@ grep -c '%Dictionary$s.i32$s.i32$tag.hashmap = type' \
 grep -c 'define %Dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$tag.hashmap' \
   "${TEST_OUT_DIR}/dictionary_hashmap_insert_get.ll" | grep -q "^1$"
 
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_bst_ops.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_ops.noria" 0
+grep -c '%Set$s.i32$tag.bst = type' "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
+grep -c 'define %Set$s.i32$tag.bst @set_new$s.i32$tag.bst' \
+  "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
+grep -c '%Set$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/set_hashmap_ops.ll" | grep -q "^1$"
+grep -c 'define %Set$s.i32$tag.hashmap @set_new$s.i32$tag.hashmap' \
+  "${TEST_OUT_DIR}/set_hashmap_ops.ll" | grep -q "^1$"
+
 echo "[noria-tests] phase 7 sequence diagnostics"
 grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
   "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
 grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64" \
   "${TEST_OUT_DIR}/dictionary_hashmap_key_unhashable.stderr"
+grep -q "typecheck: implementation tag 'bst' requires '<' for key type str" \
+  "${TEST_OUT_DIR}/set_bst_key_unordered.stderr"
+grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64; V2 hashes i32, bool, str" \
+  "${TEST_OUT_DIR}/set_hashmap_key_unhashable.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside the standard library" \
