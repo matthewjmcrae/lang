@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; `import std::<path>::{...}` from the bundled `stdlib/` (including nested paths such as `std::memory`); a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables; assignment; arithmetic; comparisons; unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
@@ -42,6 +42,19 @@ Noria source
   -> optional LLVM optimization
   -> native executable
 ```
+
+## Standard library
+
+Container ADTs and algorithms live under `stdlib/` and are imported as `std::…`. See `SYNTAX.md` for full API signatures, complexity notes, and usage examples.
+
+| Module | Type | Implementation tags | Key operations |
+| --- | --- | --- | --- |
+| `std::sequence` | `Sequence<T, I>` | `arr`, `list` | `sequence_new`, `sequence_len`, `sequence_push`, `sequence_pop`, `sequence_get`, `sequence_set`, `sequence_insert`, `sequence_remove` |
+| `std::dictionary` | `Dictionary<K, V, I>` | `bst`, `hashmap` | `dictionary_new`, `dictionary_len`, `dictionary_insert`, `dictionary_contains`, `dictionary_get`, `dictionary_get_or`, `dictionary_remove` |
+| `std::set` | `Set<T, I>` | `bst`, `hashmap` | `set_new`, `set_len`, `set_insert`, `set_contains`, `set_remove` |
+| `std::heap` | (algorithms over `Sequence<T, I>`) | inherits sequence tag | `heappush`, `heappop`, `heapify` |
+
+Implementation tags are chosen at compile time and monomorphize to separate specializations. Observable behavior is the same across tags of a given ADT; only performance characteristics differ (for example, `Sequence<i32, arr>` vs `Sequence<i32, list>`, or `Dictionary<i32, i32, bst>` vs `Dictionary<i32, i32, hashmap>`).
 
 ## Requirements
 
@@ -195,11 +208,11 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (99 programs).
+Passing examples live in `examples/basic` (152 programs).
 
-Negative type-checking examples live in `examples/invalid` (70 programs).
+Negative type-checking examples live in `examples/invalid` (98 programs).
 
-Lexer and parser failure examples live in `examples/invalid_syntax` (15 programs).
+Lexer and parser failure examples live in `examples/invalid_syntax` (19 programs).
 
 Design sketches and superseded stubs live in `examples/future`.
 
@@ -222,7 +235,8 @@ LLVM is used because it lets Noria focus on language implementation while delega
 
 Noria is an intentionally small MVP language. It does not yet support:
 
-- container stdlib ADT bodies beyond the initial `Sequence<T, arr>` scaffold (`sequence_new`, `sequence_len`, `sequence_push`, `sequence_get`, `sequence_set`, `sequence_pop` in `std::sequence`; `list`, `Dictionary`, and `Set` bodies are not implemented yet)
+- `read_char()` input (planned for Phase 8)
+- user-defined modules outside the bundled `stdlib/`
 - `break` or `continue`
 - `for` loops
 - type inference

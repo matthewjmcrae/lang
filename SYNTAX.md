@@ -96,8 +96,8 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | `sequence_get` | `fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
 | `sequence_set` | `fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
 | `sequence_pop` | `fn sequence_pop<T, I>(s: Sequence<T, I>) -> T` | O(1); remove last; traps on empty | O(1); remove last before sentinel; traps on empty |
-| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | Insert at index in `[0, len]`; traps otherwise | O(n) for list; O(n) shift for arr |
-| `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | Remove at index in `[0, len)`; traps otherwise | O(n) walk + unlink for list; O(n) shift for arr |
+| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(n) shift; insert at index in `[0, len]`; traps otherwise | O(n); walk to index + link; insert at index in `[0, len]`; traps otherwise |
+| `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(n) shift; remove at index in `[0, len)`; traps otherwise | O(n); walk + unlink; remove at index in `[0, len)`; traps otherwise |
 
 Callers select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`). A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint.
 
@@ -192,7 +192,7 @@ fn main() -> i32 {
 
 ## Heap (min-heap over Sequence)
 
-`std::heap` exports tag-generic min-heap algorithms over `Sequence<T, I>`. Element type `T` must support `<` at use sites. Semantics are identical for `arr` and `list`; random access makes `arr` asymptotically preferable.
+`std::heap` exports tag-generic min-heap algorithms over `Sequence<T, I>`. Element type `T` must support `<` at use sites. Sift-up and sift-down use `sequence_get` / `sequence_set` to swap parent/child elements in place. Observable min-heap semantics are identical when only the sequence implementation tag changes (`arr` vs `list`); random access makes `arr` asymptotically preferable because each swap pays O(1) indexed access instead of O(n) list traversal.
 
 | Operation | Signature | arr | list |
 | --- | --- | --- | --- |
@@ -214,10 +214,15 @@ fn main() -> i32 {
 ```
 
 ```noria
-import std::memory::{memory_probe};
+import std::heap::{heappop, heappush};
+import std::sequence::{Sequence, sequence_new};
 
 fn main() -> i32 {
-  return memory_probe();
+  let s: Sequence<i32, list> = sequence_new(0);
+  s = heappush(s, 5);
+  s = heappush(s, 3);
+  s = heappush(s, 7);
+  return heappop(s);
 }
 ```
 

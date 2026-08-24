@@ -36,7 +36,7 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 - [x] **Phase 4 — arrays:** Array types, literals, indexing, `len`; indexed places via Phase 2.5 Place path.
 - [x] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
 - [ ] **Phase 6 — generics-modules:** Add source imports, generic structs/functions, compile-time implementation tags, constraints, and reachable-specialization monomorphization.
-- [ ] **Phase 7 — data-structure-stdlib:** Add module-private struct fields (Phase 7.0 prerequisite), then ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
+- [x] **Phase 7 — data-structure-stdlib:** Add module-private struct fields (Phase 7.0 prerequisite), then ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
 - [ ] **Phase 8 — demo-dungeon:** Add `read_char()` input and write a deterministic CLI dungeon game in Noria (`examples/demos/dungeon_cli.noria`) using the standard-library ADTs, with scripted transcript tests.
 - [ ] **Phase 9 — docs-tests polish:** Final harness audit, `--emit-ast` snapshot coverage, standard-library reference, dungeon sample session, resume bullet.
 

@@ -1122,4 +1122,36 @@ No dedicated heap constraint tag; ordering errors surface at `<` use sites. List
 
 Phase 7 docs closeout and plan checkbox.
 
+## Phase 7 — Docs closeout
+
+Baseline commit `3020928`. Review: APPROVED.
+
+### Objective and acceptance
+
+Close Phase 7 by aligning user-facing docs with shipped ADT stdlib (`Sequence`, `Dictionary`, `Set`, heap algorithms); remove stale limitations; tick Phase 7 plan checkbox. No compiler changes.
+
+### Files and behavior changed
+
+`README.md`: expanded current-status paragraph; new Standard library section with module table; example counts (152/98/19); limitations updated (`read_char` deferred, user modules unsupported). `SYNTAX.md`: sequence insert/remove complexity notes; heap semantics and list example. `NORIA_V2_PLAN.md`: Phase 7 checkbox ticked.
+
+### Semantic and architectural decisions
+
+Docs-only closeout: semantics unchanged; documentation reflects implemented APIs, tag-selected specializations, and known debt rather than aspirational features.
+
+### Tests, sanitizer, results
+
+`just test` green. No compiler code touched; sanitizer N/A.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+No ownership/release model yet. `read_char` deferred to Phase 8. User-defined modules outside bundled `stdlib/` still unsupported.
+
+### Next unit
+
+Phase 8 — deterministic CLI dungeon (`read_char`, `examples/demos/dungeon_cli.noria`, scripted transcript tests).
+
 
