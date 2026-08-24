@@ -96,8 +96,8 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | `sequence_get` | `fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
 | `sequence_set` | `fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
 | `sequence_pop` | `fn sequence_pop<T, I>(s: Sequence<T, I>) -> T` | O(1); remove last; traps on empty | O(1); remove last before sentinel; traps on empty |
-| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | Insert at index in `[0, len]`; traps otherwise | arr only |
-| `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | Remove at index in `[0, len)`; traps otherwise | arr only |
+| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | Insert at index in `[0, len]`; traps otherwise | O(n) for list; O(n) shift for arr |
+| `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | Remove at index in `[0, len)`; traps otherwise | O(n) walk + unlink for list; O(n) shift for arr |
 
 Callers select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`). A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint.
 

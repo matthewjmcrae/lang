@@ -962,4 +962,36 @@ List insert/remove unsupported. Pop frees one node only; no full sequence releas
 
 List insert/remove, or Dictionary.
 
+## Phase 7 — Sequence list insert/remove
+
+Baseline commit `8aab61a`. Review: APPROVED. Gates: all green including sanitizer.
+
+### Objective and acceptance
+
+Add `sequence_insert`/`sequence_remove` `impl list` bodies to `Sequence<T, list>`; insert accepts index in `[0, len]` (append at `len`); remove unlinks the node and returns its value; OOB traps via `__rt_trap`; extend arr/list conformance coverage; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`stdlib/sequence.noria`: list insert splices a new node before the index (append reuses push-style tail link); list remove walks, unlinks prev/next, decrements length, and frees the node. Examples: `sequence_list_insert_remove` (exit 55), `sequence_list_insert_oob`, `sequence_list_remove_oob`; extended `sequence_arr_list_conformance` with list insert/remove. Removed invalid `sequence_list_insert_unsupported`. Updated `run_examples.sh`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+List insert/remove share arr index bounds semantics; list uses O(n) walk plus pointer patching instead of element shifts. Remove frees only the detached node — no full sequence release.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Failure tests assert exit 70 and trap message substrings on stderr.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+No full sequence release or ownership model. arr insert still inlines growth where generic-to-generic calls fail typecheck.
+
+### Next unit
+
+Dictionary.
+
 

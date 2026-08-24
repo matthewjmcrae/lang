@@ -651,6 +651,11 @@ grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" 
 grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32$tag.arr' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_push_get.noria" 40
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_pop_set.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_insert_remove.noria" 55
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_insert_oob.noria" 70 \
+  "sequence_insert: index out of bounds"
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_remove_oob.noria" 70 \
+  "sequence_remove: index out of bounds"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_arr_list_conformance.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_nested_id.noria" 0
 grep -c '%Sequence$s.i32$tag.list = type' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
@@ -661,8 +666,6 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_get_oob.noria"
   "sequence_get: index out of bounds"
 
 echo "[noria-tests] phase 7 sequence diagnostics"
-grep -q "typecheck: no implementation of 'sequence_insert' for tag 'list'" \
-  "${TEST_OUT_DIR}/sequence_list_insert_unsupported.stderr"
 grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
   "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \

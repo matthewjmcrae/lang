@@ -192,3 +192,64 @@ fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl arr {
   let remove0: i32 = store_i32_at(s.handle, 0, len - 1);
   return value;
 }
+
+fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I> impl list {
+  let sentinel: __rt_ptr = s.handle;
+  let len: i32 = load_i32_at(sentinel, 4);
+  if index < 0 || index > len {
+    __rt_trap("sequence_insert: index out of bounds\n");
+  }
+  if index == len {
+    let node_bytes: i32 = 16 + size_of();
+    let node: __rt_ptr = alloc_bytes(node_bytes);
+    let value_idx: i32 = 16 / size_of();
+    let store_val: i32 = store_at(node, value_idx, value);
+    let last: __rt_ptr = load_ptr_at(sentinel, 0);
+    let link_prev: i32 = store_ptr_at(node, 0, last);
+    let link_next: i32 = store_ptr_at(node, 1, sentinel);
+    let patch_last: i32 = store_ptr_at(last, 1, node);
+    let patch_sent: i32 = store_ptr_at(sentinel, 0, node);
+    let new_len: i32 = store_i32_at(sentinel, 4, len + 1);
+    return s;
+  }
+  let node: __rt_ptr = load_ptr_at(sentinel, 1);
+  let i: i32 = 0;
+  while i < index {
+    node = load_ptr_at(node, 1);
+    i = i + 1;
+  }
+  let before: __rt_ptr = load_ptr_at(node, 0);
+  let node_bytes: i32 = 16 + size_of();
+  let new_node: __rt_ptr = alloc_bytes(node_bytes);
+  let value_idx: i32 = 16 / size_of();
+  let store_val: i32 = store_at(new_node, value_idx, value);
+  let link_prev: i32 = store_ptr_at(new_node, 0, before);
+  let link_next: i32 = store_ptr_at(new_node, 1, node);
+  let patch_before: i32 = store_ptr_at(before, 1, new_node);
+  let patch_node: i32 = store_ptr_at(node, 0, new_node);
+  let new_len: i32 = store_i32_at(sentinel, 4, len + 1);
+  return s;
+}
+
+fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl list {
+  let sentinel: __rt_ptr = s.handle;
+  let len: i32 = load_i32_at(sentinel, 4);
+  if index < 0 || index >= len {
+    __rt_trap("sequence_remove: index out of bounds\n");
+  }
+  let node: __rt_ptr = load_ptr_at(sentinel, 1);
+  let value_idx: i32 = 16 / size_of();
+  let i: i32 = 0;
+  while i < index {
+    node = load_ptr_at(node, 1);
+    i = i + 1;
+  }
+  let value: T = load_at(node, value_idx);
+  let prev: __rt_ptr = load_ptr_at(node, 0);
+  let next: __rt_ptr = load_ptr_at(node, 1);
+  let patch_prev: i32 = store_ptr_at(prev, 1, next);
+  let patch_next: i32 = store_ptr_at(next, 0, prev);
+  let dec: i32 = store_i32_at(sentinel, 4, len - 1);
+  let free0: i32 = release_bytes(node);
+  return value;
+}
