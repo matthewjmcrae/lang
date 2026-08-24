@@ -994,4 +994,36 @@ No full sequence release or ownership model. arr insert still inlines growth whe
 
 Dictionary.
 
+## Phase 7 — Dictionary\<K,V,bst\>
+
+Baseline commit `d3c64c6`. Review: APPROVED. Gates: all green including sanitizer.
+
+### Objective and acceptance
+
+Ship `Dictionary<K, V, bst>` with tag-selected `impl bst` bodies for new/len/insert/contains/get/get_or/remove; trap on missing get/remove; reject `hashmap`; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `stdlib/dictionary.noria` and `stdlib/internal/dictionary_bst.noria`: module-private handle (len, key/value sizes, root); recursive BST via generic `load_at`/`store_at`. `Builtins.hpp`/`Codegen.cpp`: internal `__rt_null`/`__rt_ptr_eq`; `rt.noria` adds `null_ptr`/`ptr_eq`. Examples: insert/get, contains/remove, get_or, missing-key trap; negative `dictionary_hashmap_unsupported`. Updated `run_examples.sh`, `builtin_registry_test.cpp`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Dictionary follows Sequence: opaque private handle, copy aliases storage, upsert on insert. BST requires `<`/`==` on keys; missing keys trap like Sequence OOB. Node algorithms stay in `std::internal::dictionary_bst`; public API in `std::dictionary`.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. IR grep confirms monomorphized `Dictionary$s.i32$s.i32$tag.bst`. Failure test asserts exit 70 and trap substring.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+`Dictionary<K, V, hashmap>` unsupported. No balancing, ordered traversal API, or full dictionary release. Remove frees detached nodes only.
+
+### Next unit
+
+Dictionary hashmap.
+
 

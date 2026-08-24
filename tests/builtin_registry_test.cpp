@@ -101,6 +101,20 @@ int main() {
   expect(rtTrapDescriptor->parameters[0] == TypeKind::Str, "__rt_trap parameter kind");
   expect(rtTrapDescriptor->returnKind == TypeKind::Void, "__rt_trap return kind");
 
+  const BuiltinSignature* rtNullDescriptor = lookupBuiltin("__rt_null");
+  expect(rtNullDescriptor != nullptr, "lookup __rt_null");
+  expect(rtNullDescriptor->id == BuiltinId::RtNull, "__rt_null id");
+  expect(rtNullDescriptor->arity == 0, "__rt_null arity");
+  expect(rtNullDescriptor->returnKind == TypeKind::RawPtr, "__rt_null return kind");
+
+  const BuiltinSignature* rtPtrEqDescriptor = lookupBuiltin("__rt_ptr_eq");
+  expect(rtPtrEqDescriptor != nullptr, "lookup __rt_ptr_eq");
+  expect(rtPtrEqDescriptor->id == BuiltinId::RtPtrEq, "__rt_ptr_eq id");
+  expect(rtPtrEqDescriptor->arity == 2, "__rt_ptr_eq arity");
+  expect(rtPtrEqDescriptor->parameters[0] == TypeKind::RawPtr, "__rt_ptr_eq left kind");
+  expect(rtPtrEqDescriptor->parameters[1] == TypeKind::RawPtr, "__rt_ptr_eq right kind");
+  expect(rtPtrEqDescriptor->returnKind == TypeKind::Bool, "__rt_ptr_eq return kind");
+
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
 

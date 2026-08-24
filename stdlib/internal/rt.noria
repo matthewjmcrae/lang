@@ -49,3 +49,11 @@ fn store_i32_at(p: __rt_ptr, index: i32, value: i32) -> i32 {
   __rt_store_i32(p, index, value);
   return 0;
 }
+
+fn null_ptr() -> __rt_ptr {
+  return __rt_null();
+}
+
+fn ptr_eq(a: __rt_ptr, b: __rt_ptr) -> bool {
+  return __rt_ptr_eq(a, b);
+}

@@ -30,6 +30,8 @@ namespace noria {
     RtLoadI32,
     RtStoreI32,
     RtTrap,
+    RtNull,
+    RtPtrEq,
   };
 
   enum class Visibility { Public, Internal };
@@ -46,7 +48,7 @@ namespace noria {
     MismatchStyle style;
   };
 
-  inline constexpr std::array<BuiltinSignature, 19> builtinSignatures{{
+  inline constexpr std::array<BuiltinSignature, 21> builtinSignatures{{
       {BuiltinId::Print,
        "print",
        Visibility::Public,
@@ -179,6 +181,20 @@ namespace noria {
        1,
        {TypeKind::Str, TypeKind::Void, TypeKind::Void},
        TypeKind::Void,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtNull,
+       "__rt_null",
+       Visibility::Internal,
+       0,
+       {TypeKind::Void, TypeKind::Void, TypeKind::Void},
+       TypeKind::RawPtr,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtPtrEq,
+       "__rt_ptr_eq",
+       Visibility::Internal,
+       2,
+       {TypeKind::RawPtr, TypeKind::RawPtr, TypeKind::Void},
+       TypeKind::Bool,
        MismatchStyle::PerArgument},
   }};
 

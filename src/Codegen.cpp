@@ -927,6 +927,18 @@ namespace noria {
       emitter.line("call void @\"__noria.rt.trap\"(ptr " + message.text + ")");
       return Value{"", Type::voidType()};
     }
+    case BuiltinId::RtNull: {
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = inttoptr i64 0 to ptr");
+      return Value{result, Type::rawPtr()};
+    }
+    case BuiltinId::RtPtrEq: {
+      const Value left = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value right = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = icmp eq ptr " + left.text + ", " + right.text);
+      return Value{result, Type::boolean()};
+    }
     }
 
     return std::nullopt;

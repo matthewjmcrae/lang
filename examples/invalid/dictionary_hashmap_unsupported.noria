@@ -1,0 +1,6 @@
+import std::dictionary::{Dictionary, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  return 0;
+}

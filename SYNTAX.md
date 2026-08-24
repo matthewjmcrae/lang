@@ -101,7 +101,7 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 
 Callers select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`). A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint.
 
-`bst` and other implementation tags are not implemented yet; selecting them is a compile-time error.
+`bst` and other implementation tags are not implemented for `Sequence` yet; selecting them is a compile-time error.
 
 ```noria
 import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
@@ -125,6 +125,32 @@ fn main() -> i32 {
     return 1;
   }
   return sequence_get(s, 0) + sequence_get(s, 1);
+}
+```
+
+## Dictionary (bst)
+
+`std::dictionary` exports a generic `Dictionary<K, V, I>` struct and a tag-selected `impl bst` operation family. Keys require `<` and `==`; `hashmap` is deferred.
+
+| Operation | Signature | bst |
+| --- | --- | --- |
+| `dictionary_new` | `fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I>` | Empty tree; samples seed type inference |
+| `dictionary_len` | `fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32` | O(1) |
+| `dictionary_insert` | `fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> Dictionary<K, V, I>` | Upsert; O(h) |
+| `dictionary_contains` | `fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool` | O(h) |
+| `dictionary_get` | `fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key |
+| `dictionary_get_or` | `fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V` | O(h) |
+| `dictionary_remove` | `fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key |
+
+Internal runtime helpers `null_ptr` and `ptr_eq` in `std::internal::rt` support empty-child checks on `__rt_ptr`.
+
+```noria
+import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
+  d = dictionary_insert(d, 10, 100);
+  return dictionary_get(d, 10);
 }
 ```
 

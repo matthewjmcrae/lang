@@ -1,0 +1,83 @@
+import std::internal::dictionary_bst::{bst_contains_node, bst_find_node, bst_insert_node,
+                                         bst_min_node, bst_new_node, bst_remove_node, key_index,
+                                         node_bytes, type_size, value_index};
+import std::internal::rt::{alloc_bytes, load_at, load_i32_at, load_ptr_at, null_ptr, ptr_eq,
+                           store_i32_at, store_ptr_at};
+
+struct Dictionary<K, V, I> {
+  private:
+  handle: __rt_ptr;
+}
+
+fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I> impl bst {
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let k_size: i32 = type_size(kSample);
+  let v_size: i32 = type_size(vSample);
+  let init_key_size: i32 = store_i32_at(header, 1, k_size);
+  let init_val_size: i32 = store_i32_at(header, 2, v_size);
+  let init_root: i32 = store_ptr_at(header, 2, null_ptr());
+  return Dictionary<K, V, I> { handle: header };
+}
+
+fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32 impl bst {
+  return load_i32_at(d.handle, 0);
+}
+
+fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> Dictionary<K, V, I> impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let had_key: bool = bst_contains_node(root, key, key_size);
+  let new_root: __rt_ptr = bst_insert_node(root, key, value, key_size, val_size);
+  let patch: i32 = store_ptr_at(d.handle, 2, new_root);
+  if !had_key {
+    let len: i32 = load_i32_at(d.handle, 0);
+    let inc: i32 = store_i32_at(d.handle, 0, len + 1);
+  }
+  return d;
+}
+
+fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  return bst_contains_node(root, key, key_size);
+}
+
+fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    __rt_trap("dictionary_get: key not found\n");
+  }
+  return load_at(node, value_index(key_size, val_size));
+}
+
+fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    return default;
+  }
+  return load_at(node, value_index(key_size, val_size));
+}
+
+fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    __rt_trap("dictionary_remove: key not found\n");
+  }
+  let value: V = load_at(node, value_index(key_size, val_size));
+  let new_root: __rt_ptr = bst_remove_node(root, key, key_size, val_size);
+  let patch: i32 = store_ptr_at(d.handle, 2, new_root);
+  let len: i32 = load_i32_at(d.handle, 0);
+  let dec: i32 = store_i32_at(d.handle, 0, len - 1);
+  return value;
+}
