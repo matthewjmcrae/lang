@@ -6,14 +6,35 @@
 #include "noria/SemanticTables.hpp"
 
 #include <array>
+#include <charconv>
+#include <limits>
 #include <sstream>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 
 namespace noria {
 
   namespace {
+    std::string formatLLVMFloatLiteral(double value) {
+      constexpr std::size_t bufferSize = std::numeric_limits<double>::max_digits10 + 16;
+      std::array<char, bufferSize> buffer{};
+      const auto [end, error] =
+          std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
+                        std::chars_format::general, std::numeric_limits<double>::max_digits10);
+      if (error != std::errc{}) {
+        throw CompileError("codegen: internal error: unable to format f64 literal");
+      }
+
+      std::string text(buffer.data(), end);
+      if (text.find('.') == std::string::npos) {
+        const std::size_t exponent = text.find_first_of("eE");
+        text.insert(exponent == std::string::npos ? text.size() : exponent, ".0");
+      }
+      return text;
+    }
+
     std::string escapeForLLVMString(std::string_view value) {
       std::string escaped;
       for (const unsigned char character : value) {
@@ -377,14 +398,7 @@ namespace noria {
   }
 
   void LLVMGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
-    std::ostringstream literal;
-    literal << floating.value;
-    std::string text = literal.str();
-    if (text.find('.') == std::string::npos && text.find('e') == std::string::npos &&
-        text.find('E') == std::string::npos) {
-      text += ".0";
-    }
-    result_ = Value{text, Type::f64()};
+    result_ = Value{formatLLVMFloatLiteral(floating.value), Type::f64()};
   }
 
   void LLVMGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
@@ -916,7 +930,8 @@ namespace noria {
     const std::string formatPointer = emitter.freshTemp();
     emitter.line(formatPointer +
                  " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0");
-    emitter.line("call i32 @printf(ptr " + formatPointer + ", double " + argument.text + ")");
+    emitter.line("call i32 (ptr, ...) @printf(ptr " + formatPointer + ", double " + argument.text +
+                 ")");
     return Value{"", Type::voidType()};
   }
 

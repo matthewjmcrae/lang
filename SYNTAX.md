@@ -720,6 +720,7 @@ Noria provides a small set of builtin functions:
 |------|-------|------------|--------|
 | `print` | 1 | `str` | `void` |
 | `print_int` | 1 | `i32` | `void` |
+| `print_float` | 1 | `f64` | `void` |
 | `print_char` | 1 | `i32` | `void` |
 | `println` | 0 | — | `void` |
 | `sqrt` | 1 | `f64` | `f64` |
@@ -732,6 +733,7 @@ Example:
 fn main() -> i32 {
   print("Hello, world!");
   print_int(42);
+  print_float(3.14);
   print_char(65);
   println();
   let root: f64 = sqrt(2.0);
@@ -739,8 +741,6 @@ fn main() -> i32 {
   return 0;
 }
 ```
-
-`print_float` is registered in the compiler but currently prints incorrect values on arm64; prefer `print` for output until that is fixed.
 
 ## Expression Statements
 

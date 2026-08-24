@@ -6,7 +6,7 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables with explicit or initializer-inferred types; assignment; arithmetic; `==`/`!=` on `i32`, `f64`, `bool`, and `str` (ordered compares stay numeric); unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; runtime traps for array/string OOB and failed allocations; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables with explicit or initializer-inferred types; assignment; arithmetic; `==`/`!=` on `i32`, `f64`, `bool`, and `str` (ordered compares stay numeric); unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; runtime traps for array/string OOB and failed allocations; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
@@ -118,10 +118,10 @@ That wraps every compiler invocation in `valgrind --leak-check=full --error-exit
 
 ## Continuous Integration
 
-GitHub Actions runs the same compiler test suite on every push and pull request. The workflow installs LLVM, configures CMake, builds the compiler, and runs:
+GitHub Actions runs the same compiler test suite on macOS and Linux for every push and pull request. The workflow installs LLVM, configures CMake, builds the compiler, and runs:
 
 ```bash
-BUILD_DIR=build ./tests/run_examples.sh
+ctest --test-dir build --output-on-failure
 ```
 
 ## Compile A Program To LLVM IR
@@ -245,8 +245,6 @@ Noria is an intentionally small MVP language. It does not yet support:
 - implicit conversions between types
 - float exponent literals (for example, `1e3` does not parse)
 - additional integer types (`i64`, unsigned, or character types)
-
-Known issue: `print_float` is registered but prints incorrect values on arm64 due to a variadic `printf` calling-convention mismatch in codegen; use `print` with string literals for output until that is fixed.
 
 ## Future Work
 

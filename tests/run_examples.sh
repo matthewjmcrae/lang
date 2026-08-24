@@ -521,6 +521,9 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
   "${ROOT_DIR}/examples/basic/hello_world.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
   "${ROOT_DIR}/examples/basic/fizzbuzz.expected"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/float_output.noria" \
+  "${ROOT_DIR}/examples/basic/float_output.expected"
+grep -Fq "call i32 (ptr, ...) @printf(" "${TEST_OUT_DIR}/float_output.ll"
 
 echo "[noria-tests] phase 3 string length acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_length.noria" \

@@ -12,18 +12,35 @@ permissions:
 
 jobs:
   build-and-test:
-    name: Build and test
-    runs-on: macos-latest
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Install LLVM
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
         run: brew install llvm
 
-      - name: Configure LLVM tools
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Configure LLVM tools (macOS)
+        if: runner.os == 'macOS'
         run: echo "LLVM_BIN=$(brew --prefix llvm)/bin" >> "$GITHUB_ENV"
+
+      - name: Configure LLVM tools (Linux)
+        if: runner.os == 'Linux'
+        run: echo "LLVM_BIN=$(llvm-config --bindir)" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         run: cmake -S . -B build
@@ -32,4 +49,4 @@ jobs:
         run: cmake --build build
 
       - name: Run compiler test suite
-        run: BUILD_DIR=build ./tests/run_examples.sh
+        run: ctest --test-dir build --output-on-failure
