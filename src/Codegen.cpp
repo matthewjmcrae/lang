@@ -504,31 +504,6 @@ namespace noria {
     throw CompileError("codegen: internal error: statement visited by expression visitor");
   }
 
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::BinaryExpression& node) {
-    if (isComparison(node.op))
-      comparison_ = &node;
-  }
-
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IntegerLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::FloatLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::StringLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::BoolLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::UnaryExpression&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CastExpression&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IdentifierExpression&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::CallExpression&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ArrayLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IndexExpression&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::StructLiteral&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::FieldAccessExpression&) {}
-
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ReturnStatement&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::LetStatement&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::IfStatement&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::WhileStatement&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::AssignmentStatement&) {}
-  void LlvmIrTextGenerator::ComparisonProbe::visit(const ast::ExpressionStatement&) {}
-
   LlvmIrTextGenerator::PlaceVisitor::PlaceVisitor(const LlvmIrTextGenerator& generator,
                                                   IrEmitter& emitter, CodegenContext& context,
                                                   const std::vector<Scope>& scopes)
@@ -753,15 +728,7 @@ namespace noria {
   LlvmIrTextGenerator::Value
   LlvmIrTextGenerator::generateStringLiteral(const ast::StringLiteral& literal, IrEmitter& emitter,
                                              CodegenContext& context) const {
-    const std::string globalName = "@.str." + std::to_string(context.nextStringGlobal++);
-    const std::size_t length = literal.value.size() + 1;
-    context.globals << globalName << " = private unnamed_addr constant [" << length << " x i8] c\""
-                    << escapeForLlvmString(literal.value) << "\\00\"\n";
-
-    const std::string result = emitter.freshTemp();
-    emitter.line(result + " = getelementptr inbounds [" + std::to_string(length) + " x i8], ptr " +
-                 globalName + ", i32 0, i32 0");
-    return Value{result, Type::str()};
+    return Value{emitCStringPointer(literal.value, emitter, context), Type::str()};
   }
 
   LlvmIrTextGenerator::Value
@@ -1078,12 +1045,6 @@ namespace noria {
   std::string LlvmIrTextGenerator::generateCondition(const ast::Expression& expression,
                                                      IrEmitter& emitter, CodegenContext& context,
                                                      const std::vector<Scope>& scopes) const {
-
-    ComparisonProbe probe;
-    expression.accept(probe);
-    if (const ast::BinaryExpression* binary = probe.comparison())
-      return generateBinaryExpression(*binary, emitter, context, scopes).text;
-
     const Value value = generateRvalue(expression, emitter, context, scopes);
     if (value.type != Type::boolean())
       throw CompileError("codegen: condition must be bool");

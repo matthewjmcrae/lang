@@ -166,36 +166,6 @@ namespace noria {
       LocalBinding result_{};
     };
 
-    class ComparisonProbe final : public ast::AstVisitor {
-    public:
-      const ast::BinaryExpression* comparison() const { return comparison_; }
-
-      void visit(const ast::BinaryExpression& node) override;
-
-      void visit(const ast::IntegerLiteral& node) override;
-      void visit(const ast::FloatLiteral& node) override;
-      void visit(const ast::StringLiteral& node) override;
-      void visit(const ast::BoolLiteral& node) override;
-      void visit(const ast::UnaryExpression& node) override;
-      void visit(const ast::CastExpression& node) override;
-      void visit(const ast::IdentifierExpression& node) override;
-      void visit(const ast::CallExpression& node) override;
-      void visit(const ast::ArrayLiteral& node) override;
-      void visit(const ast::IndexExpression& node) override;
-      void visit(const ast::StructLiteral& node) override;
-      void visit(const ast::FieldAccessExpression& node) override;
-
-      void visit(const ast::ReturnStatement& node) override;
-      void visit(const ast::LetStatement& node) override;
-      void visit(const ast::IfStatement& node) override;
-      void visit(const ast::WhileStatement& node) override;
-      void visit(const ast::AssignmentStatement& node) override;
-      void visit(const ast::ExpressionStatement& node) override;
-
-    private:
-      const ast::BinaryExpression* comparison_ = nullptr;
-    };
-
     std::string generateFunction(const ast::Function& function, CodegenContext& context) const;
     bool generateStatement(const ast::Statement& statement, IrEmitter& emitter,
                            CodegenContext& context, Type expectedReturnType,

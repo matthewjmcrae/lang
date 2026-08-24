@@ -281,7 +281,7 @@ namespace noria {
       std::unique_ptr<ast::Statement> statement_;
     };
 
-    class CallSiteRewriteVisitor final : public ast::AstVisitor {
+    class CallSiteRewriteVisitor final : public ast::MutableAstVisitor {
     public:
       explicit CallSiteRewriteVisitor(const std::vector<SpecializationRequest>& requests)
           : requests_(requests) {}
@@ -293,36 +293,35 @@ namespace noria {
         }
       }
 
-      void visit(const ast::ReturnStatement& node) override { node.expression->accept(*this); }
-      void visit(const ast::LetStatement& node) override { node.initializer->accept(*this); }
-      void visit(const ast::IfStatement& node) override {
+      void visit(ast::ReturnStatement& node) override { node.expression->accept(*this); }
+      void visit(ast::LetStatement& node) override { node.initializer->accept(*this); }
+      void visit(ast::IfStatement& node) override {
         node.condition->accept(*this);
         visitStatements(node.thenBranch);
         visitStatements(node.elseBranch);
       }
-      void visit(const ast::WhileStatement& node) override {
+      void visit(ast::WhileStatement& node) override {
         node.condition->accept(*this);
         visitStatements(node.body);
       }
-      void visit(const ast::AssignmentStatement& node) override {
+      void visit(ast::AssignmentStatement& node) override {
         node.lhs->accept(*this);
         node.rhs->accept(*this);
       }
-      void visit(const ast::ExpressionStatement& node) override { node.expression->accept(*this); }
+      void visit(ast::ExpressionStatement& node) override { node.expression->accept(*this); }
 
-      void visit(const ast::UnaryExpression& node) override { node.operand->accept(*this); }
-      void visit(const ast::CastExpression& node) override { node.expression->accept(*this); }
-      void visit(const ast::BinaryExpression& node) override {
+      void visit(ast::UnaryExpression& node) override { node.operand->accept(*this); }
+      void visit(ast::CastExpression& node) override { node.expression->accept(*this); }
+      void visit(ast::BinaryExpression& node) override {
         node.left->accept(*this);
         node.right->accept(*this);
       }
-      void visit(const ast::CallExpression& node) override {
+      void visit(ast::CallExpression& node) override {
         for (const auto& request : requests_) {
           if (locationsMatch(node.location, request.callSiteLocation) &&
               node.callee == request.templateName &&
               currentFunction_ == request.enclosingFunction) {
-            const_cast<ast::CallExpression&>(node).callee =
-                mangleSpecialization(request.templateName, request.typeArgs);
+            node.callee = mangleSpecialization(request.templateName, request.typeArgs);
             break;
           }
         }
@@ -330,27 +329,27 @@ namespace noria {
           argument->accept(*this);
         }
       }
-      void visit(const ast::ArrayLiteral& node) override {
+      void visit(ast::ArrayLiteral& node) override {
         for (const auto& element : node.elements) {
           element->accept(*this);
         }
       }
-      void visit(const ast::IndexExpression& node) override {
+      void visit(ast::IndexExpression& node) override {
         node.base->accept(*this);
         node.index->accept(*this);
       }
-      void visit(const ast::StructLiteral& node) override {
+      void visit(ast::StructLiteral& node) override {
         for (const auto& field : node.fields) {
           field.value->accept(*this);
         }
       }
-      void visit(const ast::FieldAccessExpression& node) override { node.base->accept(*this); }
+      void visit(ast::FieldAccessExpression& node) override { node.base->accept(*this); }
 
-      void visit(const ast::IntegerLiteral&) override {}
-      void visit(const ast::FloatLiteral&) override {}
-      void visit(const ast::StringLiteral&) override {}
-      void visit(const ast::BoolLiteral&) override {}
-      void visit(const ast::IdentifierExpression&) override {}
+      void visit(ast::IntegerLiteral&) override {}
+      void visit(ast::FloatLiteral&) override {}
+      void visit(ast::StringLiteral&) override {}
+      void visit(ast::BoolLiteral&) override {}
+      void visit(ast::IdentifierExpression&) override {}
 
     private:
       void visitStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements) {
@@ -417,7 +416,7 @@ namespace noria {
       return specialized;
     }
 
-    class StructApplicationRewriteVisitor final : public ast::AstVisitor {
+    class StructApplicationRewriteVisitor final : public ast::MutableAstVisitor {
     public:
       explicit StructApplicationRewriteVisitor(
           const std::vector<StructSpecializationRequest>& requests)
@@ -454,83 +453,81 @@ namespace noria {
         }
       }
 
-      void visit(const ast::ReturnStatement& node) override { node.expression->accept(*this); }
-      void visit(const ast::LetStatement& node) override {
-        const_cast<ast::LetStatement&>(node).type = rewriteAppliedStructType(node.type);
+      void visit(ast::ReturnStatement& node) override { node.expression->accept(*this); }
+      void visit(ast::LetStatement& node) override {
+        node.type = rewriteAppliedStructType(node.type);
         node.initializer->accept(*this);
       }
-      void visit(const ast::IfStatement& node) override {
+      void visit(ast::IfStatement& node) override {
         node.condition->accept(*this);
         visitStatements(node.thenBranch);
         visitStatements(node.elseBranch);
       }
-      void visit(const ast::WhileStatement& node) override {
+      void visit(ast::WhileStatement& node) override {
         node.condition->accept(*this);
         visitStatements(node.body);
       }
-      void visit(const ast::AssignmentStatement& node) override {
+      void visit(ast::AssignmentStatement& node) override {
         node.lhs->accept(*this);
         node.rhs->accept(*this);
       }
-      void visit(const ast::ExpressionStatement& node) override { node.expression->accept(*this); }
+      void visit(ast::ExpressionStatement& node) override { node.expression->accept(*this); }
 
-      void visit(const ast::UnaryExpression& node) override { node.operand->accept(*this); }
-      void visit(const ast::CastExpression& node) override {
-        const_cast<ast::CastExpression&>(node).targetType =
-            rewriteAppliedStructType(node.targetType);
+      void visit(ast::UnaryExpression& node) override { node.operand->accept(*this); }
+      void visit(ast::CastExpression& node) override {
+        node.targetType = rewriteAppliedStructType(node.targetType);
         node.expression->accept(*this);
       }
-      void visit(const ast::BinaryExpression& node) override {
+      void visit(ast::BinaryExpression& node) override {
         node.left->accept(*this);
         node.right->accept(*this);
       }
-      void visit(const ast::CallExpression& node) override {
+      void visit(ast::CallExpression& node) override {
         for (const auto& argument : node.arguments) {
           argument->accept(*this);
         }
       }
-      void visit(const ast::ArrayLiteral& node) override {
+      void visit(ast::ArrayLiteral& node) override {
         for (const auto& element : node.elements) {
           element->accept(*this);
         }
       }
-      void visit(const ast::IndexExpression& node) override {
+      void visit(ast::IndexExpression& node) override {
         node.base->accept(*this);
         node.index->accept(*this);
       }
-      void visit(const ast::StructLiteral& node) override {
-        ast::StructLiteral& literal = const_cast<ast::StructLiteral&>(node);
-        if (!literal.typeArgs.empty()) {
-          if (!containsUnboundTypeParam(Type::structType(literal.structName, literal.typeArgs))) {
-            literal.structName = mangleSpecialization(literal.structName, literal.typeArgs);
-            literal.typeArgs.clear();
+      void visit(ast::StructLiteral& node) override {
+        if (!node.typeArgs.empty()) {
+          if (!containsUnboundTypeParam(Type::structType(node.structName, node.typeArgs))) {
+            node.structName = mangleSpecialization(node.structName, node.typeArgs);
+            node.typeArgs.clear();
           }
-          for (const auto& field : literal.fields) {
+          for (const auto& field : node.fields) {
             field.value->accept(*this);
           }
           return;
         }
 
         for (const auto& request : requests_) {
-          if (locationsMatch(literal.location, request.useSiteLocation) &&
-              literal.structName == request.templateName &&
+          if (locationsMatch(node.location, request.useSiteLocation) &&
+              node.structName == request.templateName &&
               currentFunction_ == request.enclosingFunction) {
-            literal.structName = mangleSpecialization(request.templateName, request.typeArgs);
+            node.structName = mangleSpecialization(request.templateName, request.typeArgs);
             break;
           }
         }
 
-        for (const auto& field : literal.fields) {
+        for (const auto& field : node.fields) {
           field.value->accept(*this);
         }
       }
-      void visit(const ast::FieldAccessExpression& node) override { node.base->accept(*this); }
+      void visit(ast::FieldAccessExpression& node) override { node.base->accept(*this); }
 
-      void visit(const ast::IntegerLiteral&) override {}
-      void visit(const ast::FloatLiteral&) override {}
-      void visit(const ast::StringLiteral&) override {}
-      void visit(const ast::BoolLiteral&) override {}
-      void visit(const ast::IdentifierExpression&) override {}
+      void visit(ast::IntegerLiteral&) override {}
+      void visit(ast::FloatLiteral&) override {}
+      void visit(ast::StringLiteral&) override {}
+      void visit(ast::BoolLiteral&) override {}
+      void visit(ast::IdentifierExpression&) override {}
 
     private:
       void visitStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements) {

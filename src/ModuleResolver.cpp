@@ -403,6 +403,7 @@ namespace noria {
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
                                  ModuleSourceProvider& provider) {
+    (void)options;
     ResolvedProgram resolved;
     resolved.module.imports = std::move(rootModule.imports);
     resolved.module.structs = std::move(rootModule.structs);

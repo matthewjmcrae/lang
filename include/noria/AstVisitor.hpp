@@ -49,4 +49,30 @@ namespace noria::ast {
     virtual void visit(const ExpressionStatement& node) = 0;
   };
 
+  class MutableAstVisitor {
+  public:
+    virtual ~MutableAstVisitor() = default;
+
+    virtual void visit(IntegerLiteral& node) = 0;
+    virtual void visit(FloatLiteral& node) = 0;
+    virtual void visit(StringLiteral& node) = 0;
+    virtual void visit(BoolLiteral& node) = 0;
+    virtual void visit(UnaryExpression& node) = 0;
+    virtual void visit(CastExpression& node) = 0;
+    virtual void visit(BinaryExpression& node) = 0;
+    virtual void visit(IdentifierExpression& node) = 0;
+    virtual void visit(CallExpression& node) = 0;
+    virtual void visit(ArrayLiteral& node) = 0;
+    virtual void visit(IndexExpression& node) = 0;
+    virtual void visit(StructLiteral& node) = 0;
+    virtual void visit(FieldAccessExpression& node) = 0;
+
+    virtual void visit(ReturnStatement& node) = 0;
+    virtual void visit(LetStatement& node) = 0;
+    virtual void visit(IfStatement& node) = 0;
+    virtual void visit(WhileStatement& node) = 0;
+    virtual void visit(AssignmentStatement& node) = 0;
+    virtual void visit(ExpressionStatement& node) = 0;
+  };
+
 } // namespace noria::ast

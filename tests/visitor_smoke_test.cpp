@@ -87,6 +87,31 @@ namespace {
     int expressionStatement_ = 0;
   };
 
+  class RenameMutableVisitor final : public noria::ast::MutableAstVisitor {
+  public:
+    void visit(noria::ast::IdentifierExpression& node) override { node.name = "renamed"; }
+    void visit(noria::ast::LetStatement& node) override { node.name = "renamed_let"; }
+
+    void visit(noria::ast::IntegerLiteral&) override {}
+    void visit(noria::ast::FloatLiteral&) override {}
+    void visit(noria::ast::StringLiteral&) override {}
+    void visit(noria::ast::BoolLiteral&) override {}
+    void visit(noria::ast::UnaryExpression&) override {}
+    void visit(noria::ast::CastExpression&) override {}
+    void visit(noria::ast::BinaryExpression&) override {}
+    void visit(noria::ast::CallExpression&) override {}
+    void visit(noria::ast::ArrayLiteral&) override {}
+    void visit(noria::ast::IndexExpression&) override {}
+    void visit(noria::ast::StructLiteral&) override {}
+    void visit(noria::ast::FieldAccessExpression&) override {}
+
+    void visit(noria::ast::ReturnStatement&) override {}
+    void visit(noria::ast::IfStatement&) override {}
+    void visit(noria::ast::WhileStatement&) override {}
+    void visit(noria::ast::AssignmentStatement&) override {}
+    void visit(noria::ast::ExpressionStatement&) override {}
+  };
+
   noria::ast::Module buildPrintSmokeModule() {
     using noria::SourceLocation;
     using noria::Type;
@@ -132,35 +157,33 @@ namespace {
         std::make_unique<CallExpression>("print", std::move(printArguments), loc), loc));
 
     function.body.push_back(std::make_unique<ReturnStatement>(
-        std::make_unique<IndexExpression>(
-            std::make_unique<StringLiteral>("ab", loc),
-            std::make_unique<IntegerLiteral>(0, loc), loc),
+        std::make_unique<IndexExpression>(std::make_unique<StringLiteral>("ab", loc),
+                                          std::make_unique<IntegerLiteral>(0, loc), loc),
         loc));
 
-    auto ifCondition =
-        std::make_unique<UnaryExpression>(UnaryOperator::Not,
-                                            std::make_unique<BoolLiteral>(false, loc), loc);
+    auto ifCondition = std::make_unique<UnaryExpression>(
+        UnaryOperator::Not, std::make_unique<BoolLiteral>(false, loc), loc);
 
     std::vector<std::unique_ptr<noria::ast::Statement>> whileBody;
-    whileBody.push_back(std::make_unique<AssignmentStatement>(
-        std::make_unique<IdentifierExpression>("x", loc),
-        std::make_unique<IntegerLiteral>(2, loc), loc));
+    whileBody.push_back(
+        std::make_unique<AssignmentStatement>(std::make_unique<IdentifierExpression>("x", loc),
+                                              std::make_unique<IntegerLiteral>(2, loc), loc));
 
     auto whileCondition = std::make_unique<BinaryExpression>(
         BinaryOperator::Less,
-        std::make_unique<CastExpression>(
-            std::make_unique<FloatLiteral>(3.0, loc), Type::i32(), loc),
+        std::make_unique<CastExpression>(std::make_unique<FloatLiteral>(3.0, loc), Type::i32(),
+                                         loc),
         std::make_unique<IntegerLiteral>(4, loc), loc);
 
     std::vector<std::unique_ptr<noria::ast::Statement>> thenBranch;
-    thenBranch.push_back(std::make_unique<WhileStatement>(std::move(whileCondition),
-                                                          std::move(whileBody), loc));
+    thenBranch.push_back(
+        std::make_unique<WhileStatement>(std::move(whileCondition), std::move(whileBody), loc));
 
     std::vector<std::unique_ptr<noria::ast::Statement>> elseBranch;
     elseBranch.push_back(std::make_unique<ReturnStatement>(
         std::make_unique<CastExpression>(
-            std::make_unique<UnaryExpression>(
-                UnaryOperator::Negate, std::make_unique<FloatLiteral>(5.0, loc), loc),
+            std::make_unique<UnaryExpression>(UnaryOperator::Negate,
+                                              std::make_unique<FloatLiteral>(5.0, loc), loc),
             Type::i32(), loc),
         loc));
 
@@ -168,9 +191,9 @@ namespace {
         std::move(ifCondition), std::move(thenBranch), std::move(elseBranch), loc));
 
     function.body.push_back(std::make_unique<ReturnStatement>(
-        std::make_unique<BinaryExpression>(
-            BinaryOperator::Add, std::make_unique<IdentifierExpression>("x", loc),
-            std::make_unique<IntegerLiteral>(6, loc), loc),
+        std::make_unique<BinaryExpression>(BinaryOperator::Add,
+                                           std::make_unique<IdentifierExpression>("x", loc),
+                                           std::make_unique<IntegerLiteral>(6, loc), loc),
         loc));
 
     Module module;
@@ -195,6 +218,7 @@ int main() {
   using noria::ast::CallExpression;
   using noria::ast::CastExpression;
   using noria::ast::ExpressionStatement;
+  using noria::ast::FieldAccessExpression;
   using noria::ast::FloatLiteral;
   using noria::ast::IdentifierExpression;
   using noria::ast::IfStatement;
@@ -205,7 +229,6 @@ int main() {
   using noria::ast::StringLiteral;
   using noria::ast::StructLiteral;
   using noria::ast::StructLiteralField;
-  using noria::ast::FieldAccessExpression;
   using noria::ast::UnaryExpression;
   using noria::ast::UnaryOperator;
   using noria::ast::WhileStatement;
@@ -218,12 +241,11 @@ int main() {
   StringLiteral stringLiteral("s", loc);
   BoolLiteral boolLiteral(true, loc);
   IdentifierExpression identifierExpression("v", loc);
-  UnaryExpression unaryExpression(UnaryOperator::Not,
-                                  std::make_unique<BoolLiteral>(false, loc), loc);
+  UnaryExpression unaryExpression(UnaryOperator::Not, std::make_unique<BoolLiteral>(false, loc),
+                                  loc);
   CastExpression castExpression(std::make_unique<FloatLiteral>(1.0, loc), Type::i32(), loc);
-  BinaryExpression binaryExpression(
-      BinaryOperator::Add, std::make_unique<IntegerLiteral>(1, loc),
-      std::make_unique<IntegerLiteral>(2, loc), loc);
+  BinaryExpression binaryExpression(BinaryOperator::Add, std::make_unique<IntegerLiteral>(1, loc),
+                                    std::make_unique<IntegerLiteral>(2, loc), loc);
   std::vector<std::unique_ptr<noria::ast::Expression>> callArguments;
   callArguments.push_back(std::make_unique<StringLiteral>("a", loc));
   CallExpression callExpression("f", std::move(callArguments), loc);
@@ -235,8 +257,8 @@ int main() {
   std::vector<StructLiteralField> structFields;
   structFields.push_back(StructLiteralField{"x", std::make_unique<IntegerLiteral>(1, loc), loc});
   StructLiteral structLiteral("Point", std::vector<Type>{}, std::move(structFields), loc);
-  FieldAccessExpression fieldAccessExpression(
-      std::make_unique<IdentifierExpression>("p", loc), "x", loc);
+  FieldAccessExpression fieldAccessExpression(std::make_unique<IdentifierExpression>("p", loc), "x",
+                                              loc);
 
   ReturnStatement returnStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
   LetStatement letStatement("a", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
@@ -245,9 +267,8 @@ int main() {
                           std::vector<std::unique_ptr<noria::ast::Statement>>{}, loc);
   WhileStatement whileStatement(std::make_unique<BoolLiteral>(true, loc),
                                 std::vector<std::unique_ptr<noria::ast::Statement>>{}, loc);
-  AssignmentStatement assignmentStatement(
-      std::make_unique<IdentifierExpression>("a", loc), std::make_unique<IntegerLiteral>(1, loc),
-      loc);
+  AssignmentStatement assignmentStatement(std::make_unique<IdentifierExpression>("a", loc),
+                                          std::make_unique<IntegerLiteral>(1, loc), loc);
   ExpressionStatement expressionStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
 
   integerLiteral.accept(counter);
@@ -271,6 +292,15 @@ int main() {
   expressionStatement.accept(counter);
 
   counter.expectEachOnce();
+
+  RenameMutableVisitor renamer;
+  IdentifierExpression mutableIdentifier("before", loc);
+  mutableIdentifier.accept(renamer);
+  expect(mutableIdentifier.name == "renamed", "MutableAstVisitor can mutate expression");
+
+  LetStatement mutableLet("before", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
+  mutableLet.accept(renamer);
+  expect(mutableLet.name == "renamed_let", "MutableAstVisitor can mutate statement");
 
   const noria::ast::Module module = buildPrintSmokeModule();
   std::ostringstream printed;

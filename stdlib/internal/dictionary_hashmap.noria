@@ -176,8 +176,6 @@ fn hashmap_maybe_grow<K, V>(header: __rt_ptr) -> i32 {
 fn hashmap_insert_slot<K, V>(header: __rt_ptr, key: K, value: V) -> bool {
   let key_size: i32 = load_i32_at(header, 1);
   let val_size: i32 = load_i32_at(header, 2);
-  let cap: i32 = load_i32_at(header, 3);
-  let table: __rt_ptr = load_ptr_at(header, 2);
   let stride: i32 = slot_bytes(key_size, val_size);
   let pregrow: i32 = hashmap_maybe_grow(header);
   let cap2: i32 = load_i32_at(header, 3);
