@@ -1,3 +1,4 @@
+#include "noria/AstPrinter.hpp"
 #include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
@@ -5,6 +6,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -329,6 +331,34 @@ fn main() -> i32 { return grow(1); }
         std::string(error.what()).find("specialization expansion limit exceeded") != std::string::npos;
   }
   expect(growingLimitDetected, "growing specialization chain hits expansion limit");
+
+  constexpr std::string_view privateFieldSource = R"(
+struct Box<T> {
+  private:
+  secret: T;
+  public:
+  value: T;
+}
+
+fn main() -> i32 {
+  let b: Box<i32> = Box<i32> { secret: 1, value: 2 };
+  return b.secret + b.value;
+}
+)";
+
+  const noria::CompileOutput privateFieldAstOutput =
+      noria::compileSource(privateFieldSource, noria::StopAfter::Ast);
+  std::ostringstream astOut;
+  noria::printAst(privateFieldAstOutput.module, astOut);
+  expect(astOut.str().find("Field secret: T (private)") != std::string::npos,
+         "private field visibility is printed in AST");
+  expect(astOut.str().find("Field value: T\n") != std::string::npos,
+         "public field visibility has no suffix in AST");
+
+  const noria::CompileOutput privateFieldIrOutput =
+      noria::compileSource(privateFieldSource, noria::StopAfter::Ir);
+  expect(privateFieldIrOutput.llvmIr.find("%Box$s.i32 = type") != std::string::npos,
+         "private generic struct field survives specialization");
 
   if (failures != 0) {
     std::cerr << failures << " generics test(s) failed\n";

@@ -22,6 +22,20 @@ namespace noria {
       throw CompileError("typecheck: internal error: statement visited by expression visitor");
     }
 
+    bool isScalarWitnessType(const Type& type) {
+      return type == Type::i32() || type == Type::f64() || type == Type::boolean() ||
+             type == Type::str();
+    }
+
+    std::optional<Type> firstNonImplTagTypeArg(const std::vector<Type>& typeArgs) {
+      for (const Type& typeArg : typeArgs) {
+        if (typeArg.kind != TypeKind::ImplTag) {
+          return typeArg;
+        }
+      }
+      return std::nullopt;
+    }
+
     bool sameGenericPublicApi(const ast::Function& left, const ast::Function& right) {
       if (left.typeParams.size() != right.typeParams.size()) {
         return false;
@@ -418,6 +432,8 @@ namespace noria {
       return;
     }
 
+    checker_.requireFunctionCallable(call.callee, call.location);
+
     const auto concreteFunction = checker_.functions_.find(call.callee);
     if (concreteFunction != checker_.functions_.end()) {
       if (call.arguments.size() != concreteFunction->second.parameterTypes.size()) {
@@ -465,6 +481,8 @@ namespace noria {
       checker_.unifyTypes(signature.parameters[index].type, actual, bindings,
                           call.arguments[index]->location);
     }
+
+    checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
 
     std::vector<Type> typeArgs;
     typeArgs.reserve(signature.typeParams.size());
@@ -571,6 +589,11 @@ namespace noria {
                                                     "' has no field '" + field.name + "'"));
           }
 
+          checker_.requireFieldVisible(literal.structName,
+                                       StructFieldInfo{templateField->name, templateField->type, 0,
+                                                       templateField->visibility},
+                                       field.location);
+
           const Type actual = checker_.checkRvalue(*field.value);
           checker_.unifyTypes(templateField->type, actual, bindings, field.location);
           provided.emplace(field.name, actual);
@@ -627,6 +650,10 @@ namespace noria {
                                                   field.name + "'"));
         }
 
+        const StructFieldInfo& fieldInfo =
+            structInfo.fields.at(structInfo.fieldIndex.at(field.name));
+        checker_.requireFieldVisible(literal.structName, fieldInfo, field.location);
+
         provided.emplace(field.name, checker_.checkRvalue(*field.value));
       }
 
@@ -674,6 +701,9 @@ namespace noria {
                                                 field.name + "'"));
       }
 
+      const StructFieldInfo& fieldInfo = structInfo.fields.at(structInfo.fieldIndex.at(field.name));
+      checker_.requireFieldVisible(literal.structName, fieldInfo, field.location);
+
       provided.emplace(field.name, checker_.checkRvalue(*field.value));
     }
 
@@ -705,14 +735,17 @@ namespace noria {
     }
 
     const StructInfo structInfo = checker_.resolveStructInfo(baseType, access.location);
-    const auto field = structInfo.fieldIndex.find(access.fieldName);
-    if (field == structInfo.fieldIndex.end()) {
+    const auto fieldIndex = structInfo.fieldIndex.find(access.fieldName);
+    if (fieldIndex == structInfo.fieldIndex.end()) {
       throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
                                           "struct '" + baseType.structName + "' has no field '" +
                                               access.fieldName + "'"));
     }
 
-    result_ = structInfo.fields[field->second].type;
+    const StructFieldInfo& fieldInfo = structInfo.fields[fieldIndex->second];
+    checker_.requireFieldVisible(baseType.structName, fieldInfo, access.location);
+
+    result_ = fieldInfo.type;
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ReturnStatement&) {
@@ -886,19 +919,22 @@ namespace noria {
     }
 
     const StructInfo structInfo = checker_.resolveStructInfo(baseType, access.location);
-    const auto field = structInfo.fieldIndex.find(access.fieldName);
-    if (field == structInfo.fieldIndex.end()) {
+    const auto fieldIndex = structInfo.fieldIndex.find(access.fieldName);
+    if (fieldIndex == structInfo.fieldIndex.end()) {
       throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
                                           "struct '" + baseType.structName + "' has no field '" +
                                               access.fieldName + "'"));
     }
+
+    const StructFieldInfo& fieldInfo = structInfo.fields[fieldIndex->second];
+    checker_.requireFieldVisible(baseType.structName, fieldInfo, access.location);
 
     if (!isFieldAssignmentPlaceBase(*access.base)) {
       invalidAssignmentTarget(access.location);
     }
 
     name_ = fieldAssignmentRootName(*access.base) + "." + access.fieldName;
-    type_ = structInfo.fields[field->second].type;
+    type_ = fieldInfo.type;
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {
@@ -1167,7 +1203,7 @@ namespace noria {
     for (const auto& field : templated.fields) {
       const std::size_t fieldIndex = info.fields.size();
       const Type fieldType = substitute(field.type, substitution);
-      info.fields.push_back(StructFieldInfo{field.name, fieldType, fieldIndex});
+      info.fields.push_back(StructFieldInfo{field.name, fieldType, fieldIndex, field.visibility});
       info.fieldIndex.emplace(field.name, fieldIndex);
     }
 
@@ -1270,7 +1306,7 @@ namespace noria {
         seenFields.insert(field.name);
 
         const std::size_t index = info.fields.size();
-        info.fields.push_back(StructFieldInfo{field.name, field.type, index});
+        info.fields.push_back(StructFieldInfo{field.name, field.type, index, field.visibility});
         info.fieldIndex.emplace(field.name, index);
       }
 
@@ -1321,6 +1357,57 @@ namespace noria {
       return false;
     }
     return isStdlibOrigin(origin->second);
+  }
+
+  bool TypeChecker::isInternalModuleOrigin(const std::string& modulePath) const {
+    return modulePath.rfind("std::internal::", 0) == 0;
+  }
+
+  void TypeChecker::requireFunctionCallable(const std::string& calleeName,
+                                            SourceLocation location) const {
+    const auto origin = symbolOrigins_.functions.find(calleeName);
+    if (origin == symbolOrigins_.functions.end()) {
+      return;
+    }
+
+    if (isInternalModuleOrigin(origin->second) && !isStdlibContext()) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "function '" + calleeName + "' is internal to module '" +
+                                              origin->second + "'"));
+    }
+  }
+
+  std::string TypeChecker::structOriginModule(const std::string& structName) const {
+    const auto origin = symbolOrigins_.structs.find(structName);
+    if (origin == symbolOrigins_.structs.end()) {
+      return "";
+    }
+    return origin->second;
+  }
+
+  std::string TypeChecker::currentModuleOrigin() const {
+    const auto origin = symbolOrigins_.functions.find(currentFunctionName_);
+    if (origin == symbolOrigins_.functions.end()) {
+      return "";
+    }
+    return origin->second;
+  }
+
+  void TypeChecker::requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
+                                        SourceLocation location) const {
+    if (field.visibility == ast::FieldVisibility::Public) {
+      return;
+    }
+
+    const std::string declaringModule = structOriginModule(structName);
+    const std::string useModule = currentModuleOrigin();
+    if (declaringModule == useModule) {
+      return;
+    }
+
+    throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                        "field '" + field.name + "' is private to module '" +
+                                            declaringModule + "'"));
   }
 
   void TypeChecker::checkFunction(const ast::Function& function) {
@@ -1388,6 +1475,66 @@ namespace noria {
                                           "len expects str or array, got " + actual.name()));
     }
 
+    if (descriptor.id == BuiltinId::RtSizeof) {
+      const Type witness = resolveWitnessType(call.location);
+      if (!isScalarWitnessType(witness)) {
+        throw CompileError(
+            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                             "__rt_sizeof requires a scalar element type, got " + witness.name()));
+      }
+      return Type::i32();
+    }
+
+    if (descriptor.id == BuiltinId::RtLoad) {
+      const Type pointer = checkRvalue(*call.arguments[0]);
+      const Type index = checkRvalue(*call.arguments[1]);
+      if (pointer != Type::rawPtr()) {
+        throw CompileError(formatDiagnostic(
+            call.arguments[0]->location, DiagnosticStage::TypeCheck,
+            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
+      }
+      if (index != Type::i32()) {
+        throw CompileError(formatDiagnostic(
+            call.arguments[1]->location, DiagnosticStage::TypeCheck,
+            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
+      }
+      const Type witness = resolveWitnessType(call.location);
+      if (!isScalarWitnessType(witness)) {
+        throw CompileError(
+            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                             "__rt_load requires a scalar element type, got " + witness.name()));
+      }
+      return witness;
+    }
+
+    if (descriptor.id == BuiltinId::RtStore) {
+      const Type pointer = checkRvalue(*call.arguments[0]);
+      const Type index = checkRvalue(*call.arguments[1]);
+      const Type value = checkRvalue(*call.arguments[2]);
+      if (pointer != Type::rawPtr()) {
+        throw CompileError(formatDiagnostic(
+            call.arguments[0]->location, DiagnosticStage::TypeCheck,
+            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
+      }
+      if (index != Type::i32()) {
+        throw CompileError(formatDiagnostic(
+            call.arguments[1]->location, DiagnosticStage::TypeCheck,
+            formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
+      }
+      const Type witness = resolveWitnessType(call.location);
+      if (!isScalarWitnessType(witness)) {
+        throw CompileError(
+            formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                             "__rt_store requires a scalar element type, got " + witness.name()));
+      }
+      if (value != witness) {
+        throw CompileError(
+            formatDiagnostic(call.arguments[2]->location, DiagnosticStage::TypeCheck,
+                             "__rt_store expects " + witness.name() + ", got " + value.name()));
+      }
+      return Type::voidType();
+    }
+
     if (descriptor.style == MismatchStyle::AllArguments) {
       const Type firstType = checkRvalue(*call.arguments[0]);
       const Type secondType = checkRvalue(*call.arguments[1]);
@@ -1403,7 +1550,11 @@ namespace noria {
 
     for (std::size_t index{}; index < descriptor.arity; ++index) {
       const Type actual = checkRvalue(*call.arguments[index]);
-      const Type expected = Type(descriptor.parameters[index]);
+      const TypeKind expectedKind = descriptor.parameters[index];
+      if (expectedKind == TypeKind::TypeParam) {
+        continue;
+      }
+      const Type expected = Type(expectedKind);
       if (actual != expected) {
         throw CompileError(
             formatDiagnostic(call.arguments[index]->location, DiagnosticStage::TypeCheck,
@@ -1412,7 +1563,63 @@ namespace noria {
       }
     }
 
+    if (descriptor.returnKind == TypeKind::TypeParam) {
+      return resolveWitnessType(call.location);
+    }
+
     return Type(descriptor.returnKind);
+  }
+
+  Type TypeChecker::resolveWitnessType(SourceLocation location) const {
+    const auto specialization = functionSpecializationTypeArgs_.find(currentFunctionName_);
+    if (specialization == functionSpecializationTypeArgs_.end()) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "witness-polymorphic runtime builtin requires an "
+                                          "enclosing generic specialization context"));
+    }
+
+    const std::optional<Type> witness = firstNonImplTagTypeArg(specialization->second);
+    if (!witness) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "witness-polymorphic runtime builtin requires an "
+                                          "enclosing generic specialization context"));
+    }
+
+    return *witness;
+  }
+
+  void TypeChecker::seedUnboundTypeParamsFromCaller(
+      std::unordered_map<std::string, Type>& bindings,
+      const std::vector<ast::TypeParameter>& typeParams) const {
+    const auto callerSpecialization = functionSpecializationTypeArgs_.find(currentFunctionName_);
+    if (callerSpecialization == functionSpecializationTypeArgs_.end()) {
+      return;
+    }
+
+    std::vector<Type> callerValueTypeArgs;
+    callerValueTypeArgs.reserve(callerSpecialization->second.size());
+    for (const Type& typeArg : callerSpecialization->second) {
+      if (typeArg.kind != TypeKind::ImplTag) {
+        callerValueTypeArgs.push_back(typeArg);
+      }
+    }
+
+    std::size_t callerIndex{};
+    for (const auto& typeParam : typeParams) {
+      if (bindings.contains(typeParam.name)) {
+        continue;
+      }
+      if (callerIndex >= callerValueTypeArgs.size()) {
+        break;
+      }
+      bindings.emplace(typeParam.name, callerValueTypeArgs[callerIndex]);
+      ++callerIndex;
+    }
+  }
+
+  void TypeChecker::registerFunctionSpecialization(std::string mangledName,
+                                                   std::vector<Type> typeArgs) {
+    functionSpecializationTypeArgs_.emplace(std::move(mangledName), std::move(typeArgs));
   }
 
   Type TypeChecker::checkRvalue(const ast::Expression& expression) {

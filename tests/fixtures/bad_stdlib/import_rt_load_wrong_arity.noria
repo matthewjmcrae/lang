@@ -1,0 +1,5 @@
+import std::rt_load_wrong_arity::{probe};
+
+fn main() -> i32 {
+  return probe(0);
+}

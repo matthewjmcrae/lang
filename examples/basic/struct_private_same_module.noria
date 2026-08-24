@@ -1,0 +1,15 @@
+struct Box {
+  private:
+  secret: i32;
+  public:
+  value: i32;
+}
+
+fn make_box(value: i32, secret: i32) -> Box {
+  return Box { secret: secret, value: value };
+}
+
+fn main() -> i32 {
+  let b: Box = make_box(10, 42);
+  return b.secret + b.value;
+}

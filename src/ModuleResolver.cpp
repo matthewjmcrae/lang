@@ -307,23 +307,51 @@ namespace noria {
                          "module '" + modulePath + "' does not export '" + importedName.name + "'");
     }
 
+    void mergeStdlibDependencies(ast::Module& merged, const ast::Module& stdlibModule,
+                                 Resolver& resolver, SymbolOrigins& symbolOrigins,
+                                 std::unordered_set<std::string>& mergedStdlibModules,
+                                 const std::string& stdlibModulePath) {
+      if (!mergedStdlibModules.insert(stdlibModulePath).second) {
+        return;
+      }
+
+      for (const auto& importDecl : stdlibModule.imports) {
+        rejectInternalImport(importDecl.path, importDecl.location, stdlibModulePath);
+
+        ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
+        const std::string dependencyPath = formatModulePath(importDecl.path);
+
+        for (const auto& importedName : importDecl.names) {
+          mergeImportedName(merged, dependency, dependencyPath, importedName, symbolOrigins);
+        }
+
+        if (isStdlibModulePath(dependencyPath)) {
+          mergeStdlibDependencies(merged, dependency, resolver, symbolOrigins, mergedStdlibModules,
+                                  dependencyPath);
+        }
+      }
+    }
+
     void mergeImportsFromModule(ast::Module& merged, const ast::Module& importSource,
                                 const std::vector<ast::ImportDecl>& imports, Resolver& resolver,
                                 SymbolOrigins& symbolOrigins,
-                                const std::string& importingModulePath) {
+                                const std::string& importingModulePath,
+                                std::unordered_set<std::string>& mergedStdlibModules) {
       (void)importSource;
       for (const auto& importDecl : imports) {
         rejectInternalImport(importDecl.path, importDecl.location, importingModulePath);
 
         ast::Module& dependency = resolver.loadModule(importDecl.path, importDecl.location);
+        const std::string modulePath = formatModulePath(importDecl.path);
 
         for (const auto& importedName : importDecl.names) {
-          const std::string modulePath = formatModulePath(importDecl.path);
           mergeImportedName(merged, dependency, modulePath, importedName, symbolOrigins);
         }
 
-        mergeImportsFromModule(merged, dependency, dependency.imports, resolver, symbolOrigins,
-                               formatModulePath(importDecl.path));
+        if (isStdlibModulePath(modulePath)) {
+          mergeStdlibDependencies(merged, dependency, resolver, symbolOrigins, mergedStdlibModules,
+                                  modulePath);
+        }
       }
     }
 
@@ -388,6 +416,7 @@ namespace noria {
 
     Resolver resolver(provider, resolved.ownedSources);
     SymbolOrigins symbolOrigins;
+    std::unordered_set<std::string> mergedStdlibModules;
     for (const auto& function : resolved.module.functions) {
       symbolOrigins.functions.emplace(function.name, "");
     }
@@ -395,7 +424,7 @@ namespace noria {
       symbolOrigins.structs.emplace(structDecl.name, "");
     }
     mergeImportsFromModule(resolved.module, resolved.module, resolved.module.imports, resolver,
-                           symbolOrigins, "");
+                           symbolOrigins, "", mergedStdlibModules);
     resolved.symbolOrigins = std::move(symbolOrigins);
     return resolved;
   }

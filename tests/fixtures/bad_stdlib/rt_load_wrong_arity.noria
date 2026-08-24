@@ -1,0 +1,4 @@
+fn probe<T>(seed: T) -> T {
+  let p: __rt_ptr = __rt_alloc(8);
+  return __rt_load(p);
+}

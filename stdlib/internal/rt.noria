@@ -18,3 +18,34 @@ fn release_bytes(p: __rt_ptr) -> i32 {
 fn identity_ptr<T>(value: T) -> T {
   return value;
 }
+
+fn size_of<T>() -> i32 {
+  return __rt_sizeof();
+}
+
+fn load_at<T>(p: __rt_ptr, index: i32) -> T {
+  return __rt_load(p, index);
+}
+
+fn store_at<T>(p: __rt_ptr, index: i32, value: T) -> i32 {
+  __rt_store(p, index, value);
+  return 0;
+}
+
+fn load_ptr_at(p: __rt_ptr, index: i32) -> __rt_ptr {
+  return __rt_load_ptr(p, index);
+}
+
+fn store_ptr_at(p: __rt_ptr, index: i32, value: __rt_ptr) -> i32 {
+  __rt_store_ptr(p, index, value);
+  return 0;
+}
+
+fn load_i32_at(p: __rt_ptr, index: i32) -> i32 {
+  return __rt_load_i32(p, index);
+}
+
+fn store_i32_at(p: __rt_ptr, index: i32, value: i32) -> i32 {
+  __rt_store_i32(p, index, value);
+  return 0;
+}

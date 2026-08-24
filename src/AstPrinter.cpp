@@ -219,7 +219,11 @@ namespace noria {
       out << "\n";
       for (const auto& field : structDecl.fields) {
         printIndent(out, 2);
-        out << "Field " << field.name << ": " << field.type.name() << "\n";
+        out << "Field " << field.name << ": " << field.type.name();
+        if (field.visibility == ast::FieldVisibility::Private) {
+          out << " (private)";
+        }
+        out << "\n";
       }
     }
 

@@ -580,6 +580,7 @@ grep -q "typecheck: return type i32 does not match expected Point" \
 
 echo "[noria-tests] phase 6 import acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_math.noria" 25
+run_native_exit_test "${ROOT_DIR}/examples/basic/import_shadow_comparison.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_two_names.noria" 17
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_twice_same_module.noria" 25
 grep -c "define i32 @square" "${TEST_OUT_DIR}/import_twice_same_module.ll" | grep -q "^1$"
@@ -593,6 +594,66 @@ grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
 echo "[noria-tests] phase 6 private runtime ABI"
 run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_memory_probe.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
+
+echo "[noria-tests] phase 7 sequence acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
+grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+
+echo "[noria-tests] phase 7 sequence diagnostics"
+grep -q "typecheck: cannot initialize 's' of type Sequence<i32, list> with Sequence<i32, arr>" \
+  "${TEST_OUT_DIR}/sequence_list_unsupported.stderr"
+grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside the standard library" \
+  "${TEST_OUT_DIR}/use_private_rt_load.stderr"
+grep -q "typecheck: __rt_sizeof requires a scalar element type, got Point" \
+  "${TEST_OUT_DIR}/sequence_struct_element.stderr"
+
+echo "[noria-tests] phase 7.0 private struct field diagnostics"
+grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
+  "${TEST_OUT_DIR}/private_field_read.stderr"
+grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
+  "${TEST_OUT_DIR}/private_field_assign.stderr"
+grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
+  "${TEST_OUT_DIR}/private_struct_literal.stderr"
+grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
+  "${TEST_OUT_DIR}/sequence_handle_swap.stderr"
+
+grep -q "typecheck: function 'store_i32_at' is internal to module 'std::internal::rt'" \
+  "${TEST_OUT_DIR}/use_transitive_internal_rt.stderr"
+
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_private_same_module.noria" 52
+run_native_exit_test "${ROOT_DIR}/examples/basic/comparison_uppercase_ident.noria" 1
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_lowercase.noria" 42
+
+echo "[noria-tests] phase 7 witness runtime bad stdlib diagnostics"
+RT_LOAD_ARITY_STDERR="${TEST_OUT_DIR}/import_rt_load_wrong_arity.stderr"
+set +e
+run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+  "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_rt_load_wrong_arity.noria" \
+  -o "${TEST_OUT_DIR}/import_rt_load_wrong_arity.ll" \
+  >"${TEST_OUT_DIR}/import_rt_load_wrong_arity.stdout" 2>"${RT_LOAD_ARITY_STDERR}"
+rt_load_arity_status="$?"
+set -e
+if [[ "${rt_load_arity_status}" == "0" ]]; then
+  echo "[noria-tests] expected compile failure for import_rt_load_wrong_arity.noria" >&2
+  exit 1
+fi
+grep -q "typecheck: __rt_load expects 2 arguments" "${RT_LOAD_ARITY_STDERR}"
+
+RT_STORE_MISMATCH_STDERR="${TEST_OUT_DIR}/import_rt_store_mismatch.stderr"
+set +e
+run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+  "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_rt_store_mismatch.noria" \
+  -o "${TEST_OUT_DIR}/import_rt_store_mismatch.ll" \
+  >"${TEST_OUT_DIR}/import_rt_store_mismatch.stdout" 2>"${RT_STORE_MISMATCH_STDERR}"
+rt_store_mismatch_status="$?"
+set -e
+if [[ "${rt_store_mismatch_status}" == "0" ]]; then
+  echo "[noria-tests] expected compile failure for import_rt_store_mismatch.noria" >&2
+  exit 1
+fi
+grep -q "typecheck: __rt_store expects i32, got bool" "${RT_STORE_MISMATCH_STDERR}"
 
 echo "[noria-tests] phase 6 import diagnostic file attribution"
 BAD_TYPE_STDERR="${TEST_OUT_DIR}/import_bad_type.stderr"

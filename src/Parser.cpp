@@ -163,17 +163,30 @@ namespace noria {
 
     expect(TokenKind::LeftBrace, "expected '{' after struct name");
 
+    ast::FieldVisibility currentVisibility = ast::FieldVisibility::Public;
     while (!match(TokenKind::RightBrace)) {
       if (peek().kind == TokenKind::End) {
         throw CompileError(formatDiagnostic(peek().location, "unterminated struct body"));
+      }
+
+      if (match(TokenKind::Private)) {
+        expect(TokenKind::Colon, "expected ':' after 'private'");
+        currentVisibility = ast::FieldVisibility::Private;
+        continue;
+      }
+
+      if (match(TokenKind::Public)) {
+        expect(TokenKind::Colon, "expected ':' after 'public'");
+        currentVisibility = ast::FieldVisibility::Public;
+        continue;
       }
 
       const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
       expect(TokenKind::Colon, "expected ':' after field name");
       Type fieldType = parseTypeAnnotation("expected field type");
       expect(TokenKind::Semicolon, "expected ';' after field declaration");
-      decl.fields.push_back(
-          ast::StructField{fieldName.text, std::move(fieldType), fieldName.location});
+      decl.fields.push_back(ast::StructField{fieldName.text, std::move(fieldType),
+                                             fieldName.location, currentVisibility});
     }
 
     typeParamsInScope_ = std::move(savedTypeParams);
@@ -670,29 +683,41 @@ namespace noria {
     if (peek().kind == TokenKind::Identifier) {
       const Token& name = advance();
 
-      if (structLiteralAllowed_ && genericStructNames_.contains(name.text) &&
-          peek().kind == TokenKind::Less) {
-        std::vector<Type> typeArgs = parseTypeArguments();
-        const SourceLocation location = peek().location;
-        expect(TokenKind::LeftBrace, "expected '{' after generic struct type arguments");
-
-        std::vector<ast::StructLiteralField> fields;
-        if (peek().kind != TokenKind::RightBrace) {
-          while (true) {
-            const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
-            expect(TokenKind::Colon, "expected ':' after field name");
-            auto value = parseExpression();
-            fields.push_back(
-                ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
-
-            if (!match(TokenKind::Comma))
-              break;
-          }
+      if (structLiteralAllowed_ && peek().kind == TokenKind::Less) {
+        const std::size_t savedIndex = index_;
+        std::vector<Type> typeArgs;
+        bool parsedStructLiteral = false;
+        try {
+          typeArgs = parseTypeArguments();
+          parsedStructLiteral = peek().kind == TokenKind::LeftBrace;
+        } catch (const CompileError&) {
+          parsedStructLiteral = false;
         }
 
-        expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
-        return std::make_unique<ast::StructLiteral>(name.text, std::move(typeArgs),
-                                                    std::move(fields), location);
+        if (parsedStructLiteral) {
+          const SourceLocation location = peek().location;
+          advance();
+
+          std::vector<ast::StructLiteralField> fields;
+          if (peek().kind != TokenKind::RightBrace) {
+            while (true) {
+              const Token& fieldName = expect(TokenKind::Identifier, "expected field name");
+              expect(TokenKind::Colon, "expected ':' after field name");
+              auto value = parseExpression();
+              fields.push_back(
+                  ast::StructLiteralField{fieldName.text, std::move(value), fieldName.location});
+
+              if (!match(TokenKind::Comma))
+                break;
+            }
+          }
+
+          expect(TokenKind::RightBrace, "expected '}' after struct literal fields");
+          return std::make_unique<ast::StructLiteral>(name.text, std::move(typeArgs),
+                                                      std::move(fields), location);
+        }
+
+        index_ = savedIndex;
       }
 
       if (structLiteralAllowed_ && peek().kind == TokenKind::LeftBrace) {

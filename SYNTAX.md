@@ -80,8 +80,33 @@ Standard-library container implementations may use an internal pointer type and 
 
 - Type `__rt_ptr` — internal raw pointer type (maps to LLVM `ptr`).
 - Builtins `__rt_alloc`, `__rt_realloc`, and `__rt_release` — wrap `malloc`, `realloc`, and `free`.
+- Witness-polymorphic builtins `__rt_sizeof`, `__rt_load`, and `__rt_store` — typed buffer element size, load, and store. These resolve the element type from the enclosing generic specialization context and accept scalar elements only (`i32`, `f64`, `bool`, `str`).
 
 These names are reserved with the `__rt_` prefix. User code cannot import `std::internal::*` modules, annotate variables with `__rt_ptr`, or call internal runtime builtins. Public stdlib modules such as `std::memory` expose safe entry points instead.
+
+## Sequence (arr scaffold)
+
+`std::sequence` exports a generic `Sequence<T, I>` struct and `arr`-backed operations for the first V2 ADT slice:
+
+| Operation | Signature (arr) | Notes |
+| --- | --- | --- |
+| `sequence_new` | `fn sequence_new<T>(sample: T) -> Sequence<T, arr>` | Geometric initial capacity; `sample` seeds element type inference |
+| `sequence_len` | `fn sequence_len<T>(s: Sequence<T, arr>) -> i32` | Current length |
+| `sequence_push` | `fn sequence_push<T>(s: Sequence<T, arr>, value: T) -> Sequence<T, arr>` | Grow/reallocate when full; returns updated handle |
+| `sequence_get` | `fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T` | Load element at index |
+
+`list` and other implementation tags are not implemented yet; selecting them is a compile-time error.
+
+```noria
+import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  s = sequence_push(s, 10);
+  s = sequence_push(s, 20);
+  return sequence_get(s, 0) + sequence_get(s, 1);
+}
+```
 
 ```noria
 import std::memory::{memory_probe};
@@ -504,14 +529,21 @@ fn main() -> i32 {
 
 ## Structs
 
-Declare a struct with named fields and semicolon-terminated field types:
+Declare a struct with named fields and semicolon-terminated field types. Fields are public by default; use `private:` and `public:` section labels inside the struct body to control visibility. A private field is readable, assignable, and initializable only from functions in the same module as the struct:
 
 ```noria
 struct Point {
   x: i32;
   y: i32;
 }
+
+struct Sequence<T, I> {
+  private:
+  handle: __rt_ptr;
+}
 ```
+
+Module-private fields are enforced at typecheck time. Access from another module is rejected with a diagnostic such as `typecheck: field 'handle' is private to module 'std::sequence'`. Struct literals must respect the same rule, so ADTs with private fields are constructible only inside their declaring module — callers use exported constructors such as `sequence_new`.
 
 Construct a struct value with a literal: the struct name followed by `{ field: expr, ... }`. Fields may appear in any order; the compiler stores them in declaration order:
 

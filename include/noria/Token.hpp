@@ -57,6 +57,8 @@ namespace noria {
     Percent,
     As,
     Impl,
+    Private,
+    Public,
     Unknown,
   };
 

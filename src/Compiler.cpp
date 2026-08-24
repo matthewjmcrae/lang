@@ -122,6 +122,8 @@ namespace noria {
             lastSpecializationLocation = request.callSiteLocation;
             propagateFunctionSpecializationOrigin(symbolOrigins, request.templateName,
                                                   request.typeArgs);
+            checker.registerFunctionSpecialization(
+                mangleSpecialization(request.templateName, request.typeArgs), request.typeArgs);
           }
           totalSpecializations += expandSpecializations(output.module, functionRequests, cache);
           expanded = true;
@@ -151,6 +153,7 @@ namespace noria {
       }
 
       LlvmIrTextGenerator generator;
+      generator.setFunctionSpecializationTypeArgs(cache.functionSpecializationTypeArgs());
       output.llvmIr = generator.generate(output.module);
       return output;
     }

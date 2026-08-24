@@ -272,10 +272,16 @@ namespace noria::ast {
     SourceLocation location;
   };
 
+  enum class FieldVisibility {
+    Public,
+    Private,
+  };
+
   struct StructField {
     std::string name;
     Type type;
     SourceLocation location;
+    FieldVisibility visibility = FieldVisibility::Public;
   };
 
   struct StructDecl {

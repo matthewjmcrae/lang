@@ -1,0 +1,44 @@
+import std::internal::rt::{alloc_bytes, load_at, load_i32_at, load_ptr_at, realloc_bytes, size_of,
+                           store_at, store_i32_at, store_ptr_at};
+
+struct Sequence<T, I> {
+  private:
+  handle: __rt_ptr;
+}
+
+fn sequence_new<T>(sample: T) -> Sequence<T, arr> {
+  let cap: i32 = 4;
+  let header: __rt_ptr = alloc_bytes(16);
+  let bytes: i32 = cap * size_of();
+  let data: __rt_ptr = alloc_bytes(bytes);
+  let init0: i32 = store_i32_at(header, 0, 0);
+  let init1: i32 = store_i32_at(header, 1, cap);
+  let init2: i32 = store_ptr_at(header, 1, data);
+  return Sequence<T, arr> { handle: header };
+}
+
+fn sequence_len<T>(s: Sequence<T, arr>) -> i32 {
+  return load_i32_at(s.handle, 0);
+}
+
+fn sequence_push<T>(s: Sequence<T, arr>, value: T) -> Sequence<T, arr> {
+  let len: i32 = load_i32_at(s.handle, 0);
+  let cap: i32 = load_i32_at(s.handle, 1);
+  if len >= cap {
+    let new_cap: i32 = cap * 2;
+    let old_data: __rt_ptr = load_ptr_at(s.handle, 1);
+    let new_bytes: i32 = new_cap * size_of();
+    let new_data: __rt_ptr = realloc_bytes(old_data, new_bytes);
+    let grow0: i32 = store_ptr_at(s.handle, 1, new_data);
+    let grow1: i32 = store_i32_at(s.handle, 1, new_cap);
+  }
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let push0: i32 = store_at(data, len, value);
+  let push1: i32 = store_i32_at(s.handle, 0, len + 1);
+  return s;
+}
+
+fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T {
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  return load_at(data, index);
+}

@@ -15,6 +15,11 @@ namespace noria {
 
   class LlvmIrTextGenerator {
   public:
+    void setFunctionSpecializationTypeArgs(
+        std::unordered_map<std::string, std::vector<Type>> typeArgsByFunction) {
+      functionSpecializationTypeArgs_ = std::move(typeArgsByFunction);
+    }
+
     std::string generate(const ast::Module& module) const;
 
   private:
@@ -44,6 +49,7 @@ namespace noria {
       std::unordered_map<std::string, StructLayout> structs;
       std::ostringstream globals;
       int nextStringGlobal = 0;
+      std::string currentFunctionName;
     };
 
     using Scope = std::unordered_map<std::string, LocalBinding>;
@@ -202,6 +208,8 @@ namespace noria {
                                CodegenContext& context, const std::vector<Scope>& scopes) const;
     std::string emitArrayElementPointer(const Value& base, const Value& indexValue,
                                         const Type& elementType, IrEmitter& emitter) const;
+    std::string emitRawBufferElementPointer(const Value& base, const Value& indexValue,
+                                            const Type& elementType, IrEmitter& emitter) const;
     Value generateRvalue(const ast::Expression& expression, IrEmitter& emitter,
                          CodegenContext& context, const std::vector<Scope>& scopes) const;
 
@@ -238,6 +246,8 @@ namespace noria {
     std::string emitStructTypeDefinitions(const ast::Module& module) const;
     const StructLayout& lookupStructLayout(const CodegenContext& context,
                                            const Type& structType) const;
+
+    mutable std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
   };
 
 } // namespace noria

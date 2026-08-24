@@ -1,0 +1,12 @@
+import std::sequence::{Sequence, sequence_new};
+
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+fn main() -> i32 {
+  let p: Point = Point { x: 1, y: 2 };
+  let s: Sequence<Point, arr> = sequence_new(p);
+  return 0;
+}

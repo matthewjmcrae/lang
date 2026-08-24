@@ -65,6 +65,33 @@ namespace noria {
 
       throw CompileError("codegen: unsupported array element type");
     }
+
+    std::optional<Type> firstNonImplTagTypeArg(const std::vector<Type>& typeArgs) {
+      for (const Type& typeArg : typeArgs) {
+        if (typeArg.kind != TypeKind::ImplTag) {
+          return typeArg;
+        }
+      }
+      return std::nullopt;
+    }
+
+    Type resolveWitnessType(
+        const std::unordered_map<std::string, std::vector<Type>>& specializationTypeArgs,
+        std::string_view currentFunctionName) {
+      const auto specialization = specializationTypeArgs.find(std::string(currentFunctionName));
+      if (specialization == specializationTypeArgs.end()) {
+        throw CompileError("codegen: witness-polymorphic runtime builtin requires an enclosing "
+                           "generic specialization context");
+      }
+
+      const std::optional<Type> witness = firstNonImplTagTypeArg(specialization->second);
+      if (!witness) {
+        throw CompileError("codegen: witness-polymorphic runtime builtin requires an enclosing "
+                           "generic specialization context");
+      }
+
+      return *witness;
+    }
   } // namespace
 
   // main flow
@@ -122,6 +149,7 @@ namespace noria {
 
   std::string LlvmIrTextGenerator::generateFunction(const ast::Function& function,
                                                     CodegenContext& context) const {
+    context.currentFunctionName = function.name;
     const Type returnType = function.returnType;
 
     std::ostringstream out;
@@ -601,6 +629,18 @@ namespace noria {
     return pointer;
   }
 
+  std::string LlvmIrTextGenerator::emitRawBufferElementPointer(const Value& base,
+                                                               const Value& indexValue,
+                                                               const Type& elementType,
+                                                               IrEmitter& emitter) const {
+    const std::size_t size = elementSizeInBytes(elementType);
+    const std::string offset = emitter.freshTemp();
+    emitter.line(offset + " = mul i32 " + indexValue.text + ", " + std::to_string(size));
+    const std::string pointer = emitter.freshTemp();
+    emitter.line(pointer + " = getelementptr i8, ptr " + base.text + ", i32 " + offset);
+    return pointer;
+  }
+
   bool LlvmIrTextGenerator::generateStatement(const ast::Statement& statement, IrEmitter& emitter,
                                               CodegenContext& context, Type expectedReturnType,
                                               std::vector<Scope>& scopes) const {
@@ -812,6 +852,71 @@ namespace noria {
     case BuiltinId::RtRelease: {
       const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
       emitter.line("call void @free(ptr " + pointer.text + ")");
+      return Value{"", Type::voidType()};
+    }
+    case BuiltinId::RtSizeof: {
+      const Type witness =
+          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+      const std::string result = emitter.freshTemp();
+      emitter.line(result + " = add i32 0, " + std::to_string(elementSizeInBytes(witness)));
+      return Value{result, Type::i32()};
+    }
+    case BuiltinId::RtLoad: {
+      const Type witness =
+          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, witness, emitter);
+      const std::string loaded = emitter.freshTemp();
+      emitter.line(loaded + " = load " + llvmType(witness) + ", ptr " + elementPointer);
+      return Value{loaded, witness};
+    }
+    case BuiltinId::RtStore: {
+      const Type witness =
+          resolveWitnessType(functionSpecializationTypeArgs_, context.currentFunctionName);
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, witness, emitter);
+      emitter.line("store " + llvmType(witness) + " " + value.text + ", ptr " + elementPointer);
+      return Value{"", Type::voidType()};
+    }
+    case BuiltinId::RtLoadPtr: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+      const std::string loaded = emitter.freshTemp();
+      emitter.line(loaded + " = load ptr, ptr " + elementPointer);
+      return Value{loaded, Type::rawPtr()};
+    }
+    case BuiltinId::RtStorePtr: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+      emitter.line("store ptr " + value.text + ", ptr " + elementPointer);
+      return Value{"", Type::voidType()};
+    }
+    case BuiltinId::RtLoadI32: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+      const std::string loaded = emitter.freshTemp();
+      emitter.line(loaded + " = load i32, ptr " + elementPointer);
+      return Value{loaded, Type::i32()};
+    }
+    case BuiltinId::RtStoreI32: {
+      const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+      const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+      const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+      const std::string elementPointer =
+          emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+      emitter.line("store i32 " + value.text + ", ptr " + elementPointer);
       return Value{"", Type::voidType()};
     }
     }

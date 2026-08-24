@@ -1,0 +1,5 @@
+import std::sequence::{Sequence};
+
+fn main() -> i32 {
+  return store_i32_at(alloc_bytes(4), 0, 42);
+}

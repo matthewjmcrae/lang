@@ -834,4 +834,36 @@ Cross-module duplicate symbols after merge still rely on later stages. No negati
 
 Phase 7 — ADT stdlib bodies (Sequence/Dictionary/Set). Phase 6 plan checkbox remains unticked while typed buffer/node primitives or tag-selected struct bodies stay deferred.
 
+## Phase 7.0 — Module-private fields and Sequence\<T, arr\> scaffold
+
+Baseline commit `9965751`. Review: APPROVED after two fix rounds (transitive rt leak; import/genericStructNames_ comparison regression).
+
+### Objective and acceptance
+
+Enforce module-private struct fields so stdlib ADTs can hide `__rt_ptr` handles; ship `Sequence<T, arr>` scaffold (`new`/`len`/`push`/`get`); preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+Lexer/Parser/AST: `private`/`public` visibility on struct fields; literals respect privacy. TypeChecker: module-origin checks on field read, assign, and literal init. `stdlib/internal/rt.noria`: typed load/store/size helpers. New `stdlib/sequence.noria`. Examples: `sequence_push_get`, `sequence_f64`, `struct_private_same_module`; negatives for private read/assign/literal, cross-witness handle swap, unsupported `list` tag, struct element type. Updated `run_examples.sh`, `generics_test`, docs.
+
+### Semantic and architectural decisions
+
+Privacy is module-scoped: private fields usable only from the declaring module’s functions. Structs with private fields construct only in-module, forcing exported constructors. `Sequence` is an opaque handle backed by runtime ABI; copy aliases storage.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Preexisting IR/AST byte-identical.
+
+### Review findings and resolutions
+
+APPROVED after blocking transitive `std::internal::rt` leak via public imports and fixing `genericStructNames_` lowercase comparison in parser generic pre-scan.
+
+### Limitations and risks
+
+`Sequence<T, list>` unsupported; no pop/set/insert/remove/bounds. No sequence release/ownership. Dictionary and Set deferred.
+
+### Next unit
+
+Sequence list impl, or remaining Sequence API (pop/set/insert/remove/bounds), then Dictionary.
+
 

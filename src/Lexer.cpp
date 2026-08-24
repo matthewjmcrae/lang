@@ -196,10 +196,13 @@ namespace noria {
     const auto startIndex = index_;
 
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
-        {"fn", TokenKind::Fn},         {"import", TokenKind::Import}, {"struct", TokenKind::Struct},
-        {"return", TokenKind::Return}, {"let", TokenKind::Let},       {"if", TokenKind::If},
-        {"else", TokenKind::Else},     {"while", TokenKind::While},   {"as", TokenKind::As},
-        {"impl", TokenKind::Impl},     {"true", TokenKind::True},     {"false", TokenKind::False},
+        {"fn", TokenKind::Fn},           {"import", TokenKind::Import},
+        {"struct", TokenKind::Struct},   {"return", TokenKind::Return},
+        {"let", TokenKind::Let},         {"if", TokenKind::If},
+        {"else", TokenKind::Else},       {"while", TokenKind::While},
+        {"as", TokenKind::As},           {"impl", TokenKind::Impl},
+        {"private", TokenKind::Private}, {"public", TokenKind::Public},
+        {"true", TokenKind::True},       {"false", TokenKind::False},
     };
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
@@ -420,6 +423,10 @@ namespace noria {
       return "as";
     case TokenKind::Impl:
       return "impl";
+    case TokenKind::Private:
+      return "private";
+    case TokenKind::Public:
+      return "public";
     case TokenKind::Unknown:
       return "unknown";
     }

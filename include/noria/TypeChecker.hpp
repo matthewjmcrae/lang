@@ -24,6 +24,8 @@ namespace noria {
   public:
     void check(const ast::Module& module, const SymbolOrigins& symbolOrigins = {});
 
+    void registerFunctionSpecialization(std::string mangledName, std::vector<Type> typeArgs);
+
     const std::vector<SpecializationRequest>& specializationRequests() const {
       return specializationRequests_;
     }
@@ -183,6 +185,7 @@ namespace noria {
       std::string name;
       Type type;
       std::size_t index;
+      ast::FieldVisibility visibility = ast::FieldVisibility::Public;
     };
 
     struct StructInfo {
@@ -209,6 +212,9 @@ namespace noria {
     PlaceInfo checkPlace(const ast::Expression& place);
     Type checkRvalue(const ast::Expression& expression);
     Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
+    Type resolveWitnessType(SourceLocation location) const;
+    void seedUnboundTypeParamsFromCaller(std::unordered_map<std::string, Type>& bindings,
+                                         const std::vector<ast::TypeParameter>& typeParams) const;
     using Scope = std::unordered_map<std::string, Type>;
     void pushScope();
     void popScope();
@@ -216,7 +222,13 @@ namespace noria {
     Type lookupLocal(const std::string& name, SourceLocation location) const;
 
     bool isStdlibOrigin(const std::string& modulePath) const;
+    bool isInternalModuleOrigin(const std::string& modulePath) const;
     bool isStdlibContext() const;
+    void requireFunctionCallable(const std::string& calleeName, SourceLocation location) const;
+    std::string structOriginModule(const std::string& structName) const;
+    std::string currentModuleOrigin() const;
+    void requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
+                             SourceLocation location) const;
 
     SymbolOrigins symbolOrigins_;
     std::unordered_map<std::string, FunctionSignature> functions_;
@@ -225,6 +237,7 @@ namespace noria {
     std::vector<SpecializationRequest> specializationRequests_;
     mutable std::vector<StructSpecializationRequest> structSpecializationRequests_;
     std::string currentFunctionName_;
+    std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
     std::unordered_map<std::string, StructInfo> structs_;
     std::vector<Scope> scopes_;
   };

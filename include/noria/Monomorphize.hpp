@@ -40,10 +40,16 @@ namespace noria {
     std::size_t emitFunction(ast::Module& module, const SpecializationRequest& request);
     std::size_t emitStruct(ast::Module& module, const StructSpecializationRequest& request);
 
+    const std::unordered_map<std::string, std::vector<Type>>&
+    functionSpecializationTypeArgs() const {
+      return functionSpecializationTypeArgs_;
+    }
+
   private:
     std::unordered_set<std::string> emittedFunctions_;
     std::unordered_set<std::string> emittedStructs_;
     std::unordered_map<std::string, std::string> dependencyParent_;
+    std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
 
     [[noreturn]] void throwCycle(SourceLocation location, std::string_view childMangled,
                                  std::string_view parentMangled) const;

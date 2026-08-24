@@ -75,6 +75,41 @@ namespace noria {
       return type;
     }
 
+    bool containsUnboundTypeParam(const Type& type) {
+      if (type.kind == TypeKind::TypeParam) {
+        return true;
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return containsUnboundTypeParam(*type.element);
+      }
+
+      if (type.kind == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArgs) {
+          if (containsUnboundTypeParam(typeArg)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    Type rewriteAppliedStructType(const Type& type) {
+      if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
+        if (containsUnboundTypeParam(type)) {
+          return type;
+        }
+        return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return Type::array(rewriteAppliedStructType(*type.element));
+      }
+
+      return type;
+    }
+
     class CloneVisitor final : public ast::AstVisitor {
     public:
       CloneVisitor(std::string templateName, std::vector<Type> typeArgs, Substitution substitution)
@@ -171,7 +206,13 @@ namespace noria {
         for (const Type& typeArg : node.typeArgs) {
           typeArgs.push_back(substituteType(typeArg, substitution_));
         }
-        expression_ = std::make_unique<ast::StructLiteral>(node.structName, std::move(typeArgs),
+        std::string structName = node.structName;
+        if (!typeArgs.empty() &&
+            !containsUnboundTypeParam(Type::structType(structName, typeArgs))) {
+          structName = mangleSpecialization(structName, typeArgs);
+          typeArgs.clear();
+        }
+        expression_ = std::make_unique<ast::StructLiteral>(structName, std::move(typeArgs),
                                                            std::move(fields), node.location);
       }
 
@@ -189,7 +230,8 @@ namespace noria {
       void visit(const ast::LetStatement& node) override {
         node.initializer->accept(*this);
         statement_ = std::make_unique<ast::LetStatement>(
-            node.name, substituteType(node.type, substitution_), takeExpression(), node.location);
+            node.name, rewriteAppliedStructType(substituteType(node.type, substitution_)),
+            takeExpression(), node.location);
       }
 
       void visit(const ast::IfStatement& node) override {
@@ -368,45 +410,11 @@ namespace noria {
       specialized.typeParams = {};
       specialized.fields.reserve(templated.fields.size());
       for (const auto& field : templated.fields) {
-        specialized.fields.push_back(
-            ast::StructField{field.name, substituteType(field.type, substitution), field.location});
+        specialized.fields.push_back(ast::StructField{field.name,
+                                                      substituteType(field.type, substitution),
+                                                      field.location, field.visibility});
       }
       return specialized;
-    }
-
-    bool containsUnboundTypeParam(const Type& type) {
-      if (type.kind == TypeKind::TypeParam) {
-        return true;
-      }
-
-      if (type.kind == TypeKind::Array && type.element) {
-        return containsUnboundTypeParam(*type.element);
-      }
-
-      if (type.kind == TypeKind::Struct) {
-        for (const Type& typeArg : type.typeArgs) {
-          if (containsUnboundTypeParam(typeArg)) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-
-    Type rewriteAppliedStructType(const Type& type) {
-      if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
-        if (containsUnboundTypeParam(type)) {
-          return type;
-        }
-        return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
-      }
-
-      if (type.kind == TypeKind::Array && type.element) {
-        return Type::array(rewriteAppliedStructType(*type.element));
-      }
-
-      return type;
     }
 
     class StructApplicationRewriteVisitor final : public ast::AstVisitor {
@@ -424,12 +432,20 @@ namespace noria {
 
       void rewriteModule(ast::Module& module) {
         for (auto& structDecl : module.structs) {
+          if (!structDecl.typeParams.empty()) {
+            continue;
+          }
+
           for (auto& field : structDecl.fields) {
             field.type = rewriteAppliedStructType(field.type);
           }
         }
 
         for (auto& function : module.functions) {
+          if (!function.typeParams.empty()) {
+            continue;
+          }
+
           function.returnType = rewriteAppliedStructType(function.returnType);
           for (auto& parameter : function.parameters) {
             parameter.type = rewriteAppliedStructType(parameter.type);
@@ -485,8 +501,10 @@ namespace noria {
       void visit(const ast::StructLiteral& node) override {
         ast::StructLiteral& literal = const_cast<ast::StructLiteral&>(node);
         if (!literal.typeArgs.empty()) {
-          literal.structName = mangleSpecialization(literal.structName, literal.typeArgs);
-          literal.typeArgs.clear();
+          if (!containsUnboundTypeParam(Type::structType(literal.structName, literal.typeArgs))) {
+            literal.structName = mangleSpecialization(literal.structName, literal.typeArgs);
+            literal.typeArgs.clear();
+          }
           for (const auto& field : literal.fields) {
             field.value->accept(*this);
           }
@@ -590,7 +608,8 @@ namespace noria {
     case TypeKind::ImplTag:
       return "tag." + std::string(implementationTagName(type.implTag));
     case TypeKind::TypeParam:
-      throw CompileError("internal: cannot mangle unsubstituted type parameter");
+      throw CompileError("internal: cannot mangle unsubstituted type parameter '" +
+                         type.typeParamName + "'");
     case TypeKind::Void:
       return "s.void";
     }
@@ -694,6 +713,7 @@ namespace noria {
 
     module.functions.push_back(cloneSpecialization(*templated, request.typeArgs));
     emittedFunctions_.insert(mangledName);
+    functionSpecializationTypeArgs_.emplace(mangledName, request.typeArgs);
     return 1;
   }
 

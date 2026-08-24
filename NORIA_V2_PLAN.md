@@ -8,17 +8,19 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 
 **Branch:** `mmcrae/v2` — Phases 0–5 are implemented; Phase 6 is next.
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| 0 — type-refactor | **Done** | Canonical `Type` in `Types.hpp`; `llvmType` adapter |
-| 1 — operators | **Done** | Unary, logical, bitwise, `%`, `else if`, `as` |
-| 2 — floats-io-cast | **Done** | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world |
-| 2.5 — architecture refactor | **Done** | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place |
-| 3 — strings | **Done** | `len`, `s[i]`, `str + str`, escapes; `print(str)` |
-| 4 — arrays | **Done** | `[T]`, literals, `len`, index read/write places |
-| 5 — structs | **Done** | Decl, construction, field r/w, by-value params/returns |
-| 6 — generics-modules | **Partial** | `import std::…`, generic functions; structs/tags pending |
-| 7–9 | **Not started** | Blocked on 6 |
+
+| Phase                       | Status          | Notes                                                              |
+| --------------------------- | --------------- | ------------------------------------------------------------------ |
+| 0 — type-refactor           | **Done**        | Canonical `Type` in `Types.hpp`; `llvmType` adapter                |
+| 1 — operators               | **Done**        | Unary, logical, bitwise, `%`, `else if`, `as`                      |
+| 2 — floats-io-cast          | **Done**        | `f64`, print builtins, casts, `sqrt`/`pow`; FizzBuzz + hello world |
+| 2.5 — architecture refactor | **Done**        | Types, diagnostics, builtins, Visitor, facade, IrEmitter, Place    |
+| 3 — strings                 | **Done**        | `len`, `s[i]`, `str + str`, escapes; `print(str)`                  |
+| 4 — arrays                  | **Done**        | `[T]`, literals, `len`, index read/write places                    |
+| 5 — structs                 | **Done**        | Decl, construction, field r/w, by-value params/returns             |
+| 6 — generics-modules        | **Partial**     | `import std::…`, generic functions; structs/tags pending           |
+| 7–9                         | **Not started** | Blocked on 6                                                       |
+
 
 **Regression gate:** `just test` (99 `examples/basic`, 66 `examples/invalid`, 13 `examples/invalid_syntax`, C++ unit tests). Use `just sanitize` after AST ownership, string storage, Place, or pointer-arithmetic changes.
 
@@ -34,9 +36,11 @@ The work is sequenced so each phase ends in a compiling, testable state, and the
 - [x] **Phase 4 — arrays:** Array types, literals, indexing, `len`; indexed places via Phase 2.5 Place path.
 - [x] **Phase 5 — structs:** Struct decls, construction, field access (rvalue + lvalue), pass by value.
 - [ ] **Phase 6 — generics-modules:** Add source imports, generic structs/functions, compile-time implementation tags, constraints, and reachable-specialization monomorphization.
-- [ ] **Phase 7 — data-structure-stdlib:** Ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
+- [ ] **Phase 7 — data-structure-stdlib:** Add module-private struct fields (Phase 7.0 prerequisite), then ship implementation-independent `Sequence`, `Dictionary`, and `Set` APIs plus generic heap algorithms in Noria source.
 - [ ] **Phase 8 — demo-dungeon:** Add `read_char()` input and write a deterministic CLI dungeon game in Noria (`examples/demos/dungeon_cli.noria`) using the standard-library ADTs, with scripted transcript tests.
 - [ ] **Phase 9 — docs-tests polish:** Final harness audit, `--emit-ast` snapshot coverage, standard-library reference, dungeon sample session, resume bullet.
+
+
 
 ## Architecture today (what we're extending)
 
@@ -66,11 +70,14 @@ Codegen remains string-based with a stack/alloca model and `vector<Scope>` of bi
 - Generics: generic structs and functions are monomorphized for reachable concrete type/tag combinations. No runtime type erasure, virtual dispatch, or implementation-tag branching.
 - Standard library: container APIs and algorithms live under `stdlib/` as Noria source modules. A small private runtime ABI provides allocation and typed buffer/node operations; it is not a user-facing pointer or allocator API.
 - Container semantics: `Sequence`, `Dictionary`, and `Set` are opaque heap-backed handles. Copying or passing a handle aliases the same container; all implementations of an ADT expose the same observable API while retaining implementation-specific complexity.
+- ADT encapsulation: container backing storage (`__rt_ptr` handles, node headers, and similar) is declared as module-private struct fields, not public members. Callers construct ADTs only through exported module functions such as `sequence_new`; direct struct-literal or field access to private members is rejected at typecheck time.
 - `print` is a set of recognized builtins backed by libc `printf`/`putchar`: `print(str)`, `print_int(i32)`, `print_float(f64)`, `print_char(i32)`, `println()`.
 - Input: Phase 8 adds `read_char() -> i32`, backed by libc `getchar`; it returns the next byte as an `i32` or `-1` at EOF. It is intentionally deferred so Phase 2.5 remains behavior-preserving.
 - Casts use an `as` expression: `x as f64` -> `sitofp`, `y as i32` -> `fptosi`/`trunc`.
 - Math: `sqrt`, `pow` via LLVM intrinsics (`@llvm.sqrt.f64`, `@llvm.pow.f64`).
 - Testing discipline (non-negotiable): **every feature ships with its tests in the same phase, not later.** Each phase ends with a "Tests" checklist; a phase is not "done" until those tests pass and the full suite is green. Phase 9 is final polish only. Each new feature adds: (1) a positive `examples/basic` (or `examples/demos`) program; (2) at least one negative case in `examples/invalid`; and (3) where applicable, an exit-code or stdout assertion in `tests/run_examples.sh`. **All existing examples stay green after every phase and every Phase 2.5 checkpoint** as the regression gate.
+
+
 
 ## Phase 0 - Type representation refactor (foundation) — DONE
 
@@ -81,6 +88,8 @@ Generalized the two flat enums so later phases add cases instead of reshaping ev
 - `tests/type_representation_test.cpp` covers equality and `name()`.
 - Negative examples exercise `f64`/`str` type names in diagnostics.
 
+
+
 ## Phase 1 - Operators + control-flow polish — DONE
 
 - Lexer: `!`, `&&`, `||`, `&`, `|`, `^`, `~`, `<<`, `>>`, `%`, `as`.
@@ -89,6 +98,8 @@ Generalized the two flat enums so later phases add cases instead of reshaping ev
 - TypeChecker + Codegen: short-circuit `&&`/`||`, unary/bitwise/`%`.
 - Tests: `examples/basic/unary_operators.noria`, `logical_operators.noria`, `bitwise.noria`, `short_circuit_*`, `else_if.noria`, and matching `examples/invalid/` cases.
 
+
+
 ## Phase 2 - Floats, I/O, casts — DONE
 
 - `f64` end to end: float literals, `FloatLiteral`, `fadd`/`fsub`/`fmul`/`fdiv`, `fcmp`.
@@ -96,70 +107,72 @@ Generalized the two flat enums so later phases add cases instead of reshaping ev
 - Print builtins, `as` casts, `sqrt`/`pow` intrinsics.
 - Acceptance: `hello_world.noria`, `fizzbuzz.noria` (stdout goldens); `float_math`, `cast_*`, `math_builtins`.
 
+
+
 ## Phase 2.5 - Architecture refactor (pre-strings gate) — DONE
 
 **Goal:** Behavior-preserving structural cleanup before finishing strings, arrays, and structs. No new language surface area. Split into independently green checkpoints; run `just test` after each.
 
 ### Design patterns and touch points
 
-| Pattern | Where | Purpose |
-|---------|-------|---------|
-| **Canonical Type + Adapter** | `Types.hpp`/`Types.cpp`, AST, TypeChecker, Codegen | One language-level `Type`; `llvmType(const Type&)` maps to LLVM spellings; aggregate layouts live in codegen context, not in `Type` |
-| **Visitor** | `AstVisitor.hpp`, TypeChecker, Codegen, AstPrinter | Replace parallel `dynamic_cast` chains; void-returning `visit` with pass-local result wrappers |
-| **Facade** | `Compiler.hpp`/`Compiler.cpp`, `main.cpp` | `compileSource()` with `StopAfter { Tokens, Ast, Typed, Ir }`; CLI/file I/O/optimization/linking stay in `main` |
-| **Registry** | `Builtins.hpp` | `BuiltinId` keyed descriptor table shared by TypeChecker (validation) and Codegen (emission) |
-| **Context Object + Builder** | `CodegenContext`, `IrEmitter` | Replace `mutable` module state and threaded temp/label counters; thin load/store/GEP/branch helpers |
-| **Postfix + Place** | `Parser::parsePostfix`, `AssignmentStatement`, TypeChecker, Codegen | Postfix loop for calls (extracted from `parsePrimary`); assignment `lhs` becomes owned expression; `checkPlace`/`generatePlace` for identifiers initially |
+
+| Pattern                      | Where                                                               | Purpose                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Canonical Type + Adapter** | `Types.hpp`/`Types.cpp`, AST, TypeChecker, Codegen                  | One language-level `Type`; `llvmType(const Type&)` maps to LLVM spellings; aggregate layouts live in codegen context, not in `Type`                       |
+| **Visitor**                  | `AstVisitor.hpp`, TypeChecker, Codegen, AstPrinter                  | Replace parallel `dynamic_cast` chains; void-returning `visit` with pass-local result wrappers                                                            |
+| **Facade**                   | `Compiler.hpp`/`Compiler.cpp`, `main.cpp`                           | `compileSource()` with `StopAfter { Tokens, Ast, Typed, Ir }`; CLI/file I/O/optimization/linking stay in `main`                                           |
+| **Registry**                 | `Builtins.hpp`                                                      | `BuiltinId` keyed descriptor table shared by TypeChecker (validation) and Codegen (emission)                                                              |
+| **Context Object + Builder** | `CodegenContext`, `IrEmitter`                                       | Replace `mutable` module state and threaded temp/label counters; thin load/store/GEP/branch helpers                                                       |
+| **Postfix + Place**          | `Parser::parsePostfix`, `AssignmentStatement`, TypeChecker, Codegen | Postfix loop for calls (extracted from `parsePrimary`); assignment `lhs` becomes owned expression; `checkPlace`/`generatePlace` for identifiers initially |
+
+
+
 
 ### Checkpoint sequence
 
 Each checkpoint is a green refactor: `just test` must pass before moving on.
 
 1. **Canonical types**
-   - Extract `Type`/`TypeKind` to `include/noria/Types.hpp` + `src/Types.cpp`.
-   - AST declarations store canonical `Type` (replace `typeName: string` on `LetStatement`, `Parameter`, `Function.returnType`, `CastExpression` target).
-   - Codegen `Value`/`LocalBinding` use `Type`; remove `IrType`/`parseIrType`; add `llvmType(const Type&)` adapter.
-   - Extend `type_representation_test.cpp` for LLVM adapter spellings.
-   - *Checkpoint:* all examples green; no behavior change.
-
+  - Extract `Type`/`TypeKind` to `include/noria/Types.hpp` + `src/Types.cpp`.
+  - AST declarations store canonical `Type` (replace `typeName: string` on `LetStatement`, `Parameter`, `Function.returnType`, `CastExpression` target).
+  - Codegen `Value`/`LocalBinding` use `Type`; remove `IrType`/`parseIrType`; add `llvmType(const Type&)` adapter.
+  - Extend `type_representation_test.cpp` for LLVM adapter spellings.
+  - *Checkpoint:* all examples green; no behavior change.
 2. **Shared diagnostics**
-   - Add `formatDiagnostic(SourceLocation, stage, message)` to `Diagnostic.hpp`.
-   - Unify Lexer/Parser/TypeChecker location formatting; preserve existing error text contracts tested by `run_examples.sh`.
-   - *Checkpoint:* grep-based negative tests still pass.
-
+  - Add `formatDiagnostic(SourceLocation, stage, message)` to `Diagnostic.hpp`.
+  - Unify Lexer/Parser/TypeChecker location formatting; preserve existing error text contracts tested by `run_examples.sh`.
+  - *Checkpoint:* grep-based negative tests still pass.
 3. **Builtin registry**
-   - Add `Builtins.hpp` with `BuiltinId` enum and signature descriptors.
-   - TypeChecker validates via table; Codegen dispatches on `BuiltinId`.
-   - Migrate existing builtins: `print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`.
-   - Add C++ unit test for lookup and arity validation.
-   - *Checkpoint:* all examples green.
-
+  - Add `Builtins.hpp` with `BuiltinId` enum and signature descriptors.
+  - TypeChecker validates via table; Codegen dispatches on `BuiltinId`.
+  - Migrate existing builtins: `print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`.
+  - Add C++ unit test for lookup and arity validation.
+  - *Checkpoint:* all examples green.
 4. **Full Visitor**
-   - Add `AstVisitor` with `visit` overloads for every current statement and expression node.
-   - Migrate TypeChecker, Codegen, AstPrinter to visitor implementations.
-   - Remove `dynamic_cast` chains from those three files.
-   - Add C++ unit test: visitor reaches every node kind in a smoke AST.
-   - *Checkpoint:* all examples green; `--emit-ast` output unchanged for existing programs.
-
+  - Add `AstVisitor` with `visit` overloads for every current statement and expression node.
+  - Migrate TypeChecker, Codegen, AstPrinter to visitor implementations.
+  - Remove `dynamic_cast` chains from those three files.
+  - Add C++ unit test: visitor reaches every node kind in a smoke AST.
+  - *Checkpoint:* all examples green; `--emit-ast` output unchanged for existing programs.
 5. **Compiler facade**
-   - Extract `Compiler::compileSource(source, StopAfter)` from `main.cpp`.
-   - `main` retains CLI parsing, file read/write, `optimizeLlvmIr`, `buildNativeExecutable`.
-   - Add C++ test: compile known-good source through `StopAfter::Typed` without subprocess.
-   - *Checkpoint:* CLI behavior unchanged; `just test` green.
-
+  - Extract `Compiler::compileSource(source, StopAfter)` from `main.cpp`.
+  - `main` retains CLI parsing, file read/write, `optimizeLlvmIr`, `buildNativeExecutable`.
+  - Add C++ test: compile known-good source through `StopAfter::Typed` without subprocess.
+  - *Checkpoint:* CLI behavior unchanged; `just test` green.
 6. **CodegenContext + IrEmitter**
-   - Replace `mutable functions_`/`moduleGlobals_`/`nextStringGlobal_` with explicit `CodegenContext`.
-   - Introduce thin `IrEmitter` owning temp/label generation and common emission (`freshTemp`, `emitLoad`, `emitStore`, `emitBranch`).
-   - Extract runtime declarations (`printf`, `puts`, `putchar`, `@noria_print_int`, intrinsics) into a runtime catalog consumed by preamble generation.
-   - *Checkpoint:* all examples green; run `just sanitize`.
-
+  - Replace `mutable functions_`/`moduleGlobals_`/`nextStringGlobal_` with explicit `CodegenContext`.
+  - Introduce thin `IrEmitter` owning temp/label generation and common emission (`freshTemp`, `emitLoad`, `emitStore`, `emitBranch`).
+  - Extract runtime declarations (`printf`, `puts`, `putchar`, `@noria_print_int`, intrinsics) into a runtime catalog consumed by preamble generation.
+  - *Checkpoint:* all examples green; run `just sanitize`.
 7. **Postfix + Place foundation**
-   - Add `parsePostfix` loop: extract call parsing from `parsePrimary`; prepare hook for `[expr]` and `.ident` (tokens added when features land).
-   - Change `AssignmentStatement::lhs` from `std::string` to `std::unique_ptr<ast::Expression>`.
-   - TypeChecker: `checkPlace` / `checkRvalue` split; identifier places only for now.
-   - Codegen: `generatePlace` / `generateRvalue` split; identifier places only.
-   - Visitor + AstPrinter updated for new assignment shape.
-   - *Checkpoint:* all `identifier = expr` examples green; run `just sanitize`.
+  - Add `parsePostfix` loop: extract call parsing from `parsePrimary`; prepare hook for `[expr]` and `.ident` (tokens added when features land).
+  - Change `AssignmentStatement::lhs` from `std::string` to `std::unique_ptr<ast::Expression>`.
+  - TypeChecker: `checkPlace` / `checkRvalue` split; identifier places only for now.
+  - Codegen: `generatePlace` / `generateRvalue` split; identifier places only.
+  - Visitor + AstPrinter updated for new assignment shape.
+  - *Checkpoint:* all `identifier = expr` examples green; run `just sanitize`.
+
+
 
 ### Phase 2.5 tests
 
@@ -172,6 +185,8 @@ Each checkpoint is a green refactor: `just test` must pass before moving on.
   - `compiler_facade_test`.
 - No new Noria example programs in 2.5 — behavior must not change.
 - Update `README.md` and `SYNTAX.md` for Phases 0–2 features (remove stale "Limitations" entries for implemented operators, floats, strings-as-literals, print).
+
+
 
 ### Explicitly deferred (not V2)
 
@@ -186,6 +201,8 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
 - Declarative test manifest or per-example sidecar metadata (keep explicit shell assertions in `run_examples.sh`).
 - LLVM C++ API.
 - User-defined traits, custom allocators, iterators, package management, and runtime-selected container implementations.
+
+
 
 ## Phase 3 - Strings (finish) — DONE
 
@@ -205,6 +222,8 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - `just sanitize` on concat path.
 - Update `SYNTAX.md` string section.
 
+
+
 ## Phase 4 - Arrays — DONE
 
 **Builds on Phase 2.5:** canonical `Type::array(element)`, recursive `parseType()` for `[T]`, Place/Visitor for indexed assignment, layout registry in `CodegenContext`.
@@ -221,6 +240,8 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - `just sanitize` on malloc sizing and GEP offsets.
 - Update `SYNTAX.md` arrays section.
 
+
+
 ## Phase 5 - Structs — DONE
 
 **Builds on Phase 2.5 + 4:** declaration collection pass, struct layout registry, field expressions as postfix `.ident`, Place for field mutation.
@@ -235,6 +256,8 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - Negative: unknown field, missing/extra/mis-typed field, `.field` on non-struct.
   - `just sanitize` on field offsets and aggregate passing.
 - Update `SYNTAX.md` structs section.
+
+
 
 ## Phase 6 - Generics and source modules
 
@@ -265,9 +288,53 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - C++ unit tests for substitution, specialization keys, deterministic mangling, and import-graph ordering.
   - Run `just test` after each checkpoint and `just sanitize` for specialization ownership and cross-module AST lifetimes.
 
+
+
 ## Phase 7 - Noria data-structure standard library
 
 **Goal:** Expose stable ADT APIs whose semantics do not change when callers select a different compile-time implementation. Canonical V2 spellings use Noria's `str` type and lowercase implementation tags: `Sequence<i32, arr>`, `Sequence<i32, list>`, `Dictionary<i32, str, bst>`, `Dictionary<i32, str, hashmap>`, `Set<i32, bst>`, and `Set<i32, hashmap>`.
+
+### Phase 7.0 — module-private struct fields (prerequisite)
+
+**Why this gates Phase 7:** `stdlib/sequence.noria` currently exposes `handle: __rt_ptr` as a public field. Existing privacy (`std::internal::*` import blocking, internal `__rt_*` builtins, and `__rt_ptr` type gating) does not restrict field access. A user can write `i32Seq.handle = f64Seq.handle;` without naming `__rt_ptr`, and later `get`/`push` reinterpret the buffer under the wrong type witness — type confusion and memory corruption.
+
+**Syntax:** C++-style section labels inside struct bodies. Fields default to public; `private:` and `public:` may appear repeatedly and switch the visibility applied to subsequent fields.
+
+```noria
+struct Sequence<T, I> {
+  private:
+  handle: __rt_ptr;
+}
+```
+
+**Scope: module-private, not struct-private.** Noria has no methods (`impl` is an implementation-tag clause on generic functions, not a method block). A private field is readable, assignable, and initializable only from functions declared in the same module as the struct. The root user file is its own module (origin `""`), so privacy is enforced across module boundaries and is a no-op within one file.
+
+**Construction rule:** struct literals must respect field visibility. Because every declared field is required in a literal, a struct with any private field is constructible only inside its declaring module — forcing callers through exported constructors such as `sequence_new`.
+
+**Compile-time only:** LLVM layout keeps all fields; Codegen is unchanged.
+
+**Enforcement:** compare the struct's declaring module (`symbolOrigins_.structs[structName]`, propagated to specializations by `propagateStructSpecializationOrigin` in `src/Compiler.cpp`) against the use-site module (`symbolOrigins_.functions[currentFunctionName_]`, propagated by `propagateFunctionSpecializationOrigin`, the same pair `isStdlibContext()` reads in `src/TypeChecker.cpp`). Gate at:
+
+- field read — `ExpressionVisitor::visit(FieldAccessExpression)` (`src/TypeChecker.cpp`)
+- field assignment — `PlaceVisitor::visit(FieldAccessExpression)` (`src/TypeChecker.cpp`)
+- struct literal construction — `ExpressionVisitor::visit(StructLiteral)` (`src/TypeChecker.cpp`)
+
+**Implementation touch points:**
+
+- AST: add `FieldVisibility` and store it on `ast::StructField` (`include/noria/Ast.hpp`)
+- Lexer/parser: add `private`/`public` keywords (`src/Lexer.cpp`, `include/noria/Token.hpp`); extend the field loop in `Parser::parseStructDecl` (`src/Parser.cpp`)
+- TypeChecker: add visibility to `StructFieldInfo`; copy it in `resolveStructInfo` and `collectStructDecls` (`include/noria/TypeChecker.hpp`, `src/TypeChecker.cpp`)
+- Monomorphize: preserve visibility when cloning fields in `cloneStructSpecialization` (`src/Monomorphize.cpp`)
+- AstPrinter: print visibility on struct fields (`src/AstPrinter.cpp`)
+
+**Diagnostic contract:** name the field and owning module, not the struct, so assertions stay stable across pre- and post-monomorphization passes — e.g. `typecheck: field 'handle' is private to module 'std::sequence'`.
+
+**Phase 7.0 tests:**
+
+- Negative (`examples/invalid/`): private field read, private field assign, private struct-literal construction from user code, and the P1 cross-witness case `a.handle = b.handle` across two `Sequence` specializations.
+- Positive (`examples/basic/`): same-module private-field access within a stdlib fixture module; end-to-end `Sequence` usage through public API only.
+- C++ unit test: visibility survives parsing and struct specialization.
+- Run `just test` and `just sanitize` after implementation.
 
 - Source layout:
   - `stdlib/sequence.noria`
@@ -275,14 +342,17 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - `stdlib/set.noria`
   - `stdlib/heap.noria`
 - `Sequence<T, Impl>`:
+  - Backing storage is a module-private `handle: __rt_ptr` field; callers use `sequence_new` and the exported operations, not struct literals or direct field access.
   - `Sequence<T, arr>` is a growable contiguous array analogous to `vector<T>`, with length/capacity metadata and geometric growth.
   - `Sequence<T, list>` is a doubly linked list analogous to `list<T>`, with heap-backed nodes.
   - Both implementations expose the same constructor, `len`, `push`, `pop`, `get`, `set`, `insert`, and `remove` operations. Bounds and empty-container violations fail through one stable runtime diagnostic path.
 - `Dictionary<K, V, Impl>`:
+  - Backing storage (root pointer, bucket table, or equivalent) is module-private; callers use exported constructors and operations only.
   - `Dictionary<K, V, bst>` is an ordered binary-search-tree map with deterministic in-order traversal; balancing is deferred beyond V2.
   - `Dictionary<K, V, hashmap>` is a flat, open-addressed hash map with linear probing, tombstones, a bounded load factor, and geometric resizing. It is analogous to a flat hash map, not the sorted C++ `std::flat_map`.
   - Both implementations expose the same constructor, `len`, `insert`/upsert, `contains`, `get`, `get_or`, and `remove` operations. `get` requires a present key; `get_or` covers absence without adding `Optional` to V2.
 - `Set<T, Impl>`:
+  - Backing storage is module-private, same encapsulation model as `Dictionary`.
   - `Set<T, bst>` and `Set<T, hashmap>` reuse the corresponding dictionary search/storage strategy without a value type parameter.
   - Both implementations expose the same constructor, `len`, `insert`, `contains`, and `remove` operations; inserting an existing value is idempotent.
 - Generic heap algorithms in `stdlib/heap.noria`:
@@ -291,6 +361,7 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - `Heapify(sequence)` transforms an existing sequence into a min-heap in place.
   - Algorithms accept either `Sequence<T, arr>` or `Sequence<T, list>` when `T` supports `<`. Semantics are identical; document that random access makes the `arr` implementation asymptotically preferable.
 - Tests:
+  - Phase 7.0 (module-private fields): negative cases for private read, private assign, private struct-literal construction, and cross-witness handle swap (`a.handle = b.handle`); positive same-module private-field access and end-to-end `Sequence` through public API; C++ unit test that visibility survives parsing and struct specialization.
   - Run one behavioral conformance suite against every implementation tag to prove the public ADT behavior is implementation-independent.
   - Sequence coverage: growth, front/middle/back insertion/removal, bounds, empty operations, aliasing, and nested element types.
   - Dictionary coverage: replacement, missing keys, ordered traversal for `bst`, deliberate hash collisions, tombstone reuse, resize boundaries, and supported key types.
@@ -299,8 +370,11 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - Negative cases cover wrong type/tag arity, operation type mismatches, unsupported hash keys, and heap elements without ordering.
   - Run the full suite and `just sanitize` across growth, node allocation, removal, collision, and heap-mutation paths.
 - Documentation:
+  - Add `private:`/`public:` struct field visibility to the `SYNTAX.md` structs section, including module-private semantics and the diagnostic contract.
   - Add a standard-library API/complexity matrix to `SYNTAX.md` and usage examples showing that changing only the implementation tag preserves behavior.
   - Document heap algorithms as implementation-independent but performance-sensitive: `arr` has efficient indexed heap operations, while `list` pays for traversal.
+
+
 
 ## Phase 8 - Deterministic CLI dungeon game (in Noria)
 
@@ -324,6 +398,8 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
   - Compile the dungeon normally and through the optimized path to exercise the full textual LLVM IR pipeline; do not assert a compile-duration threshold.
   - Run `just test` and `just sanitize` for the aggregate, indexing, and native-input paths.
 
+
+
 ## Phase 9 - Docs, tests, polish
 
 - Per-feature tests already exist from earlier phases; Phase 9 is audit and polish only.
@@ -331,20 +407,24 @@ Do not introduce these during Phase 2.5 or later V2 work unless requirements cha
 - Refresh `--emit-ast` snapshot test for all node kinds (Visitor makes this maintainable).
 - Final README/SYNTAX pass; include the standard-library API/complexity reference, a deterministic dungeon sample session and feature walkthrough, and the resume bullet.
 
+
+
 ## Timeline (milestone-based, part-time)
 
 Obsolete calendar (end-of-July) replaced with dependency-ordered milestones:
 
-| Milestone | Estimate | Delivers |
-|-----------|----------|----------|
-| Phase 2.5 complete | ~2 weeks | Visitor, types, facade, registry, emitter, Place foundation |
-| Phase 3 finish | ~1 week | String index, len, concat |
-| Phase 4 | ~1 week | Arrays + indexed places |
-| Phase 5 | ~1 week | Structs, field places, aggregate passing |
-| Phase 6 | ~2 weeks | Generic types/functions, source modules, monomorphization |
-| Phase 7 | ~2–3 weeks | Sequence, Dictionary, Set, heap algorithms |
-| Phase 8 | ~1–2 weeks | `read_char` input + deterministic CLI dungeon using the ADTs |
-| Phase 9 | ~2–3 days | Final docs and harness audit |
+
+| Milestone          | Estimate   | Delivers                                                     |
+| ------------------ | ---------- | ------------------------------------------------------------ |
+| Phase 2.5 complete | ~2 weeks   | Visitor, types, facade, registry, emitter, Place foundation  |
+| Phase 3 finish     | ~1 week    | String index, len, concat                                    |
+| Phase 4            | ~1 week    | Arrays + indexed places                                      |
+| Phase 5            | ~1 week    | Structs, field places, aggregate passing                     |
+| Phase 6            | ~2 weeks   | Generic types/functions, source modules, monomorphization    |
+| Phase 7            | ~2–3 weeks | Sequence, Dictionary, Set, heap algorithms                   |
+| Phase 8            | ~1–2 weeks | `read_char` input + deterministic CLI dungeon using the ADTs |
+| Phase 9            | ~2–3 days  | Final docs and harness audit                                 |
+
 
 **Minimum shippable V2** if time runs short: Phases 0–2 (done) + 2.5 + 3 + 4 + 5 + 6 + 7 + 8 (generic data-structure library and deterministic CLI dungeon). Phase 9 is final documentation and harness polish.
 
@@ -356,6 +436,8 @@ Obsolete calendar (end-of-July) replaced with dependency-ordered milestones:
 - **Aggregate codegen:** GEP offsets and `malloc` sizing remain the fiddliest part; layout registry in `CodegenContext` centralizes this. Keep `just sanitize` running.
 - **Specialization growth:** Monomorphization can multiply emitted code. Instantiate only reachable canonical combinations, cache them across the module graph, and include specialization counts in debug output.
 - **Container constraints:** `bst` and heap operations require ordering; `hashmap` requires equality and hashing. Keep V2 constraints structural and limited to supported built-in operations rather than introducing a trait system.
+- **Field privacy scope:** Module-private fields are intentional — Noria has no methods, so struct-scoped privacy would make private fields unusable. Do not ship ADTs with public `__rt_ptr` handles before Phase 7.0 lands.
 - **Implementation tradeoffs:** A linked-list sequence intentionally performs poorly for indexed heap operations, and the V2 `bst` is not balanced. Preserve shared ADT semantics while documenting these complexity differences.
 - **Documentation drift:** README/SYNTAX lag the compiler today; update at end of Phase 2.5 and after each feature phase per testing rules.
 - **Regression gate:** All existing examples (currently 69 basic + 34 invalid + 5 invalid_syntax) must stay green after every phase and every Phase 2.5 checkpoint.
+

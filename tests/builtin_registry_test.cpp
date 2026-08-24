@@ -76,6 +76,24 @@ int main() {
   expect(rtReleaseDescriptor != nullptr, "lookup __rt_release");
   expect(rtReleaseDescriptor->returnKind == TypeKind::Void, "__rt_release return kind");
 
+  const BuiltinSignature* rtSizeofDescriptor = lookupBuiltin("__rt_sizeof");
+  expect(rtSizeofDescriptor != nullptr, "lookup __rt_sizeof");
+  expect(rtSizeofDescriptor->id == BuiltinId::RtSizeof, "__rt_sizeof id");
+  expect(rtSizeofDescriptor->arity == 0, "__rt_sizeof arity");
+  expect(rtSizeofDescriptor->returnKind == TypeKind::I32, "__rt_sizeof return kind");
+
+  const BuiltinSignature* rtLoadDescriptor = lookupBuiltin("__rt_load");
+  expect(rtLoadDescriptor != nullptr, "lookup __rt_load");
+  expect(rtLoadDescriptor->id == BuiltinId::RtLoad, "__rt_load id");
+  expect(rtLoadDescriptor->parameters[0] == TypeKind::RawPtr, "__rt_load pointer kind");
+  expect(rtLoadDescriptor->parameters[1] == TypeKind::I32, "__rt_load index kind");
+  expect(rtLoadDescriptor->returnKind == TypeKind::TypeParam, "__rt_load witness return kind");
+
+  const BuiltinSignature* rtStoreDescriptor = lookupBuiltin("__rt_store");
+  expect(rtStoreDescriptor != nullptr, "lookup __rt_store");
+  expect(rtStoreDescriptor->id == BuiltinId::RtStore, "__rt_store id");
+  expect(rtStoreDescriptor->parameters[2] == TypeKind::TypeParam, "__rt_store witness value kind");
+
   expect(lookupBuiltin("read_char") == nullptr, "read_char is not a builtin");
   expect(lookupBuiltin("") == nullptr, "empty name is not a builtin");
 
