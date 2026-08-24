@@ -68,3 +68,51 @@ fn sequence_pop<T>(s: Sequence<T, arr>) -> T {
   let pop0: i32 = store_i32_at(s.handle, 0, len - 1);
   return value;
 }
+
+fn sequence_insert<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr> {
+  let len: i32 = load_i32_at(s.handle, 0);
+  if index < 0 || index > len {
+    __rt_trap("sequence_insert: index out of bounds\n");
+  }
+  let cap: i32 = load_i32_at(s.handle, 1);
+  if len >= cap {
+    let new_cap: i32 = cap * 2;
+    let old_data: __rt_ptr = load_ptr_at(s.handle, 1);
+    let new_bytes: i32 = new_cap * size_of();
+    let new_data: __rt_ptr = realloc_bytes(old_data, new_bytes);
+    let grow0: i32 = store_ptr_at(s.handle, 1, new_data);
+    let grow1: i32 = store_i32_at(s.handle, 1, new_cap);
+  }
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let push0: i32 = store_at(data, len, value);
+  let push1: i32 = store_i32_at(s.handle, 0, len + 1);
+  if index == len {
+    return s;
+  }
+  let new_len: i32 = len + 1;
+  let i: i32 = new_len - 2;
+  while i >= index {
+    let elem: T = load_at(data, i);
+    let shift0: i32 = store_at(data, i + 1, elem);
+    i = i - 1;
+  }
+  let insert0: i32 = store_at(data, index, value);
+  return s;
+}
+
+fn sequence_remove<T>(s: Sequence<T, arr>, index: i32) -> T {
+  let len: i32 = load_i32_at(s.handle, 0);
+  if index < 0 || index >= len {
+    __rt_trap("sequence_remove: index out of bounds\n");
+  }
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let value: T = load_at(data, index);
+  let i: i32 = index + 1;
+  while i < len {
+    let elem: T = load_at(data, i);
+    let shift0: i32 = store_at(data, i - 1, elem);
+    i = i + 1;
+  }
+  let remove0: i32 = store_i32_at(s.handle, 0, len - 1);
+  return value;
+}

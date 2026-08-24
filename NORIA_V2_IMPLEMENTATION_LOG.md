@@ -898,4 +898,36 @@ Trap only on supported macOS/Linux triples. No insert/remove; `Sequence<T, list>
 
 `sequence_insert`/`sequence_remove`, or `Sequence<T, list>`, then Dictionary.
 
+## Phase 7 — Sequence insert/remove
+
+Baseline commit `1400f3b`. Review: APPROVED (non-blocking: inlined growth due to generic-to-generic call typecheck limitation). Gates: all green including sanitizer.
+
+### Objective and acceptance
+
+Add `sequence_insert`/`sequence_remove` to `Sequence<T, arr>`; insert accepts index in `[0, len]` (append at `len`); remove shifts elements and returns the removed value; OOB traps via `__rt_trap`; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+`stdlib/sequence.noria`: `sequence_insert`, `sequence_remove`; insert inlines push growth (generic-to-generic `sequence_push` call fails typecheck). Examples: `sequence_insert_remove` (exit 55), `sequence_insert_growth` (104), `sequence_insert_oob`, `sequence_remove_oob`; updated `run_examples.sh`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Insert/remove follow the existing handle-mutation pattern with backward/forward element shifts. Insert duplicates growth logic from `sequence_push` until cross-generic calls typecheck.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Failure tests assert exit 70 and trap message substrings on stderr.
+
+### Review findings and resolutions
+
+APPROVED. Non-blocking: growth inlined in `sequence_insert` because generic-to-generic calls are rejected today; dedupe when that limitation lifts.
+
+### Limitations and risks
+
+Duplicated growth between push and insert. `Sequence<T, list>` still unsupported. No ownership/release; remove does not shrink capacity.
+
+### Next unit
+
+Sequence list impl, or Dictionary.
+
 

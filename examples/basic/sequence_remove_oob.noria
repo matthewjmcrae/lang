@@ -1,0 +1,8 @@
+import std::sequence::{Sequence, sequence_new, sequence_push, sequence_remove};
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  s = sequence_push(s, 10);
+  let v: i32 = sequence_remove(s, 1);
+  return v;
+}

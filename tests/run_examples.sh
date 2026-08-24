@@ -641,6 +641,12 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_pop_empty.noria" 70
   "sequence_pop: empty sequence"
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_get_oob.noria" 70 \
   "sequence_get: index out of bounds"
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_insert_remove.noria" 55
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_insert_growth.noria" 104
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_insert_oob.noria" 70 \
+  "sequence_insert: index out of bounds"
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_remove_oob.noria" 70 \
+  "sequence_remove: index out of bounds"
 grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
 grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
 

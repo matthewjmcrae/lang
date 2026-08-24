@@ -96,6 +96,8 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | `sequence_get` | `fn sequence_get<T>(s: Sequence<T, arr>, index: i32) -> T` | Load element at index; traps on out-of-bounds |
 | `sequence_set` | `fn sequence_set<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr>` | Store element at index; traps on out-of-bounds |
 | `sequence_pop` | `fn sequence_pop<T>(s: Sequence<T, arr>) -> T` | Remove and return last element; traps on empty |
+| `sequence_insert` | `fn sequence_insert<T>(s: Sequence<T, arr>, index: i32, value: T) -> Sequence<T, arr>` | Insert at index in `[0, len]`; append when `index == len`; traps otherwise |
+| `sequence_remove` | `fn sequence_remove<T>(s: Sequence<T, arr>, index: i32) -> T` | Remove and return element at index in `[0, len)`; traps on out-of-bounds |
 
 `list` and other implementation tags are not implemented yet; selecting them is a compile-time error.
 

@@ -1,0 +1,24 @@
+import std::sequence::{Sequence, sequence_get, sequence_insert, sequence_len, sequence_new,
+                       sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  s = sequence_push(s, 1);
+  s = sequence_push(s, 2);
+  s = sequence_push(s, 3);
+  s = sequence_push(s, 4);
+  if sequence_len(s) != 4 {
+    return 1;
+  }
+  s = sequence_insert(s, 2, 99);
+  if sequence_len(s) != 5 {
+    return 2;
+  }
+  if sequence_get(s, 0) != 1 || sequence_get(s, 1) != 2 || sequence_get(s, 2) != 99 {
+    return 3;
+  }
+  if sequence_get(s, 3) != 3 || sequence_get(s, 4) != 4 {
+    return 4;
+  }
+  return sequence_get(s, 0) + sequence_get(s, 2) + sequence_get(s, 4);
+}
