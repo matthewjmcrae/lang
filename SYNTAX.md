@@ -190,6 +190,29 @@ fn main() -> i32 {
 }
 ```
 
+## Heap (min-heap over Sequence)
+
+`std::heap` exports tag-generic min-heap algorithms over `Sequence<T, I>`. Element type `T` must support `<` at use sites. Semantics are identical for `arr` and `list`; random access makes `arr` asymptotically preferable.
+
+| Operation | Signature | arr | list |
+| --- | --- | --- | --- |
+| `heappush` | `fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I>` | O(log n) | O(n log n) |
+| `heappop` | `fn heappop<T, I>(s: Sequence<T, I>) -> T` | O(log n); traps on empty | O(n log n); traps on empty |
+| `heapify` | `fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I>` | O(n) | O(n² log n) |
+
+```noria
+import std::heap::{heappop, heappush};
+import std::sequence::{Sequence, sequence_new};
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  s = heappush(s, 5);
+  s = heappush(s, 3);
+  s = heappush(s, 7);
+  return heappop(s);
+}
+```
+
 ```noria
 import std::memory::{memory_probe};
 

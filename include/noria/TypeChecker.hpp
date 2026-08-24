@@ -216,6 +216,11 @@ namespace noria {
                      std::optional<Type> expectedType = std::nullopt);
     Type checkBuiltinCall(const ast::CallExpression& call, const BuiltinSignature& descriptor);
     Type resolveWitnessType(SourceLocation location) const;
+    bool isEnclosingFunctionSpecialized() const;
+    const std::vector<Type>* enclosingFunctionSpecializationTypeArgs() const;
+    void
+    seedMatchingTypeParamsFromCaller(std::unordered_map<std::string, Type>& bindings,
+                                     const std::vector<ast::TypeParameter>& calleeTypeParams) const;
     void seedUnboundTypeParamsFromCaller(std::unordered_map<std::string, Type>& bindings,
                                          const std::vector<ast::TypeParameter>& typeParams) const;
     void seedUnboundTypeParamsFromExpectedType(std::unordered_map<std::string, Type>& bindings,

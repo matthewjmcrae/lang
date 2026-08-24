@@ -1090,4 +1090,36 @@ No full set release/ownership. BST remove traps on missing key; hashmap inherits
 
 Heap.
 
+## Phase 7 — Heap algorithms
+
+Baseline commit `a611d25`. Review: APPROVED.
+
+### Objective and acceptance
+
+Ship tag-generic min-heap algorithms `heappush`/`heappop`/`heapify` over `Sequence<T, I>` for `arr` and `list`; trap on empty pop; reject unordered element types; enable generic-to-generic calls inside monomorphized stdlib bodies; preserve preexisting IR/AST; all gates green including sanitizer.
+
+### Files and behavior changed
+
+New `stdlib/heap.noria`: sift-up push, sift-down pop, bottom-up heapify; empty `heappop` calls `__rt_trap`. TypeChecker/Monomorphize: `substituteSpecializationType`, `seedMatchingTypeParamsFromCaller`, struct-specialization assignability for nested sequence calls in specialized functions. Examples: `heap_arr_ops`, `heap_list_ops`, `heap_pop_empty`; invalid `heap_key_unordered`. Updated `run_examples.sh`, `SYNTAX.md`.
+
+### Semantic and architectural decisions
+
+Heap algorithms are implementation-independent over Sequence; identical semantics for `arr` and `list` with documented complexity tradeoffs. Compiler fix seeds callee type params from enclosing specialization so heap bodies can call `sequence_*` without inlining.
+
+### Tests, sanitizer, results
+
+All gates green: `just test`; `just sanitize`. Preexisting IR/AST byte-identical. IR greps confirm monomorphized `heappop$s.i32$tag.arr` and `tag.list`. Failure test asserts exit 70 and trap substring.
+
+### Review findings and resolutions
+
+APPROVED.
+
+### Limitations and risks
+
+No dedicated heap constraint tag; ordering errors surface at `<` use sites. List heap pays O(n) per index. No ownership/release; inherits Sequence aliasing and leak-on-exit.
+
+### Next unit
+
+Phase 7 docs closeout and plan checkbox.
+
 

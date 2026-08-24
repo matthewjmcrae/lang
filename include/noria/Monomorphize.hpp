@@ -57,6 +57,8 @@ namespace noria {
 
   Type substitute(const Type& type, const Substitution& substitution);
 
+  Type substituteSpecializationType(const Type& type, const Substitution& substitution);
+
   std::string mangleType(const Type& type);
   std::string mangleSpecialization(std::string_view templateName,
                                    const std::vector<Type>& typeArgs);

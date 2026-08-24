@@ -579,6 +579,49 @@ namespace noria {
     return substituteType(type, substitution);
   }
 
+  namespace {
+
+    bool containsUnboundTypeParamForSpecialization(const Type& type) {
+      if (type.kind == TypeKind::TypeParam) {
+        return true;
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return containsUnboundTypeParamForSpecialization(*type.element);
+      }
+
+      if (type.kind == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArgs) {
+          if (containsUnboundTypeParamForSpecialization(typeArg)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    Type rewriteAppliedStructTypeForSpecialization(const Type& type) {
+      if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
+        if (containsUnboundTypeParamForSpecialization(type)) {
+          return type;
+        }
+        return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return Type::array(rewriteAppliedStructTypeForSpecialization(*type.element));
+      }
+
+      return type;
+    }
+
+  } // namespace
+
+  Type substituteSpecializationType(const Type& type, const Substitution& substitution) {
+    return rewriteAppliedStructTypeForSpecialization(substituteType(type, substitution));
+  }
+
   std::string mangleType(const Type& type) {
     switch (type.kind) {
     case TypeKind::I32:

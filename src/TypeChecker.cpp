@@ -36,6 +36,46 @@ namespace noria {
       return std::nullopt;
     }
 
+    bool structSpecializationsMatch(const Type& left, const Type& right) {
+      if (left.kind != TypeKind::Struct || right.kind != TypeKind::Struct) {
+        return false;
+      }
+
+      if (left.structName == right.structName && left.typeArgs == right.typeArgs) {
+        return true;
+      }
+
+      if (left.typeArgs.empty() && !right.typeArgs.empty()) {
+        return left.structName == mangleSpecialization(right.structName, right.typeArgs);
+      }
+
+      if (right.typeArgs.empty() && !left.typeArgs.empty()) {
+        return right.structName == mangleSpecialization(left.structName, left.typeArgs);
+      }
+
+      return false;
+    }
+
+    bool allTypeParamsSubstituted(const Type& type, const Substitution& substitution) {
+      if (type.kind == TypeKind::TypeParam) {
+        return substitution.contains(type.typeParamName);
+      }
+
+      if (type.kind == TypeKind::Array && type.element) {
+        return allTypeParamsSubstituted(*type.element, substitution);
+      }
+
+      if (type.kind == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArgs) {
+          if (!allTypeParamsSubstituted(typeArg, substitution)) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    }
+
     bool sameGenericPublicApi(const ast::Function& left, const ast::Function& right) {
       if (left.typeParams.size() != right.typeParams.size()) {
         return false;
@@ -469,6 +509,12 @@ namespace noria {
     }
 
     const std::vector<const ast::Function*>& family = genericFunction->second;
+    const bool calleeHasImplTags =
+        std::any_of(family.begin(), family.end(),
+                    [](const ast::Function* candidate) { return candidate->implTag.has_value(); });
+    const bool specializedNestedImplCall =
+        calleeHasImplTags && checker_.enclosingFunctionSpecializationTypeArgs() != nullptr;
+
     const ast::Function& signature = *family.front();
     if (call.arguments.size() != signature.parameters.size()) {
       std::ostringstream out;
@@ -478,10 +524,19 @@ namespace noria {
     }
 
     std::unordered_map<std::string, Type> bindings;
+    if (specializedNestedImplCall) {
+      checker_.seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
+    }
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type actual = checker_.checkRvalue(*call.arguments[index]);
-      checker_.unifyTypes(signature.parameters[index].type, actual, bindings,
-                          call.arguments[index]->location);
+      Type expectedParam = signature.parameters[index].type;
+      if (specializedNestedImplCall) {
+        Substitution substitution(bindings.begin(), bindings.end());
+        if (allTypeParamsSubstituted(expectedParam, substitution)) {
+          expectedParam = substituteSpecializationType(expectedParam, substitution);
+        }
+      }
+      checker_.unifyTypes(expectedParam, actual, bindings, call.arguments[index]->location);
     }
 
     checker_.seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
@@ -1590,6 +1645,51 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
+  bool TypeChecker::isEnclosingFunctionSpecialized() const {
+    return functionSpecializationTypeArgs_.contains(currentFunctionName_);
+  }
+
+  const std::vector<Type>* TypeChecker::enclosingFunctionSpecializationTypeArgs() const {
+    const auto specialization = functionSpecializationTypeArgs_.find(currentFunctionName_);
+    if (specialization == functionSpecializationTypeArgs_.end()) {
+      return nullptr;
+    }
+    return &specialization->second;
+  }
+
+  void TypeChecker::seedMatchingTypeParamsFromCaller(
+      std::unordered_map<std::string, Type>& bindings,
+      const std::vector<ast::TypeParameter>& calleeTypeParams) const {
+    const std::vector<Type>* callerTypeArgs = enclosingFunctionSpecializationTypeArgs();
+    if (callerTypeArgs == nullptr) {
+      return;
+    }
+
+    const std::size_t dollar = currentFunctionName_.find('$');
+    if (dollar == std::string::npos) {
+      return;
+    }
+
+    const std::string templateName = currentFunctionName_.substr(0, dollar);
+    const auto family = genericFunctions_.find(templateName);
+    if (family == genericFunctions_.end() || family->second.empty()) {
+      return;
+    }
+
+    const std::vector<ast::TypeParameter>& callerTypeParams = family->second.front()->typeParams;
+    for (std::size_t index{}; index < calleeTypeParams.size(); ++index) {
+      if (index >= callerTypeParams.size() || index >= callerTypeArgs->size()) {
+        break;
+      }
+      if (callerTypeParams[index].name != calleeTypeParams[index].name) {
+        continue;
+      }
+      if (!bindings.contains(calleeTypeParams[index].name)) {
+        bindings.emplace(calleeTypeParams[index].name, (*callerTypeArgs)[index]);
+      }
+    }
+  }
+
   Type TypeChecker::resolveWitnessType(SourceLocation location) const {
     const auto specialization = functionSpecializationTypeArgs_.find(currentFunctionName_);
     if (specialization == functionSpecializationTypeArgs_.end()) {
@@ -1684,7 +1784,10 @@ namespace noria {
   }
 
   bool TypeChecker::isAssignable(Type expected, Type actual) const {
-    return expected == actual;
+    if (expected == actual) {
+      return true;
+    }
+    return structSpecializationsMatch(expected, actual);
   }
 
   void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
