@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,7 +20,8 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::CallExpression& call) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::CallExpression& call) {
+    const auto strategy = checker_.activate(TypeCheckerStrategyKind::Calls);
     if (const BuiltinSignature* descriptor = lookupBuiltin(call.callee)) {
       result_ = checker_.checkBuiltinCall(call, *descriptor);
       return;
@@ -42,7 +44,7 @@ namespace noria {
     result_ = checker_.checkGenericFunctionCall(call, genericFunction->second, expectedType_);
   }
 
-  Type TypeChecker::Impl::checkConcreteFunctionCall(const ast::CallExpression& call,
+  Type TypeChecker::checkConcreteFunctionCall(const ast::CallExpression& call,
                                                     const FunctionSignature& signature) {
     if (call.arguments.size() != signature.parameterTypes.size()) {
       std::ostringstream out;
@@ -66,7 +68,7 @@ namespace noria {
     return signature.returnType;
   }
 
-  Type TypeChecker::Impl::checkGenericFunctionCall(const ast::CallExpression& call,
+  Type TypeChecker::checkGenericFunctionCall(const ast::CallExpression& call,
                                                    const std::vector<std::size_t>& family,
                                                    const std::optional<Type>& expectedType) {
     const bool calleeHasImplTags =
@@ -99,7 +101,7 @@ namespace noria {
     return substitute(selected->returnType, substitution);
   }
 
-  std::vector<Type> TypeChecker::Impl::inferGenericCallTypeArgs(
+  std::vector<Type> TypeChecker::inferGenericCallTypeArgs(
       const ast::CallExpression& call, const ast::Function& signature,
       bool seedFromSpecializedCaller, const std::optional<Type>& expectedType,
       std::unordered_map<std::string, Type>& bindings) {
@@ -145,7 +147,7 @@ namespace noria {
     return typeArgs;
   }
 
-  Type TypeChecker::Impl::checkBuiltinCall(const ast::CallExpression& call,
+  Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
                                            const BuiltinSignature& descriptor) {
     requireBuiltinCallable(call, descriptor);
 
@@ -176,7 +178,7 @@ namespace noria {
     return checkDeclaredBuiltinArguments(call, descriptor);
   }
 
-  void TypeChecker::Impl::requireBuiltinCallable(const ast::CallExpression& call,
+  void TypeChecker::requireBuiltinCallable(const ast::CallExpression& call,
                                                  const BuiltinSignature& descriptor) const {
     if (descriptor.visibility == Visibility::Internal && !isStdlibContext()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
@@ -191,7 +193,7 @@ namespace noria {
     }
   }
 
-  Type TypeChecker::Impl::checkLenBuiltin(const ast::CallExpression& call) {
+  Type TypeChecker::checkLenBuiltin(const ast::CallExpression& call) {
     const Type actual = checkRvalue(*call.arguments[0]);
     if (actual == Type::str() || actual.kind == TypeKind::Array)
       return Type::i32();
@@ -200,7 +202,7 @@ namespace noria {
                                         "len expects str or array, got " + actual.name()));
   }
 
-  Type TypeChecker::Impl::checkRtSizeofBuiltin(const ast::CallExpression& call) const {
+  Type TypeChecker::checkRtSizeofBuiltin(const ast::CallExpression& call) const {
     const Type witness = resolveWitnessType(call.location);
     if (!isScalarWitnessType(witness)) {
       throw CompileError(
@@ -210,7 +212,7 @@ namespace noria {
     return Type::i32();
   }
 
-  Type TypeChecker::Impl::checkRtHashBuiltin(const ast::CallExpression& call) {
+  Type TypeChecker::checkRtHashBuiltin(const ast::CallExpression& call) {
     const Type witness = resolveWitnessType(call.location);
     if (!supportsOperation(witness, RequiredOperation::Hash)) {
       throw CompileError(formatDiagnostic(
@@ -226,7 +228,7 @@ namespace noria {
     return Type::i32();
   }
 
-  Type TypeChecker::Impl::checkRtLoadBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::checkRtLoadBuiltin(const ast::CallExpression& call,
                                              const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
@@ -251,7 +253,7 @@ namespace noria {
     return witness;
   }
 
-  Type TypeChecker::Impl::checkRtStoreBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::checkRtStoreBuiltin(const ast::CallExpression& call,
                                               const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
@@ -281,7 +283,7 @@ namespace noria {
     return Type::voidType();
   }
 
-  Type TypeChecker::Impl::checkAllArgumentsBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::checkAllArgumentsBuiltin(const ast::CallExpression& call,
                                                    const BuiltinSignature& descriptor) {
     const Type firstType = checkRvalue(*call.arguments[0]);
     const Type secondType = checkRvalue(*call.arguments[1]);
@@ -295,7 +297,7 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
-  Type TypeChecker::Impl::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
+  Type TypeChecker::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
                                                         const BuiltinSignature& descriptor) {
     for (std::size_t index{}; index < descriptor.arity; ++index) {
       const Type actual = checkRvalue(*call.arguments[index]);
@@ -319,11 +321,11 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
-  bool TypeChecker::Impl::isEnclosingFunctionSpecialized() const {
+  bool TypeChecker::isEnclosingFunctionSpecialized() const {
     return session_.functionSpecializationTypeArgs.contains(session_.currentFunctionName);
   }
 
-  const std::vector<Type>* TypeChecker::Impl::enclosingFunctionSpecializationTypeArgs() const {
+  const std::vector<Type>* TypeChecker::enclosingFunctionSpecializationTypeArgs() const {
     const auto specialization =
         session_.functionSpecializationTypeArgs.find(session_.currentFunctionName);
     if (specialization == session_.functionSpecializationTypeArgs.end()) {
@@ -332,7 +334,7 @@ namespace noria {
     return &specialization->second;
   }
 
-  void TypeChecker::Impl::seedMatchingTypeParamsFromCaller(
+  void TypeChecker::seedMatchingTypeParamsFromCaller(
       std::unordered_map<std::string, Type>& bindings,
       const std::vector<ast::TypeParameter>& calleeTypeParams) const {
     const std::vector<Type>* callerTypeArgs = enclosingFunctionSpecializationTypeArgs();
@@ -370,7 +372,7 @@ namespace noria {
     }
   }
 
-  Type TypeChecker::Impl::resolveWitnessType(SourceLocation location) const {
+  Type TypeChecker::resolveWitnessType(SourceLocation location) const {
     const auto specialization =
         session_.functionSpecializationTypeArgs.find(session_.currentFunctionName);
     if (specialization == session_.functionSpecializationTypeArgs.end()) {
@@ -389,7 +391,7 @@ namespace noria {
     return *witness;
   }
 
-  void TypeChecker::Impl::seedUnboundTypeParamsFromCaller(
+  void TypeChecker::seedUnboundTypeParamsFromCaller(
       std::unordered_map<std::string, Type>& bindings,
       const std::vector<ast::TypeParameter>& typeParams) const {
     const auto callerSpecialization =
@@ -419,7 +421,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::seedUnboundTypeParamsFromExpectedType(
+  void TypeChecker::seedUnboundTypeParamsFromExpectedType(
       std::unordered_map<std::string, Type>& bindings, const Type& returnType,
       const std::optional<Type>& expectedType, SourceLocation location) const {
     if (!expectedType) {

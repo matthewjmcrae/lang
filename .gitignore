@@ -32,3 +32,6 @@ test-output/
 # Sanitizers / profiling
 *.profraw
 *.profdata
+/tickets/
+/truth/
+/truth/

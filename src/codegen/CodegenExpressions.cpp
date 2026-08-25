@@ -1,4 +1,5 @@
 #include "CodegenInternal.hpp"
+#include "CodegenStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -19,30 +20,30 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  LLVMGenerator::Impl::ExpressionVisitor::ExpressionVisitor(const LLVMGenerator::Impl& generator,
+  LLVMGenerator::ExpressionVisitor::ExpressionVisitor(const LLVMGenerator& generator,
                                                             IREmitter& emitter,
                                                             FunctionCodegenContext& context,
                                                             const std::vector<Scope>& scopes)
       : ExpressionOnlyVisitor("codegen"), generator_(generator), emitter_(emitter),
         context_(context), scopes_(scopes) {}
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
     result_ = Value{formatLLVMFloatLiteral(floating.value), Type::f64()};
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
     result_ = generator_.generateStringLiteral(stringLiteral, emitter_, context_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
     result_ = Value{boolean.value ? "true" : "false", Type::boolean()};
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
     const Value operand = generator_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
     const std::string result = emitter_.freshTemp();
     const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
@@ -76,15 +77,15 @@ namespace noria {
     throw CompileError("codegen: internal error: unknown unary codegen rule");
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
     result_ = generator_.generateCastExpression(castExpression, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
     result_ = generator_.generateBinaryExpression(binary, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
     const LocalBinding& local = generator_.lookupLocal(scopes_, identifier.name);
 
     const std::string result = emitter_.freshTemp();
@@ -92,7 +93,7 @@ namespace noria {
     result_ = Value{result, local.type};
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::CallExpression& call) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::CallExpression& call) {
     if (auto builtin = generator_.tryGenerateBuiltinCall(call, emitter_, context_, scopes_)) {
       result_ = *builtin;
       return;
@@ -123,30 +124,30 @@ namespace noria {
     result_ = Value{result, function->second.returnType};
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
     result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
     result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
     result_ = generator_.generateStructLiteral(literal, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::Impl::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+  void LLVMGenerator::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
     result_ = generator_.generateFieldAccess(access, emitter_, context_, scopes_);
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateStringLiteral(const ast::StringLiteral& literal, IREmitter& emitter,
+  LLVMGenerator::Value
+  LLVMGenerator::generateStringLiteral(const ast::StringLiteral& literal, IREmitter& emitter,
                                              FunctionCodegenContext& context) const {
     return Value{emitCStringPointer(literal.value, emitter, context), Type::str()};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateArrayLiteral(const ast::ArrayLiteral& literal, IREmitter& emitter,
+  LLVMGenerator::Value
+  LLVMGenerator::generateArrayLiteral(const ast::ArrayLiteral& literal, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
     std::vector<Value> elements;
@@ -177,8 +178,8 @@ namespace noria {
     return Value{base, arrayType};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateIndexExpression(const ast::IndexExpression& index,
+  LLVMGenerator::Value
+  LLVMGenerator::generateIndexExpression(const ast::IndexExpression& index,
                                                IREmitter& emitter, FunctionCodegenContext& context,
                                                const std::vector<Scope>& scopes) const {
     const Value base = generateRvalue(*index.base, emitter, context, scopes);
@@ -209,8 +210,8 @@ namespace noria {
     return Value{result, Type::i32()};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
+  LLVMGenerator::Value
+  LLVMGenerator::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
                                               FunctionCodegenContext& context,
                                               const std::vector<Scope>& scopes) const {
     const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
@@ -244,27 +245,29 @@ namespace noria {
     throw CompileError("codegen: unsupported cast");
   }
 
-  std::string LLVMGenerator::Impl::generateCondition(const ast::Expression& expression,
+  std::string LLVMGenerator::generateCondition(const ast::Expression& expression,
                                                      IREmitter& emitter,
                                                      FunctionCodegenContext& context,
-                                                     const std::vector<Scope>& scopes) const {
+                                               const std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Expressions);
     const Value value = generateRvalue(expression, emitter, context, scopes);
     if (value.type != Type::boolean())
       throw CompileError("codegen: condition must be bool");
     return value.text;
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateRvalue(const ast::Expression& expression, IREmitter& emitter,
+  LLVMGenerator::Value
+  LLVMGenerator::generateRvalue(const ast::Expression& expression, IREmitter& emitter,
                                       FunctionCodegenContext& context,
-                                      const std::vector<Scope>& scopes) const {
+                                const std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Expressions);
     ExpressionVisitor visitor(*this, emitter, context, scopes);
     expression.accept(visitor);
     return visitor.result();
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateBinaryExpression(const ast::BinaryExpression& binary,
+  LLVMGenerator::Value
+  LLVMGenerator::generateBinaryExpression(const ast::BinaryExpression& binary,
                                                 IREmitter& emitter, FunctionCodegenContext& context,
                                                 const std::vector<Scope>& scopes) const {
 
@@ -292,7 +295,7 @@ namespace noria {
     return generateNumericBinaryExpression(binary, left, right, emitter);
   }
 
-  LLVMGenerator::Impl::Value LLVMGenerator::Impl::generateShortCircuitBinaryExpression(
+  LLVMGenerator::Value LLVMGenerator::generateShortCircuitBinaryExpression(
       const ast::BinaryExpression& binary, IREmitter& emitter, FunctionCodegenContext& context,
       const std::vector<Scope>& scopes) const {
     const Value left = generateRvalue(*binary.left, emitter, context, scopes);
@@ -331,8 +334,8 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateStringConcatExpression(const Value& left, const Value& right,
+  LLVMGenerator::Value
+  LLVMGenerator::generateStringConcatExpression(const Value& left, const Value& right,
                                                       IREmitter& emitter,
                                                       FunctionCodegenContext& context) const {
     const std::string leftLength = emitter.freshTemp();
@@ -349,8 +352,8 @@ namespace noria {
     return Value{buffer, Type::str()};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateComparisonExpression(const ast::BinaryExpression& binary,
+  LLVMGenerator::Value
+  LLVMGenerator::generateComparisonExpression(const ast::BinaryExpression& binary,
                                                     const Value& left, const Value& right,
                                                     IREmitter& emitter) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
@@ -379,8 +382,8 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateNumericBinaryExpression(const ast::BinaryExpression& binary,
+  LLVMGenerator::Value
+  LLVMGenerator::generateNumericBinaryExpression(const ast::BinaryExpression& binary,
                                                        const Value& left, const Value& right,
                                                        IREmitter& emitter) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);

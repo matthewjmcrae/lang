@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,11 +20,12 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    const auto strategy = checker_.activate(TypeCheckerStrategyKind::Structs);
     result_ = checker_.checkStructLiteral(literal);
   }
 
-  Type TypeChecker::Impl::checkStructLiteral(const ast::StructLiteral& literal) {
+  Type TypeChecker::checkStructLiteral(const ast::StructLiteral& literal) {
     const auto genericStruct = environment_.genericStructs.find(literal.structName);
     if (genericStruct != environment_.genericStructs.end()) {
       return checkGenericStructLiteral(literal, genericStructAt(genericStruct->second));
@@ -39,7 +41,7 @@ namespace noria {
     return checkConcreteStructLiteral(literal, structInfo, {});
   }
 
-  Type TypeChecker::Impl::checkGenericStructLiteral(const ast::StructLiteral& literal,
+  Type TypeChecker::checkGenericStructLiteral(const ast::StructLiteral& literal,
                                                     const ast::StructDecl& templated) {
     std::vector<Type> typeArgs = literal.typeArgs;
     if (typeArgs.empty()) {
@@ -62,7 +64,7 @@ namespace noria {
   }
 
   std::vector<Type>
-  TypeChecker::Impl::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
+  TypeChecker::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
                                                 const ast::StructDecl& templated) {
     std::unordered_map<std::string, Type> bindings;
     std::unordered_map<std::string, Type> provided;
@@ -117,7 +119,7 @@ namespace noria {
     return typeArgs;
   }
 
-  Type TypeChecker::Impl::checkConcreteStructLiteral(const ast::StructLiteral& literal,
+  Type TypeChecker::checkConcreteStructLiteral(const ast::StructLiteral& literal,
                                                      const StructInfo& structInfo,
                                                      std::vector<Type> typeArgs) {
     const std::unordered_map<std::string, Type> provided =
@@ -127,7 +129,7 @@ namespace noria {
   }
 
   std::unordered_map<std::string, Type>
-  TypeChecker::Impl::checkStructLiteralFields(const ast::StructLiteral& literal,
+  TypeChecker::checkStructLiteralFields(const ast::StructLiteral& literal,
                                               const StructInfo& structInfo) {
     std::unordered_map<std::string, Type> provided;
     for (const auto& field : literal.fields) {
@@ -151,7 +153,7 @@ namespace noria {
     return provided;
   }
 
-  void TypeChecker::Impl::requireStructLiteralComplete(
+  void TypeChecker::requireStructLiteralComplete(
       const ast::StructLiteral& literal, const StructInfo& structInfo,
       const std::unordered_map<std::string, Type>& provided) const {
     for (const auto& expectedField : structInfo.fields) {
@@ -171,8 +173,8 @@ namespace noria {
     }
   }
 
-  TypeChecker::Impl::StructInfo
-  TypeChecker::Impl::resolveStructInfo(const Type& structType, SourceLocation location) const {
+  TypeChecker::StructInfo
+  TypeChecker::resolveStructInfo(const Type& structType, SourceLocation location) const {
     if (structType.kind != TypeKind::Struct) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "internal: resolveStructInfo requires struct type"));
@@ -213,8 +215,8 @@ namespace noria {
     return info;
   }
 
-  const TypeChecker::Impl::StructInfo&
-  TypeChecker::Impl::lookupStruct(const std::string& name, SourceLocation location) const {
+  const TypeChecker::StructInfo&
+  TypeChecker::lookupStruct(const std::string& name, SourceLocation location) const {
     const auto structInfo = environment_.structs.find(name);
     if (structInfo == environment_.structs.end()) {
       throw CompileError(
@@ -224,7 +226,7 @@ namespace noria {
     return structInfo->second;
   }
 
-  void TypeChecker::Impl::checkStructAcyclic(const std::string& structName,
+  void TypeChecker::checkStructAcyclic(const std::string& structName,
                                              SourceLocation location) const {
     std::vector<const std::string*> stack;
     std::unordered_set<std::string> visiting;
@@ -263,7 +265,8 @@ namespace noria {
     visitStruct(visitStruct, structName);
   }
 
-  void TypeChecker::Impl::collectStructDecls(const ast::Module& module) {
+  void TypeChecker::collectStructDecls(const ast::Module& module) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
     environment_.structs.clear();
     environment_.genericStructs.clear();
     environment_.genericStructs.reserve(module.structs.size());
@@ -287,8 +290,9 @@ namespace noria {
     validateConcreteStructFieldTypes(module);
   }
 
-  void TypeChecker::Impl::collectGenericStructDecl(const ast::StructDecl& decl,
-                                                   std::size_t moduleIndex) {
+  void TypeChecker::collectGenericStructDecl(const ast::StructDecl& decl,
+                                             std::size_t moduleIndex) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
     std::unordered_set<std::string> allowedTypeParams;
     for (const auto& typeParam : decl.typeParams) {
       allowedTypeParams.insert(typeParam.name);
@@ -309,7 +313,8 @@ namespace noria {
     environment_.genericStructs.emplace(decl.name, moduleIndex);
   }
 
-  void TypeChecker::Impl::collectConcreteStructDecl(const ast::StructDecl& decl) {
+  void TypeChecker::collectConcreteStructDecl(const ast::StructDecl& decl) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
     if (environment_.structs.contains(decl.name) ||
         environment_.genericStructs.contains(decl.name)) {
       throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
@@ -335,8 +340,9 @@ namespace noria {
     environment_.structs.emplace(decl.name, std::move(info));
   }
 
-  void TypeChecker::Impl::validateConcreteStructFieldTypes(const ast::Module& module,
-                                                           std::size_t firstStruct) {
+  void TypeChecker::validateConcreteStructFieldTypes(const ast::Module& module,
+                                                     std::size_t firstStruct) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
     for (std::size_t index = firstStruct; index < module.structs.size(); ++index) {
       const ast::StructDecl& decl = module.structs[index];
       if (!decl.typeParams.empty()) {
@@ -351,12 +357,12 @@ namespace noria {
     }
   }
 
-  bool TypeChecker::Impl::allowsInternalStructTypes(const ast::StructDecl& decl) const {
+  bool TypeChecker::allowsInternalStructTypes(const ast::StructDecl& decl) const {
     const auto origin = environment_.symbolOrigins.structs.find(decl.name);
     return origin != environment_.symbolOrigins.structs.end() && isStdlibOrigin(origin->second);
   }
 
-  std::string TypeChecker::Impl::structOriginModule(const std::string& structName) const {
+  std::string TypeChecker::structOriginModule(const std::string& structName) const {
     const auto origin = environment_.symbolOrigins.structs.find(structName);
     if (origin == environment_.symbolOrigins.structs.end()) {
       return "";
@@ -364,7 +370,7 @@ namespace noria {
     return origin->second;
   }
 
-  std::string TypeChecker::Impl::currentModuleOrigin() const {
+  std::string TypeChecker::currentModuleOrigin() const {
     const auto origin = environment_.symbolOrigins.functions.find(session_.currentFunctionName);
     if (origin == environment_.symbolOrigins.functions.end()) {
       return "";
@@ -372,7 +378,7 @@ namespace noria {
     return origin->second;
   }
 
-  void TypeChecker::Impl::requireFieldVisible(const std::string& structName,
+  void TypeChecker::requireFieldVisible(const std::string& structName,
                                               const StructFieldInfo& field,
                                               SourceLocation location) const {
     if (field.visibility == ast::FieldVisibility::Public) {

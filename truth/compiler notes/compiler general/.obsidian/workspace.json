@@ -11,14 +11,10 @@
             "id": "b4561b10b8ade485",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Compiler.cpp.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Compiler.cpp"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           },
           {
@@ -34,8 +30,37 @@
               "icon": "lucide-file",
               "title": "Code Standard"
             }
+          },
+          {
+            "id": "ecdcc4eb7dba6ba1",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Refactor - Codegen and Typechecker to use strategy pattern.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Refactor - Codegen and Typechecker to use strategy pattern"
+            }
+          },
+          {
+            "id": "761ff7b79c0135bd",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "QA.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "QA"
+            }
           }
-        ]
+        ],
+        "currentTab": 3
       }
     ],
     "direction": "vertical"
@@ -128,7 +153,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Compiler.cpp.md",
+                "file": "QA.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -147,7 +172,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Compiler.cpp.md",
+                "file": "QA.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -190,7 +215,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Compiler.cpp.md",
+                "file": "QA.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -217,21 +242,23 @@
       "bases:Create new base": false
     }
   },
-  "active": "b4561b10b8ade485",
+  "active": "761ff7b79c0135bd",
   "lastOpenFiles": [
+    "Refactor - Codegen and Typechecker to use strategy pattern.md",
+    "QA.md",
+    "Codegen.md",
+    "monomorphism.md",
+    "TypeChecker.md",
+    "Compiler.cpp.md",
     "TODO.md",
     "Performance.md",
     "stdlib.md",
-    "Codegen.md",
-    "Compiler.cpp.md",
     "Lexer.cpp.md",
     "Parser.cpp.md",
     "SpecializationCache.md",
-    "monomorphism.md",
     "LLVMGenerator.md",
     "astVisitor.md",
     "code standards/Code Standard.md",
-    "TypeChecker.cpp.md",
     "astMutator.md",
     "ast.md",
     "[monomorphism.md",

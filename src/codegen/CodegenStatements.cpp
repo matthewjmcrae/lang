@@ -1,4 +1,5 @@
 #include "CodegenInternal.hpp"
+#include "CodegenStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -19,7 +20,7 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  LLVMGenerator::Impl::StatementVisitor::StatementVisitor(const LLVMGenerator::Impl& generator,
+  LLVMGenerator::StatementVisitor::StatementVisitor(const LLVMGenerator& generator,
                                                           IREmitter& emitter,
                                                           FunctionCodegenContext& context,
                                                           Type expectedReturnType,
@@ -27,7 +28,7 @@ namespace noria {
       : StatementOnlyVisitor("codegen"), generator_(generator), emitter_(emitter),
         context_(context), expectedReturnType_(expectedReturnType), scopes_(scopes) {}
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::LetStatement& letStatement) {
     std::optional<Value> initializer;
     if (letStatement.initializer) {
       initializer =
@@ -53,14 +54,14 @@ namespace noria {
     returned_ = false;
   }
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
     Value returnValue =
         generator_.generateRvalue(*returnStatement.expression, emitter_, context_, scopes_);
     emitter_.line("ret " + LLVMType(expectedReturnType_) + " " + returnValue.text);
     returned_ = true;
   }
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(
+  void LLVMGenerator::StatementVisitor::visit(
       const ast::AssignmentStatement& assignmentStatement) {
     const LocalBinding local =
         generator_.generatePlace(*assignmentStatement.lhs, emitter_, context_, scopes_);
@@ -74,7 +75,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
     const int labelId = emitter_.freshLabelId();
     const std::string thenLabel = "if.then" + std::to_string(labelId);
     const std::string elseLabel = "if.else" + std::to_string(labelId);
@@ -110,7 +111,7 @@ namespace noria {
     returned_ = true;
   }
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
     const int labelId = emitter_.freshLabelId();
     const std::string conditionLabel = "while.cond" + std::to_string(labelId);
     const std::string bodyLabel = "while.body" + std::to_string(labelId);
@@ -135,22 +136,23 @@ namespace noria {
     returned_ = false;
   }
 
-  void LLVMGenerator::Impl::StatementVisitor::visit(
+  void LLVMGenerator::StatementVisitor::visit(
       const ast::ExpressionStatement& expressionStatement) {
     generator_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
     returned_ = false;
   }
 
-  bool LLVMGenerator::Impl::generateStatement(const ast::Statement& statement, IREmitter& emitter,
+  bool LLVMGenerator::generateStatement(const ast::Statement& statement, IREmitter& emitter,
                                               FunctionCodegenContext& context,
                                               Type expectedReturnType,
-                                              std::vector<Scope>& scopes) const {
+                                         std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Statements);
     StatementVisitor visitor(*this, emitter, context, expectedReturnType, scopes);
     statement.accept(visitor);
     return visitor.returned();
   }
 
-  bool LLVMGenerator::Impl::declareLocal(std::vector<Scope>& scopes, const std::string& name,
+  bool LLVMGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
                                          LocalBinding binding) const {
     if (scopes.empty())
       scopes.emplace_back();
@@ -163,8 +165,8 @@ namespace noria {
     return true;
   }
 
-  const LLVMGenerator::Impl::LocalBinding&
-  LLVMGenerator::Impl::lookupLocal(const std::vector<Scope>& scopes,
+  const LLVMGenerator::LocalBinding&
+  LLVMGenerator::lookupLocal(const std::vector<Scope>& scopes,
                                    const std::string& name) const {
 
     for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {

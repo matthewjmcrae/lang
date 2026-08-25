@@ -1,4 +1,5 @@
 #include "CodegenInternal.hpp"
+#include "CodegenStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -19,47 +20,47 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  LLVMGenerator::Impl::PlaceVisitor::PlaceVisitor(const LLVMGenerator::Impl& generator,
+  LLVMGenerator::PlaceVisitor::PlaceVisitor(const LLVMGenerator& generator,
                                                   IREmitter& emitter,
                                                   FunctionCodegenContext& context,
                                                   const std::vector<Scope>& scopes)
       : generator_(generator), emitter_(emitter), context_(context), scopes_(scopes) {}
 
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
     result_ = generator_.lookupLocal(scopes_, identifier.name);
   }
 
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::IntegerLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IntegerLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::FloatLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::FloatLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::StringLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::StringLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::BoolLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::BoolLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::UnaryExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::UnaryExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::CastExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::CastExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::BinaryExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::BinaryExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::CallExpression&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::CallExpression&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::ArrayLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ArrayLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::StructLiteral&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::StructLiteral&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::IndexExpression& index) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IndexExpression& index) {
     const Value base = generator_.generateRvalue(*index.base, emitter_, context_, scopes_);
     const Value indexValue = generator_.generateRvalue(*index.index, emitter_, context_, scopes_);
 
@@ -76,7 +77,7 @@ namespace noria {
     result_ = LocalBinding{pointer, elementType, true};
   }
 
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
     const LocalBinding base = generator_.generatePlace(*access.base, emitter_, context_, scopes_);
     if (base.type.kind != TypeKind::Struct) {
       throw CompileError("codegen: field access requires struct base");
@@ -94,35 +95,36 @@ namespace noria {
         layout.fieldTypes[field->second]};
   }
 
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::ReturnStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ReturnStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::LetStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::LetStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::IfStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::IfStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::WhileStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::WhileStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::AssignmentStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::AssignmentStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
-  void LLVMGenerator::Impl::PlaceVisitor::visit(const ast::ExpressionStatement&) {
+  void LLVMGenerator::PlaceVisitor::visit(const ast::ExpressionStatement&) {
     throw CompileError("codegen: invalid assignment target");
   }
 
-  LLVMGenerator::Impl::LocalBinding
-  LLVMGenerator::Impl::generatePlace(const ast::Expression& place, IREmitter& emitter,
+  LLVMGenerator::LocalBinding
+  LLVMGenerator::generatePlace(const ast::Expression& place, IREmitter& emitter,
                                      FunctionCodegenContext& context,
-                                     const std::vector<Scope>& scopes) const {
+                               const std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Places);
     PlaceVisitor visitor(*this, emitter, context, scopes);
     place.accept(visitor);
     return visitor.result();
   }
 
-  std::string LLVMGenerator::Impl::emitArrayElementPointer(const Value& base,
+  std::string LLVMGenerator::emitArrayElementPointer(const Value& base,
                                                            const Value& indexValue,
                                                            const Type& elementType,
                                                            IREmitter& emitter,
@@ -137,7 +139,7 @@ namespace noria {
                                        emitter);
   }
 
-  std::string LLVMGenerator::Impl::emitCStringPointer(std::string_view text, IREmitter& emitter,
+  std::string LLVMGenerator::emitCStringPointer(std::string_view text, IREmitter& emitter,
                                                       FunctionCodegenContext& context) const {
     const std::string globalName = "@.str." + std::to_string(context.nextStringGlobal++);
     const std::size_t length = text.size() + 1;
@@ -150,14 +152,14 @@ namespace noria {
     return result;
   }
 
-  void LLVMGenerator::Impl::emitRuntimeTrap(IREmitter& emitter, FunctionCodegenContext& context,
+  void LLVMGenerator::emitRuntimeTrap(IREmitter& emitter, FunctionCodegenContext& context,
                                             std::string_view message) const {
     const std::string pointer = emitCStringPointer(message, emitter, context);
     emitter.line("call void @\"__noria.rt.trap\"(ptr " + pointer + ")");
     emitter.line("unreachable");
   }
 
-  void LLVMGenerator::Impl::emitNullPointerCheck(const std::string& pointer, IREmitter& emitter,
+  void LLVMGenerator::emitNullPointerCheck(const std::string& pointer, IREmitter& emitter,
                                                  FunctionCodegenContext& context) const {
     const int labelId = emitter.freshLabelId();
     const std::string trapLabel = "alloc.fail" + std::to_string(labelId);
@@ -170,7 +172,7 @@ namespace noria {
     emitter.emitLabel(contLabel);
   }
 
-  std::string LLVMGenerator::Impl::emitCheckedMalloc(const std::string& size64, IREmitter& emitter,
+  std::string LLVMGenerator::emitCheckedMalloc(const std::string& size64, IREmitter& emitter,
                                                      FunctionCodegenContext& context) const {
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = call ptr @malloc(i64 " + size64 + ")");
@@ -178,7 +180,7 @@ namespace noria {
     return pointer;
   }
 
-  void LLVMGenerator::Impl::emitBoundsCheck(const std::string& length64, const Value& indexValue,
+  void LLVMGenerator::emitBoundsCheck(const std::string& length64, const Value& indexValue,
                                             IREmitter& emitter, FunctionCodegenContext& context,
                                             std::string_view message) const {
     const int labelId = emitter.freshLabelId();
@@ -194,7 +196,7 @@ namespace noria {
     emitter.emitLabel(contLabel);
   }
 
-  std::string LLVMGenerator::Impl::emitRawBufferElementPointer(const Value& base,
+  std::string LLVMGenerator::emitRawBufferElementPointer(const Value& base,
                                                                const Value& indexValue,
                                                                const Type& elementType,
                                                                IREmitter& emitter) const {
@@ -206,7 +208,7 @@ namespace noria {
     return pointer;
   }
 
-  std::string LLVMGenerator::Impl::emitBufferLoad(const Type& type, const std::string& pointer,
+  std::string LLVMGenerator::emitBufferLoad(const Type& type, const std::string& pointer,
                                                   IREmitter& emitter) const {
     if (type.kind == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();
@@ -221,7 +223,7 @@ namespace noria {
     return result;
   }
 
-  void LLVMGenerator::Impl::emitBufferStore(const Type& type, const std::string& value,
+  void LLVMGenerator::emitBufferStore(const Type& type, const std::string& value,
                                             const std::string& pointer, IREmitter& emitter) const {
     if (type.kind == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();

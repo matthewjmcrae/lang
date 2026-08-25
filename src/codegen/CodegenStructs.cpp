@@ -1,4 +1,5 @@
 #include "CodegenInternal.hpp"
+#include "CodegenStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -19,8 +20,9 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  std::unordered_map<std::string, LLVMGenerator::Impl::FunctionBinding>
-  LLVMGenerator::Impl::collectFunctionBindings(const ast::Module& module) const {
+  std::unordered_map<std::string, LLVMGenerator::FunctionBinding>
+  LLVMGenerator::collectFunctionBindings(const ast::Module& module) const {
+    const auto strategy = activate(CodegenStrategyKind::Structs);
     std::unordered_map<std::string, FunctionBinding> functions;
 
     for (const auto& function : module.functions) {
@@ -39,8 +41,9 @@ namespace noria {
     return functions;
   }
 
-  std::unordered_map<std::string, LLVMGenerator::Impl::StructLayout>
-  LLVMGenerator::Impl::collectStructLayouts(const ast::Module& module) const {
+  std::unordered_map<std::string, LLVMGenerator::StructLayout>
+  LLVMGenerator::collectStructLayouts(const ast::Module& module) const {
+    const auto strategy = activate(CodegenStrategyKind::Structs);
     std::unordered_map<std::string, StructLayout> layouts;
 
     for (const auto& decl : module.structs) {
@@ -61,7 +64,8 @@ namespace noria {
     return layouts;
   }
 
-  std::string LLVMGenerator::Impl::emitStructTypeDefinitions(const ast::Module& module) const {
+  std::string LLVMGenerator::emitStructTypeDefinitions(const ast::Module& module) const {
+    const auto strategy = activate(CodegenStrategyKind::Structs);
     std::ostringstream out;
 
     for (const auto& decl : module.structs) {
@@ -80,8 +84,8 @@ namespace noria {
     return out.str();
   }
 
-  const LLVMGenerator::Impl::StructLayout&
-  LLVMGenerator::Impl::lookupStructLayout(const FunctionCodegenContext& context,
+  const LLVMGenerator::StructLayout&
+  LLVMGenerator::lookupStructLayout(const FunctionCodegenContext& context,
                                           const Type& structType) const {
     const auto layout = context.structs.find(structType.structName);
     if (layout == context.structs.end()) {
@@ -91,7 +95,7 @@ namespace noria {
     return layout->second;
   }
 
-  std::string LLVMGenerator::Impl::emitStructFieldPointer(const Type& structType,
+  std::string LLVMGenerator::emitStructFieldPointer(const Type& structType,
                                                           const std::string& slot,
                                                           std::size_t fieldIndex,
                                                           IREmitter& emitter) const {
@@ -101,10 +105,11 @@ namespace noria {
     return pointer;
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateStructLiteral(const ast::StructLiteral& literal, IREmitter& emitter,
+  LLVMGenerator::Value
+  LLVMGenerator::generateStructLiteral(const ast::StructLiteral& literal, IREmitter& emitter,
                                              FunctionCodegenContext& context,
-                                             const std::vector<Scope>& scopes) const {
+                                       const std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Structs);
     const Type structType = Type::structType(literal.structName);
     const StructLayout& layout = lookupStructLayout(context, structType);
 
@@ -133,10 +138,11 @@ namespace noria {
     return Value{result, structType};
   }
 
-  LLVMGenerator::Impl::Value
-  LLVMGenerator::Impl::generateFieldAccess(const ast::FieldAccessExpression& access,
+  LLVMGenerator::Value
+  LLVMGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
                                            IREmitter& emitter, FunctionCodegenContext& context,
-                                           const std::vector<Scope>& scopes) const {
+                                     const std::vector<Scope>& scopes) const {
+    const auto strategy = activate(CodegenStrategyKind::Structs);
     std::string slot;
     Type structType;
 

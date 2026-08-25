@@ -32,7 +32,7 @@ add_library(noria_core OBJECT
   src/AstClone.cpp
   src/AstPrinter.cpp
   src/AstVisitor.cpp
-  src/Codegen.cpp
+  src/codegen/Codegen.cpp
   src/codegen/CodegenBuiltins.cpp
   src/codegen/CodegenExpressions.cpp
   src/codegen/CodegenModule.cpp
@@ -54,7 +54,7 @@ add_library(noria_core OBJECT
   src/monomorphize/SpecializationRewrite.cpp
   src/monomorphize/SpecializationTypes.cpp
   src/Parser.cpp
-  src/TypeChecker.cpp
+  src/typecheck/TypeChecker.cpp
   src/typecheck/TypeCheckerCalls.cpp
   src/typecheck/TypeCheckerDeclarations.cpp
   src/typecheck/TypeCheckerDriver.cpp

@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,11 +20,11 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  bool TypeChecker::Impl::isStdlibOrigin(const std::string& modulePath) const {
+  bool TypeChecker::isStdlibOrigin(const std::string& modulePath) const {
     return modulePath.rfind("std::", 0) == 0;
   }
 
-  bool TypeChecker::Impl::isStdlibContext() const {
+  bool TypeChecker::isStdlibContext() const {
     const auto origin = environment_.symbolOrigins.functions.find(session_.currentFunctionName);
     if (origin == environment_.symbolOrigins.functions.end()) {
       return false;
@@ -31,11 +32,11 @@ namespace noria {
     return isStdlibOrigin(origin->second);
   }
 
-  bool TypeChecker::Impl::isInternalModuleOrigin(const std::string& modulePath) const {
+  bool TypeChecker::isInternalModuleOrigin(const std::string& modulePath) const {
     return modulePath.rfind("std::internal::", 0) == 0;
   }
 
-  void TypeChecker::Impl::requireFunctionCallable(const std::string& calleeName,
+  void TypeChecker::requireFunctionCallable(const std::string& calleeName,
                                                   SourceLocation location) const {
     const auto origin = environment_.symbolOrigins.functions.find(calleeName);
     if (origin == environment_.symbolOrigins.functions.end()) {
@@ -49,7 +50,7 @@ namespace noria {
     }
   }
 
-  const ast::Function& TypeChecker::Impl::genericFunctionAt(std::size_t moduleIndex) const {
+  const ast::Function& TypeChecker::genericFunctionAt(std::size_t moduleIndex) const {
     if (environment_.activeModule == nullptr ||
         moduleIndex >= environment_.activeModule->functions.size()) {
       throw CompileError("typecheck: internal error: invalid generic function index");
@@ -57,7 +58,7 @@ namespace noria {
     return environment_.activeModule->functions[moduleIndex];
   }
 
-  const ast::StructDecl& TypeChecker::Impl::genericStructAt(std::size_t moduleIndex) const {
+  const ast::StructDecl& TypeChecker::genericStructAt(std::size_t moduleIndex) const {
     if (environment_.activeModule == nullptr ||
         moduleIndex >= environment_.activeModule->structs.size()) {
       throw CompileError("typecheck: internal error: invalid generic struct index");
@@ -65,7 +66,8 @@ namespace noria {
     return environment_.activeModule->structs[moduleIndex];
   }
 
-  void TypeChecker::Impl::collectFunctionSignatures(const ast::Module& module) {
+  void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
     for (std::size_t index{}; index < module.functions.size(); ++index) {
       const ast::Function& function = module.functions[index];
       if (!function.typeParams.empty()) {
@@ -81,8 +83,9 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::collectGenericFunctionSignature(const ast::Function& function,
-                                                          std::size_t moduleIndex) {
+  void TypeChecker::collectGenericFunctionSignature(const ast::Function& function,
+                                                    std::size_t moduleIndex) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
     const auto existing = environment_.genericFunctions.find(function.name);
     if (existing != environment_.genericFunctions.end()) {
       for (std::size_t candidateIndex : existing->second) {
@@ -129,7 +132,8 @@ namespace noria {
     environment_.genericFunctions[function.name].push_back(moduleIndex);
   }
 
-  void TypeChecker::Impl::collectConcreteFunctionSignature(const ast::Function& function) {
+  void TypeChecker::collectConcreteFunctionSignature(const ast::Function& function) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
     if (environment_.functions.contains(function.name) ||
         environment_.genericFunctions.contains(function.name)) {
       throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
@@ -155,7 +159,7 @@ namespace noria {
   }
 
   void
-  TypeChecker::Impl::validateGenericFunctionFamily(std::string_view name,
+  TypeChecker::validateGenericFunctionFamily(std::string_view name,
                                                    const std::vector<std::size_t>& family) const {
     if (family.size() <= 1) {
       return;
@@ -172,7 +176,7 @@ namespace noria {
     }
   }
 
-  bool TypeChecker::Impl::allowsInternalFunctionTypes(const ast::Function& function) const {
+  bool TypeChecker::allowsInternalFunctionTypes(const ast::Function& function) const {
     const auto origin = environment_.symbolOrigins.functions.find(function.name);
     return origin != environment_.symbolOrigins.functions.end() && isStdlibOrigin(origin->second);
   }

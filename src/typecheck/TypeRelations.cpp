@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,7 +20,7 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::Impl::TypeRelations::requireKnownType(
+  void TypeChecker::TypeRelations::requireKnownType(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowImplTags,
       bool allowInternalTypes) const {
@@ -56,7 +57,7 @@ namespace noria {
                                         "unknown type '" + type.name() + "'"));
   }
 
-  void TypeChecker::Impl::TypeRelations::requireRawPtrUsable(const Type&, SourceLocation location,
+  void TypeChecker::TypeRelations::requireRawPtrUsable(const Type&, SourceLocation location,
                                                              bool allowInternalTypes) const {
     if (!allowInternalTypes) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
@@ -64,7 +65,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::TypeRelations::requireImplTagUsable(const Type& type,
+  void TypeChecker::TypeRelations::requireImplTagUsable(const Type& type,
                                                               SourceLocation location,
                                                               bool allowImplTags) const {
     if (allowImplTags) {
@@ -76,7 +77,7 @@ namespace noria {
                                             "' cannot be used as a type"));
   }
 
-  void TypeChecker::Impl::TypeRelations::requireTypeParamKnown(
+  void TypeChecker::TypeRelations::requireTypeParamKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams) const {
     if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
@@ -86,7 +87,7 @@ namespace noria {
                                         "unresolved type parameter '" + type.typeParamName + "'"));
   }
 
-  void TypeChecker::Impl::TypeRelations::requireArrayTypeKnown(
+  void TypeChecker::TypeRelations::requireArrayTypeKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowImplTags,
       bool allowInternalTypes) const {
@@ -98,7 +99,7 @@ namespace noria {
     rejectStructArrayElement(*type.element, location);
   }
 
-  void TypeChecker::Impl::TypeRelations::requireStructTypeKnown(
+  void TypeChecker::TypeRelations::requireStructTypeKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowInternalTypes) const {
     if (!type.typeArgs.empty()) {
@@ -143,7 +144,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::TypeRelations::unifyTypes(const Type& expected, const Type& actual,
+  void TypeChecker::TypeRelations::unifyTypes(const Type& expected, const Type& actual,
                                                     std::unordered_map<std::string, Type>& bindings,
                                                     SourceLocation location) const {
     if (expected.kind == TypeKind::TypeParam) {
@@ -174,7 +175,7 @@ namespace noria {
   }
 
   void
-  TypeChecker::Impl::TypeRelations::bindTypeParam(const Type& expected, const Type& actual,
+  TypeChecker::TypeRelations::bindTypeParam(const Type& expected, const Type& actual,
                                                   std::unordered_map<std::string, Type>& bindings,
                                                   SourceLocation location) const {
     const auto existing = bindings.find(expected.typeParamName);
@@ -192,7 +193,7 @@ namespace noria {
   }
 
   void
-  TypeChecker::Impl::TypeRelations::unifyArrayTypes(const Type& expected, const Type& actual,
+  TypeChecker::TypeRelations::unifyArrayTypes(const Type& expected, const Type& actual,
                                                     std::unordered_map<std::string, Type>& bindings,
                                                     SourceLocation location) const {
     if (actual.kind != TypeKind::Array || !expected.element || !actual.element) {
@@ -203,7 +204,7 @@ namespace noria {
     unifyTypes(*expected.element, *actual.element, bindings, location);
   }
 
-  void TypeChecker::Impl::TypeRelations::unifyImplTagTypes(const Type& expected, const Type& actual,
+  void TypeChecker::TypeRelations::unifyImplTagTypes(const Type& expected, const Type& actual,
                                                            SourceLocation location) const {
     if (actual.kind != TypeKind::ImplTag || expected.implTag != actual.implTag) {
       throw CompileError(
@@ -212,7 +213,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::TypeRelations::unifyStructTypes(
+  void TypeChecker::TypeRelations::unifyStructTypes(
       const Type& expected, const Type& actual, std::unordered_map<std::string, Type>& bindings,
       SourceLocation location) const {
     if (actual.kind != TypeKind::Struct || expected.structName != actual.structName) {
@@ -232,7 +233,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::TypeRelations::checkSpecializationConstraints(
+  void TypeChecker::TypeRelations::checkSpecializationConstraints(
       const std::string& templateName, const std::vector<Type>& typeArgs,
       SourceLocation location) const {
     (void)templateName;
@@ -275,14 +276,14 @@ namespace noria {
   }
 
   void
-  TypeChecker::Impl::TypeRelations::recordStructSpecialization(const std::string& templateName,
+  TypeChecker::TypeRelations::recordStructSpecialization(const std::string& templateName,
                                                                const std::vector<Type>& typeArgs,
                                                                SourceLocation location) const {
     checkSpecializationConstraints(templateName, typeArgs, location);
     checker_.session_.structSpecializationRequests.push_back(StructSpecializationRequest{
         templateName, typeArgs, location, checker_.session_.currentFunctionName});
   }
-  bool TypeChecker::Impl::TypeRelations::isAssignable(Type expected, Type actual) const {
+  bool TypeChecker::TypeRelations::isAssignable(Type expected, Type actual) const {
     if (expected == actual) {
       return true;
     }

@@ -9,6 +9,9 @@
 #include "noria/Parser.hpp"
 #include "noria/TypeChecker.hpp"
 
+#include "codegen/CodegenStrategy.hpp"
+#include "typecheck/TypeCheckerStrategy.hpp"
+
 #include <filesystem>
 
 namespace noria {
@@ -25,7 +28,7 @@ namespace noria {
         return output;
       }
 
-      TypeChecker checker;
+      TypeChecker checker = makeTypeCheckerWithDriverStrategy();
       checker.check(output.module, symbolOrigins);
 
       const MonomorphizationResult monomorphization =
@@ -35,7 +38,7 @@ namespace noria {
         return output;
       }
 
-      LLVMGenerator generator;
+      LLVMGenerator generator = makeLLVMGeneratorWithModuleStrategy();
       generator.setFunctionSpecializationTypeArgs(monomorphization.functionSpecializationTypeArgs);
       output.LLVM = generator.generate(output.module);
       return output;

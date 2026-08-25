@@ -16,7 +16,7 @@ The tokens and module are passed into a helper function called compileParsedModu
 
 With imports being resolved if necessary. with resolveImports()
 
-[[TypeChecker.cpp]] is used to check the module from the parser,
+[[TypeChecker]] is used to check the module from the parser,
 
 then [[monomorphism]] handles specializations of generics which are passed to [[Codegen]] which then generates LLVM IR output
 

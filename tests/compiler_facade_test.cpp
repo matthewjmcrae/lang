@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -32,12 +33,12 @@ namespace {
 } // namespace
 
 int main() {
-  static_assert(std::is_copy_constructible_v<noria::TypeChecker>);
-  static_assert(std::is_copy_assignable_v<noria::TypeChecker>);
+  static_assert(!std::is_copy_constructible_v<noria::TypeChecker>);
+  static_assert(!std::is_copy_assignable_v<noria::TypeChecker>);
   static_assert(std::is_move_constructible_v<noria::TypeChecker>);
   static_assert(std::is_move_assignable_v<noria::TypeChecker>);
-  static_assert(std::is_copy_constructible_v<noria::LLVMGenerator>);
-  static_assert(std::is_copy_assignable_v<noria::LLVMGenerator>);
+  static_assert(!std::is_copy_constructible_v<noria::LLVMGenerator>);
+  static_assert(!std::is_copy_assignable_v<noria::LLVMGenerator>);
   static_assert(std::is_move_constructible_v<noria::LLVMGenerator>);
   static_assert(std::is_move_assignable_v<noria::LLVMGenerator>);
   static_assert(std::is_copy_constructible_v<noria::SpecializationCache>);
@@ -98,6 +99,23 @@ entry:
                      "Typed stop throws on type error");
   expectCompileError(noria::StopAfter::Ast, syntaxInvalidSource,
                      "Ast stop throws on syntax error");
+
+  noria::TypeChecker checker;
+  try {
+    checker.check(astOutput.module);
+    expect(false, "checker reports invalid module");
+  } catch (const noria::CompileError&) {
+  }
+  checker.check(typedOutput.module);
+  noria::TypeChecker movedChecker(std::move(checker));
+  movedChecker.check(typedOutput.module);
+
+  noria::LLVMGenerator generator;
+  generator.setFunctionSpecializationTypeArgs({});
+  noria::LLVMGenerator movedGenerator(std::move(generator));
+  const std::string movedIr = movedGenerator.generate(typedOutput.module);
+  expect(movedIr.find("define i32 @main") != std::string::npos,
+         "moved generator remains usable");
 
   if (failures != 0) {
     std::cerr << failures << " compiler facade test failure(s)\n";

@@ -5,13 +5,13 @@ The objective is to return a MonomorphizationResult which contains a map from st
 
 The monomorphisation algortihm is as follows
 
-collectPendingSpecializations([[TypeChecker.cpp]])
+collectPendingSpecializations([[TypeChecker]])
 If(none left) return
 
 linkNewSpeiecliazations()
 expandPendingSpecializations
 ensureExpansionLimit()
-typecheck via [[TypeChecker.cpp]]
+typecheck via [[TypeChecker]]
 
 loop 
 

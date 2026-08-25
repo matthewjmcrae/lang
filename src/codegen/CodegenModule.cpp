@@ -19,7 +19,7 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  std::string LLVMGenerator::Impl::generate(const ast::Module& module) const {
+  std::string LLVMGenerator::generateModule(const ast::Module& module) const {
     ModuleCodegenContext context(functionSpecializationTypeArgs_);
     context.functions = collectFunctionBindings(module);
     context.structs = collectStructLayouts(module);
@@ -36,7 +36,7 @@ namespace noria {
            functions.str();
   }
 
-  std::string LLVMGenerator::Impl::modulePreamble() const {
+  std::string LLVMGenerator::modulePreamble() const {
     std::string preamble;
 
     const std::string triple = runtime::targetTriple();
@@ -59,7 +59,7 @@ namespace noria {
     return preamble;
   }
 
-  std::string LLVMGenerator::Impl::defaultIRValue(const Type& type) const {
+  std::string LLVMGenerator::defaultIRValue(const Type& type) const {
     if (type == Type::boolean())
       return "false";
     if (type == Type::f64())
@@ -71,7 +71,7 @@ namespace noria {
     return "0";
   }
 
-  std::string LLVMGenerator::Impl::generateFunction(const ast::Function& function,
+  std::string LLVMGenerator::generateFunction(const ast::Function& function,
                                                     ModuleCodegenContext& moduleContext) const {
     FunctionCodegenContext context(moduleContext, function.name);
     const Type returnType = function.returnType;
@@ -116,7 +116,7 @@ namespace noria {
     return out.str();
   }
 
-  bool LLVMGenerator::Impl::generateStatements(
+  bool LLVMGenerator::generateStatements(
       const std::vector<std::unique_ptr<ast::Statement>>& statements, IREmitter& emitter,
       FunctionCodegenContext& context, Type expectedReturnType, std::vector<Scope>& scopes) const {
 

@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,20 +20,7 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  TypeChecker::Impl::Impl() : relations_(*this) {}
-
-  TypeChecker::Impl::Impl(const Impl& other)
-      : environment_(other.environment_), session_(other.session_), relations_(*this) {}
-
-  TypeChecker::Impl& TypeChecker::Impl::operator=(const Impl& other) {
-    if (this != &other) {
-      environment_ = other.environment_;
-      session_ = other.session_;
-    }
-    return *this;
-  }
-
-  void TypeChecker::Impl::check(const ast::Module& module, const SymbolOrigins& symbolOrigins) {
+  void TypeChecker::checkImpl(const ast::Module& module, const SymbolOrigins& symbolOrigins) {
     environment_.activeModule = &module;
     environment_.functions.clear();
     environment_.genericFunctions.clear();
@@ -52,7 +40,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::checkSpecializationFrontier(const ast::Module& module,
+  void TypeChecker::checkSpecializationFrontierImpl(const ast::Module& module,
                                                       std::size_t firstNewStruct,
                                                       std::size_t firstNewFunction,
                                                       const SymbolOrigins& symbolOrigins) {
@@ -91,7 +79,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::Impl::checkFunction(const ast::Function& function) {
+  void TypeChecker::checkFunction(const ast::Function& function) {
     session_.scopes.clear();
     pushScope();
 
@@ -116,7 +104,7 @@ namespace noria {
   }
 
   bool
-  TypeChecker::Impl::checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
+  TypeChecker::checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
                                      Type expectedReturnType) {
     bool returned = false;
     for (const auto& statement : statements) {
@@ -126,38 +114,22 @@ namespace noria {
     return returned;
   }
 
-  bool TypeChecker::Impl::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
+  bool TypeChecker::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Statements);
     StatementVisitor visitor(*this, expectedReturnType);
     statement.accept(visitor);
     return visitor.returned();
   }
 
-  void TypeChecker::Impl::registerFunctionSpecialization(std::string mangledName,
-                                                         std::vector<Type> typeArgs) {
-    session_.functionSpecializationTypeArgs.emplace(std::move(mangledName), std::move(typeArgs));
-  }
-
-  std::vector<SpecializationRequest> TypeChecker::Impl::takeSpecializationRequests() {
-    std::vector<SpecializationRequest> requests;
-    requests.swap(session_.specializationRequests);
-    return requests;
-  }
-
-  std::vector<StructSpecializationRequest>
-  TypeChecker::Impl::takeStructSpecializationRequests() const {
-    std::vector<StructSpecializationRequest> requests;
-    requests.swap(session_.structSpecializationRequests);
-    return requests;
-  }
-
-  Type TypeChecker::Impl::checkRvalue(const ast::Expression& expression,
+  Type TypeChecker::checkRvalue(const ast::Expression& expression,
                                       std::optional<Type> expectedType) {
+    const auto strategy = activate(TypeCheckerStrategyKind::Expressions);
     ExpressionVisitor visitor(*this, std::move(expectedType));
     expression.accept(visitor);
     return visitor.result();
   }
 
-  bool TypeChecker::Impl::declareLocal(const std::string& name, Type type) {
+  bool TypeChecker::declareLocal(const std::string& name, Type type) {
     if (session_.scopes.empty())
       pushScope();
 
@@ -169,7 +141,7 @@ namespace noria {
     return true;
   }
 
-  Type TypeChecker::Impl::lookupLocal(const std::string& name, SourceLocation location) const {
+  Type TypeChecker::lookupLocal(const std::string& name, SourceLocation location) const {
     for (auto scope = session_.scopes.rbegin(); scope != session_.scopes.rend(); ++scope) {
       const auto local = scope->find(name);
 
@@ -181,11 +153,11 @@ namespace noria {
                                         "unknown local variable '" + name + "'"));
   }
 
-  void TypeChecker::Impl::pushScope() {
+  void TypeChecker::pushScope() {
     session_.scopes.emplace_back();
   }
 
-  void TypeChecker::Impl::popScope() {
+  void TypeChecker::popScope() {
     session_.scopes.pop_back();
   }
 

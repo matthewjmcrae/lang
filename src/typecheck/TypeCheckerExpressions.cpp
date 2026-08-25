@@ -1,4 +1,5 @@
 #include "TypeCheckerInternal.hpp"
+#include "TypeCheckerStrategy.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -19,12 +20,12 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  TypeChecker::Impl::ExpressionVisitor::ExpressionVisitor(TypeChecker::Impl& checker,
+  TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker,
                                                           std::optional<Type> expectedType)
       : ExpressionOnlyVisitor("typecheck"), checker_(checker),
         expectedType_(std::move(expectedType)) {}
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     if (integer.value < std::numeric_limits<std::int32_t>::min() ||
         integer.value > std::numeric_limits<std::int32_t>::max()) {
       throw CompileError(formatDiagnostic(integer.location, DiagnosticStage::TypeCheck,
@@ -33,29 +34,29 @@ namespace noria {
     result_ = Type::i32();
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::FloatLiteral&) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::FloatLiteral&) {
     result_ = Type::f64();
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::StringLiteral&) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::StringLiteral&) {
     result_ = Type::str();
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::BoolLiteral&) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::BoolLiteral&) {
     result_ = Type::boolean();
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
     result_ = checker_.lookupLocal(identifier.name, identifier.location);
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
     const Type left = checker_.checkRvalue(*binary.left);
     const Type right = checker_.checkRvalue(*binary.right);
     result_ = checker_.checkBinaryExpression(binary, left, right);
   }
 
-  Type TypeChecker::Impl::checkBinaryExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkBinaryExpression(const ast::BinaryExpression& binary,
                                                 const Type& left, const Type& right) const {
     if (left.kind == TypeKind::RawPtr || right.kind == TypeKind::RawPtr) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
@@ -63,15 +64,15 @@ namespace noria {
     }
 
     using BinaryCheck =
-        Type (TypeChecker::Impl::*)(const ast::BinaryExpression&, const Type&, const Type&) const;
+        Type (TypeChecker::*)(const ast::BinaryExpression&, const Type&, const Type&) const;
     static const std::unordered_map<BinaryTypeCheckRule, BinaryCheck, EnumHash<BinaryTypeCheckRule>>
         checks = {
-            {BinaryTypeCheckRule::Logical, &TypeChecker::Impl::checkLogicalBinaryExpression},
-            {BinaryTypeCheckRule::Numeric, &TypeChecker::Impl::checkAdditiveBinaryExpression},
-            {BinaryTypeCheckRule::Integer, &TypeChecker::Impl::checkIntegerBinaryExpression},
+            {BinaryTypeCheckRule::Logical, &TypeChecker::checkLogicalBinaryExpression},
+            {BinaryTypeCheckRule::Numeric, &TypeChecker::checkAdditiveBinaryExpression},
+            {BinaryTypeCheckRule::Integer, &TypeChecker::checkIntegerBinaryExpression},
             {BinaryTypeCheckRule::OrderedComparison,
-             &TypeChecker::Impl::checkOrderedComparisonExpression},
-            {BinaryTypeCheckRule::Equality, &TypeChecker::Impl::checkEqualityExpression},
+             &TypeChecker::checkOrderedComparisonExpression},
+            {BinaryTypeCheckRule::Equality, &TypeChecker::checkEqualityExpression},
         };
 
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
@@ -87,7 +88,7 @@ namespace noria {
     return (this->*check->second)(binary, left, right);
   }
 
-  Type TypeChecker::Impl::checkLogicalBinaryExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkLogicalBinaryExpression(const ast::BinaryExpression& binary,
                                                        const Type& left, const Type& right) const {
     if (left != Type::boolean() || right != Type::boolean()) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
@@ -97,7 +98,7 @@ namespace noria {
     return Type::boolean();
   }
 
-  Type TypeChecker::Impl::checkAdditiveBinaryExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkAdditiveBinaryExpression(const ast::BinaryExpression& binary,
                                                         const Type& left, const Type& right) const {
     if (binary.op == ast::BinaryOperator::Add && left == Type::str() && right == Type::str()) {
       return Type::str();
@@ -119,7 +120,7 @@ namespace noria {
                              left.name() + " and " + right.name()));
   }
 
-  Type TypeChecker::Impl::checkIntegerBinaryExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkIntegerBinaryExpression(const ast::BinaryExpression& binary,
                                                        const Type& left, const Type& right) const {
     if (left != Type::i32() || right != Type::i32()) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
@@ -129,7 +130,7 @@ namespace noria {
     return Type::i32();
   }
 
-  Type TypeChecker::Impl::checkOrderedComparisonExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkOrderedComparisonExpression(const ast::BinaryExpression& binary,
                                                            const Type& left,
                                                            const Type& right) const {
     if (left == right && (left == Type::i32() || left == Type::f64())) {
@@ -141,7 +142,7 @@ namespace noria {
                                             left.name() + " and " + right.name()));
   }
 
-  Type TypeChecker::Impl::checkEqualityExpression(const ast::BinaryExpression& binary,
+  Type TypeChecker::checkEqualityExpression(const ast::BinaryExpression& binary,
                                                   const Type& left, const Type& right) const {
     if (left == right && (left == Type::i32() || left == Type::f64() || left == Type::boolean() ||
                           left == Type::str())) {
@@ -153,19 +154,19 @@ namespace noria {
                                             left.name() + " and " + right.name()));
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
     const Type operandType = checker_.checkRvalue(*unary.operand);
     result_ = checker_.checkUnaryExpression(unary, operandType);
   }
 
-  Type TypeChecker::Impl::checkUnaryExpression(const ast::UnaryExpression& unary,
+  Type TypeChecker::checkUnaryExpression(const ast::UnaryExpression& unary,
                                                const Type& operandType) const {
-    using UnaryCheck = Type (TypeChecker::Impl::*)(const ast::UnaryExpression&, const Type&) const;
+    using UnaryCheck = Type (TypeChecker::*)(const ast::UnaryExpression&, const Type&) const;
     static const std::unordered_map<UnaryTypeCheckRule, UnaryCheck, EnumHash<UnaryTypeCheckRule>>
         checks = {
-            {UnaryTypeCheckRule::Numeric, &TypeChecker::Impl::checkNumericUnaryExpression},
-            {UnaryTypeCheckRule::Boolean, &TypeChecker::Impl::checkBooleanUnaryExpression},
-            {UnaryTypeCheckRule::Integer, &TypeChecker::Impl::checkIntegerUnaryExpression},
+            {UnaryTypeCheckRule::Numeric, &TypeChecker::checkNumericUnaryExpression},
+            {UnaryTypeCheckRule::Boolean, &TypeChecker::checkBooleanUnaryExpression},
+            {UnaryTypeCheckRule::Integer, &TypeChecker::checkIntegerUnaryExpression},
         };
 
     const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
@@ -181,7 +182,7 @@ namespace noria {
     return (this->*check->second)(unary, operandType);
   }
 
-  Type TypeChecker::Impl::checkNumericUnaryExpression(const ast::UnaryExpression& unary,
+  Type TypeChecker::checkNumericUnaryExpression(const ast::UnaryExpression& unary,
                                                       const Type& operandType) const {
     if (operandType == Type::i32() || operandType == Type::f64()) {
       return operandType;
@@ -192,7 +193,7 @@ namespace noria {
                          "unary negation requires numeric operand, got " + operandType.name()));
   }
 
-  Type TypeChecker::Impl::checkBooleanUnaryExpression(const ast::UnaryExpression& unary,
+  Type TypeChecker::checkBooleanUnaryExpression(const ast::UnaryExpression& unary,
                                                       const Type& operandType) const {
     if (operandType == Type::boolean()) {
       return Type::boolean();
@@ -203,7 +204,7 @@ namespace noria {
                          "logical not requires bool operand, got " + operandType.name()));
   }
 
-  Type TypeChecker::Impl::checkIntegerUnaryExpression(const ast::UnaryExpression& unary,
+  Type TypeChecker::checkIntegerUnaryExpression(const ast::UnaryExpression& unary,
                                                       const Type& operandType) const {
     if (operandType == Type::i32()) {
       return Type::i32();
@@ -214,7 +215,7 @@ namespace noria {
                          "unary operator requires i32 operand, got " + operandType.name()));
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
     const Type sourceType = checker_.checkRvalue(*castExpression.expression);
     const bool allowInternal = checker_.isStdlibContext();
     checker_.requireKnownType(castExpression.targetType, castExpression.location, nullptr, false,
@@ -253,7 +254,7 @@ namespace noria {
                          "cannot cast " + sourceType.name() + " to " + targetType.name()));
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
     if (literal.elements.empty()) {
       throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
                                           "cannot infer element type of empty array literal"));
@@ -275,7 +276,7 @@ namespace noria {
     result_ = Type::array(elementType);
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::IndexExpression& index) {
     const Type baseType = checker_.checkRvalue(*index.base);
     const Type indexType = checker_.checkRvalue(*index.index);
 
@@ -307,7 +308,7 @@ namespace noria {
                          "index requires str or array base, got " + baseType.name()));
   }
 
-  void TypeChecker::Impl::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+  void TypeChecker::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
     const Type baseType = checker_.checkRvalue(*access.base);
     if (baseType.kind != TypeKind::Struct) {
       throw CompileError(
