@@ -31,13 +31,11 @@ namespace noria {
 
     std::optional<CachedFunctionSpecialization>
     cloneStdlibFunctionSpecialization(const std::string& key);
-    void storeStdlibFunctionSpecialization(const std::string& key,
-                                           const ast::Function& function,
+    void storeStdlibFunctionSpecialization(const std::string& key, const ast::Function& function,
                                            const std::vector<Type>& typeArgs);
 
     std::optional<ast::StructDecl> cloneStdlibStructSpecialization(const std::string& key);
-    void storeStdlibStructSpecialization(const std::string& key,
-                                         const ast::StructDecl& structDecl);
+    void storeStdlibStructSpecialization(const std::string& key, const ast::StructDecl& structDecl);
 
     std::size_t parsedStdlibModuleCount() const;
     std::size_t stdlibSpecializationCount() const;
@@ -66,8 +64,7 @@ namespace noria {
   std::string stdlibRootCacheKey(const std::filesystem::path& stdlibRoot);
   std::string parsedStdlibModuleCacheKey(const std::string& stdlibRootKey,
                                          const std::string& modulePath);
-  std::string stdlibSpecializationCacheKey(std::string_view kind,
-                                           const std::string& originModule,
+  std::string stdlibSpecializationCacheKey(std::string_view kind, const std::string& originModule,
                                            const std::string& mangledName);
 
 } // namespace noria

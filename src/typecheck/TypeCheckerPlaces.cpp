@@ -27,40 +27,20 @@ namespace noria {
           formatDiagnostic(location, DiagnosticStage::TypeCheck, "invalid assignment target"));
     }
 
-    bool isFieldAssignmentPlaceBase(const ast::Expression& expression) {
-      if (dynamic_cast<const ast::IdentifierExpression*>(&expression) != nullptr) {
-        return true;
-      }
-
-      if (const auto* index = dynamic_cast<const ast::IndexExpression*>(&expression)) {
-        const ast::Expression* root = index->base.get();
-        while (const auto* nested = dynamic_cast<const ast::IndexExpression*>(root)) {
-          root = nested->base.get();
-        }
-        return dynamic_cast<const ast::IdentifierExpression*>(root) != nullptr;
-      }
-
-      if (const auto* fieldAccess = dynamic_cast<const ast::FieldAccessExpression*>(&expression)) {
-        return isFieldAssignmentPlaceBase(*fieldAccess->base);
-      }
-
-      return false;
-    }
-
-    std::string fieldAssignmentRootName(const ast::Expression& expression) {
+    const ast::IdentifierExpression* assignmentPlaceRoot(const ast::Expression& expression) {
       const ast::Expression* current = &expression;
-      while (const auto* index = dynamic_cast<const ast::IndexExpression*>(current)) {
-        current = index->base.get();
+      while (true) {
+        if (const auto* index = dynamic_cast<const ast::IndexExpression*>(current)) {
+          current = index->base.get();
+          continue;
+        }
+        if (const auto* fieldAccess = dynamic_cast<const ast::FieldAccessExpression*>(current)) {
+          current = fieldAccess->base.get();
+          continue;
+        }
+        break;
       }
-      while (const auto* fieldAccess = dynamic_cast<const ast::FieldAccessExpression*>(current)) {
-        current = fieldAccess->base.get();
-      }
-
-      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(current)) {
-        return identifier->name;
-      }
-
-      throw CompileError("typecheck: internal error: missing field assignment root identifier");
+      return dynamic_cast<const ast::IdentifierExpression*>(current);
     }
 
   } // namespace
@@ -123,11 +103,7 @@ namespace noria {
       }
       type_ = *baseType.element;
 
-      const ast::Expression* root = index.base.get();
-      while (const auto* nested = dynamic_cast<const ast::IndexExpression*>(root)) {
-        root = nested->base.get();
-      }
-      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(root)) {
+      if (const auto* identifier = assignmentPlaceRoot(index)) {
         name_ = identifier->name;
         return;
       }
@@ -158,12 +134,12 @@ namespace noria {
     const StructFieldInfo& fieldInfo = structInfo.fields[fieldIndex->second];
     checker_.requireFieldVisible(baseType.structName, fieldInfo, access.location);
 
-    if (!isFieldAssignmentPlaceBase(*access.base)) {
-      invalidAssignmentTarget(access.location);
+    if (const auto* identifier = assignmentPlaceRoot(*access.base)) {
+      name_ = identifier->name + "." + access.fieldName;
+      type_ = fieldInfo.type;
+      return;
     }
-
-    name_ = fieldAssignmentRootName(*access.base) + "." + access.fieldName;
-    type_ = fieldInfo.type;
+    invalidAssignmentTarget(access.location);
   }
 
   void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {

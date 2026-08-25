@@ -110,7 +110,7 @@ namespace noria {
     const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string formatPointer = emitter.freshTemp();
     emitter.line(formatPointer +
-                 " = getelementptr inbounds [4 x i8], ptr @.fmt.float, i32 0, i32 0");
+                 " = getelementptr inbounds [3 x i8], ptr @.fmt.float, i32 0, i32 0");
     emitter.line("call i32 (ptr, ...) @printf(ptr " + formatPointer + ", double " + argument.text +
                  ")");
     return Value{"", Type::voidType()};

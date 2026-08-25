@@ -1,0 +1,7 @@
+fn main() -> i32 {
+  s: str;
+  print(s);
+  print("ok");
+  println();
+  return 0;
+}

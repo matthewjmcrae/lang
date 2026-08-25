@@ -36,9 +36,8 @@ namespace noria::ast {
       }
 
       void visit(const CastExpression& node) override {
-        expression_ =
-            std::make_unique<CastExpression>(cloneChild(*node.expression), node.targetType,
-                                             node.location);
+        expression_ = std::make_unique<CastExpression>(cloneChild(*node.expression),
+                                                       node.targetType, node.location);
       }
 
       void visit(const BinaryExpression& node) override {
@@ -52,9 +51,8 @@ namespace noria::ast {
       }
 
       void visit(const CallExpression& node) override {
-        expression_ =
-            std::make_unique<CallExpression>(node.callee, cloneExpressionList(node.arguments),
-                                             node.location);
+        expression_ = std::make_unique<CallExpression>(
+            node.callee, cloneExpressionList(node.arguments), node.location);
       }
 
       void visit(const ArrayLiteral& node) override {
@@ -64,9 +62,8 @@ namespace noria::ast {
 
       void visit(const IndexExpression& node) override {
         auto base = cloneChild(*node.base);
-        expression_ =
-            std::make_unique<IndexExpression>(std::move(base), cloneChild(*node.index),
-                                              node.location);
+        expression_ = std::make_unique<IndexExpression>(std::move(base), cloneChild(*node.index),
+                                                        node.location);
       }
 
       void visit(const StructLiteral& node) override {
@@ -75,14 +72,13 @@ namespace noria::ast {
         for (const auto& field : node.fields) {
           fields.push_back(cloneStructLiteralFieldChild(field));
         }
-        expression_ =
-            std::make_unique<StructLiteral>(node.structName, node.typeArgs, std::move(fields),
-                                            node.location);
+        expression_ = std::make_unique<StructLiteral>(node.structName, node.typeArgs,
+                                                      std::move(fields), node.location);
       }
 
       void visit(const FieldAccessExpression& node) override {
-        expression_ = std::make_unique<FieldAccessExpression>(
-            cloneChild(*node.base), node.fieldName, node.location);
+        expression_ = std::make_unique<FieldAccessExpression>(cloneChild(*node.base),
+                                                              node.fieldName, node.location);
       }
 
       void visit(const ReturnStatement& node) override {
@@ -98,28 +94,25 @@ namespace noria::ast {
         if (node.initializer) {
           initializer = cloneChild(*node.initializer);
         }
-        statement_ = std::make_unique<LetStatement>(
-            node.name, node.declaredType, std::move(initializer), node.location);
+        statement_ = std::make_unique<LetStatement>(node.name, node.declaredType,
+                                                    std::move(initializer), node.location);
       }
 
       void visit(const IfStatement& node) override {
-        statement_ = std::make_unique<IfStatement>(cloneChild(*node.condition),
-                                                   cloneStatementList(node.thenBranch),
-                                                   cloneStatementList(node.elseBranch),
-                                                   node.location);
+        statement_ = std::make_unique<IfStatement>(
+            cloneChild(*node.condition), cloneStatementList(node.thenBranch),
+            cloneStatementList(node.elseBranch), node.location);
       }
 
       void visit(const WhileStatement& node) override {
         statement_ = std::make_unique<WhileStatement>(cloneChild(*node.condition),
-                                                      cloneStatementList(node.body),
-                                                      node.location);
+                                                      cloneStatementList(node.body), node.location);
       }
 
       void visit(const AssignmentStatement& node) override {
         auto lhs = cloneChild(*node.lhs);
-        statement_ =
-            std::make_unique<AssignmentStatement>(std::move(lhs), cloneChild(*node.rhs),
-                                                  node.location);
+        statement_ = std::make_unique<AssignmentStatement>(std::move(lhs), cloneChild(*node.rhs),
+                                                           node.location);
       }
 
       void visit(const ExpressionStatement& node) override {

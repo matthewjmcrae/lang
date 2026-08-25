@@ -210,6 +210,8 @@ namespace noria::monomorphize_detail {
     for (const StructSpecializationRequest& request : pending.structs) {
       lastSpecializationLocation = request.useSiteLocation;
       propagateStructSpecializationOrigin(symbolOrigins, request.templateName, request.typeArgs);
+      checker.registerStructSpecialization(
+          mangleSpecialization(request.templateName, request.typeArgs), request.typeArgs);
     }
     for (const SpecializationRequest& request : pending.functions) {
       lastSpecializationLocation = request.callSiteLocation;

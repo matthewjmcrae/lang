@@ -1,0 +1,12 @@
+struct Holder {
+  items: [i32];
+}
+
+fn make() -> Holder {
+  return Holder { items: [1, 2] };
+}
+
+fn main() -> i32 {
+  make().items[0] = 50;
+  return 0;
+}

@@ -79,6 +79,15 @@ int main() {
     expectText(equalInfo->LLVMFloatPredicate, "oeq", "equality float predicate");
   }
 
+  const noria::BinaryOperatorInfo* notEqualInfo =
+      noria::binaryOperatorInfo(BinaryOperator::NotEqual);
+  expect(notEqualInfo != nullptr, "inequality operator info exists");
+  if (notEqualInfo != nullptr) {
+    expect(notEqualInfo->comparison, "inequality is comparison");
+    expectText(notEqualInfo->LLVMIntegerPredicate, "ne", "inequality integer predicate");
+    expectText(notEqualInfo->LLVMFloatPredicate, "une", "inequality float predicate is unordered");
+  }
+
   const noria::BinaryOperatorInfo* andInfo = noria::binaryOperatorInfo(BinaryOperator::And);
   expect(andInfo != nullptr && andInfo->shortCircuit, "logical and short-circuits");
 

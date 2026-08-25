@@ -128,7 +128,7 @@ namespace noria {
             {ast::BinaryOperator::Equal,
              {"==", BinaryTypeCheckRule::Equality, false, true, "", "", "eq", "oeq"}},
             {ast::BinaryOperator::NotEqual,
-             {"!=", BinaryTypeCheckRule::Equality, false, true, "", "", "ne", "one"}},
+             {"!=", BinaryTypeCheckRule::Equality, false, true, "", "", "ne", "une"}},
         };
     return table;
   }

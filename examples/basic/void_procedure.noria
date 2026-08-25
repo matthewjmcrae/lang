@@ -1,6 +1,7 @@
 fn announce(value: i32) -> void {
   if value > 0 {
     print_int(value);
+    println();
     return;
   } else {
     println();

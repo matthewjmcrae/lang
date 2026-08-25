@@ -79,7 +79,16 @@ resolve_tool() {
   return 0
 }
 
-CLANG="$(resolve_tool clang)"
+resolve_host_clang() {
+  if [[ -x /usr/bin/clang ]]; then
+    printf '%s\n' /usr/bin/clang
+    return
+  fi
+
+  resolve_tool clang
+}
+
+CLANG="$(resolve_host_clang)"
 OPT="$(resolve_tool opt)"
 
 if [[ ! -x "${NORIA}" ]]; then
@@ -213,6 +222,29 @@ run_optimized_native_failure_test() {
   fi
 
   grep -q "${expected_stderr}" "${stderr_file}"
+}
+
+run_optimized_native_exit_test() {
+  local source="$1"
+  local expected_exit="$2"
+  local name
+  name="$(basename "${source}" .noria)"
+  local executable="${TEST_OUT_DIR}/${name}_optimized"
+
+  set_case "optimized native ${source#${ROOT_DIR}/}"
+  echo "[noria-tests] optimized native ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
+  run_noria build -O2 "${source}" -o "${executable}"
+
+  local actual_exit
+  if "${executable}"; then
+    actual_exit=0
+  else
+    actual_exit="$?"
+  fi
+
+  if [[ "${actual_exit}" != "${expected_exit}" ]]; then
+    fail "expected exit ${expected_exit}, got ${actual_exit} for optimized ${source}"
+  fi
 }
 
 run_optimized_native_stdout_test() {
@@ -419,6 +451,10 @@ expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_signature.noria
   "entry point 'main' must accept no parameters; expected 'fn main() -> i32'"
 expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_return_type.noria" \
   "entry point 'main' must return i32, got bool"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/void_main.noria" \
+  "entry point 'main' must return i32, got void"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/str_main.noria" \
+  "entry point 'main' must return i32, got str"
 expect_entry_point_failure "${ROOT_DIR}/qa_programs/generic_main.noria" \
   "entry point 'main' must not be generic; expected 'fn main() -> i32'"
 expect_entry_point_failure "${ROOT_DIR}/qa_programs/missing_main.noria" \
@@ -486,6 +522,14 @@ grep -q "typecheck: print_int expects i32, got str" \
   "${TEST_OUT_DIR}/print_int_wrong_type.stderr"
 grep -q "typecheck: expression statement must be a function call" \
   "${TEST_OUT_DIR}/bare_expression_statement.stderr"
+
+phase "builtin name reservation diagnostics"
+grep -q "1:1: typecheck: cannot define function 'print': name is a builtin" \
+  "${TEST_OUT_DIR}/user_print.stderr"
+grep -q "1:1: typecheck: cannot define function 'println': name is a builtin" \
+  "${TEST_OUT_DIR}/user_println.stderr"
+grep -q "1:1: typecheck: cannot define function 'len': name is a builtin" \
+  "${TEST_OUT_DIR}/user_generic_len.stderr"
 
 phase "phase 3 string length diagnostics"
 grep -q "typecheck: len expects str or array, got i32" \
@@ -728,6 +772,9 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/else_if.noria" 6
 run_native_exit_test "${ROOT_DIR}/examples/basic/if_without_else.noria" 5
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_identity.noria" 8
 run_native_exit_test "${ROOT_DIR}/examples/basic/float_math.noria" 4
+run_native_exit_test "${ROOT_DIR}/examples/basic/float_nan_not_equal.noria" 0
+grep -q "fcmp une double" "${TEST_OUT_DIR}/float_nan_not_equal.ll"
+grep -q "fcmp oeq double" "${TEST_OUT_DIR}/float_nan_not_equal.ll"
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_roundtrip.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_precision_loss.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/math_builtins.noria" 1
@@ -757,6 +804,17 @@ grep -Fq "@.fmt.str = private unnamed_addr constant [3 x i8] c\"%s\\00\"" \
 if grep -Fq "@puts" "${TEST_OUT_DIR}/print_adjacent.ll"; then
   fail "print IR must not call puts"
 fi
+run_native_stdout_test "${ROOT_DIR}/examples/basic/print_numeric_adjacent.noria" \
+  "${ROOT_DIR}/examples/basic/print_numeric_adjacent.expected"
+grep -Fq "@.fmt.float = private unnamed_addr constant [3 x i8] c\"%g\\00\"" \
+  "${TEST_OUT_DIR}/print_numeric_adjacent.ll"
+if grep -Fq "c\"%g\\0A\\00\"" "${TEST_OUT_DIR}/print_numeric_adjacent.ll"; then
+  fail "print_float IR must not include a newline in the format string"
+fi
+if ! grep -A1 "call i32 @putchar(i32 48)" "${TEST_OUT_DIR}/print_numeric_adjacent.ll" |
+  grep -q "ret void"; then
+  fail "print_int zero path must not append a newline"
+fi
 run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
   "${ROOT_DIR}/examples/basic/hello_world.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
@@ -764,6 +822,8 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
 run_native_stdout_test "${ROOT_DIR}/examples/basic/float_output.noria" \
   "${ROOT_DIR}/examples/basic/float_output.expected"
 grep -Fq "call i32 (ptr, ...) @printf(" "${TEST_OUT_DIR}/float_output.ll"
+grep -Fq "@.fmt.float = private unnamed_addr constant [3 x i8] c\"%g\\00\"" \
+  "${TEST_OUT_DIR}/float_output.ll"
 
 phase "phase 3 string length acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_length.noria" \
@@ -792,6 +852,8 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/string_output.noria" \
   "${ROOT_DIR}/examples/basic/string_output.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/str_equality.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/empty_string.noria" 0
+run_native_stdout_test "${ROOT_DIR}/examples/basic/default_initialized_string_print.noria" \
+  "${ROOT_DIR}/examples/basic/default_initialized_string_print.expected"
 run_native_failure_test "${ROOT_DIR}/examples/basic/string_index_oob.noria" 70 \
   "string index out of bounds"
 
@@ -808,15 +870,27 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/array_indexed_assignment.nori
   "${ROOT_DIR}/examples/basic/array_indexed_assignment.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_bool_roundtrip.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_empty_contexts.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_nested_empty.noria" 10
+run_native_exit_test "${ROOT_DIR}/examples/basic/default_initialized_payload.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_oob.noria" 70 \
   "array index out of bounds"
 run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_negative.noria" 70 \
+  "array index out of bounds"
+run_native_failure_test "${ROOT_DIR}/examples/basic/default_initialized_array_oob.noria" 70 \
   "array index out of bounds"
 grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "call ptr @malloc(i64 8)" "${TEST_OUT_DIR}/array_empty_contexts.ll"
 grep -q "store i64 0" "${TEST_OUT_DIR}/array_empty_contexts.ll"
+grep -q "call ptr @malloc(i64 8)" "${TEST_OUT_DIR}/default_initialized_payload.ll"
+grep -q "store i64 0" "${TEST_OUT_DIR}/default_initialized_payload.ll"
+if grep -Fq "store ptr null" "${TEST_OUT_DIR}/default_initialized_payload.ll"; then
+  fail "default-initialized str and array values must not store null"
+fi
+if grep -Fq "store ptr null" "${TEST_OUT_DIR}/default_initialized_string_print.ll"; then
+  fail "default-initialized str must not store null"
+fi
 
 phase "phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
@@ -829,6 +903,8 @@ grep -q "typecheck: array literal element 2 has type bool, expected i32" \
   "${TEST_OUT_DIR}/array_literal_mixed_types.stderr"
 grep -q "typecheck: cannot infer element type of empty array literal" \
   "${TEST_OUT_DIR}/array_literal_empty.stderr"
+grep -q "typecheck: cannot infer element type of empty array literal" \
+  "${TEST_OUT_DIR}/array_literal_nested_empty.stderr"
 grep -Fq "typecheck: cannot initialize 'a' of type [i32] with [f64]" \
   "${TEST_OUT_DIR}/array_element_type_mismatch.stderr"
 grep -q "typecheck: index requires str or array base, got i32" \
@@ -854,6 +930,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/struct_literal_argument_in_cond
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_copy.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign.noria" 34
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign_nested.noria" 5
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_array_field_assign.noria" 68
 run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_assign_str.noria" \
   "${ROOT_DIR}/examples/basic/struct_field_assign_str.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_order.noria" \
@@ -900,6 +977,12 @@ grep -q "typecheck: cannot assign bool to variable 'p.x' of type i32" \
   "${TEST_OUT_DIR}/struct_field_assign_type_mismatch.stderr"
 grep -q "typecheck: invalid assignment target" \
   "${TEST_OUT_DIR}/struct_field_assign_temporary.stderr"
+grep -q "store i32 50, ptr %t[0-9]*" "${TEST_OUT_DIR}/struct_array_field_assign.ll"
+grep -q "store i32 9, ptr %t[0-9]*" "${TEST_OUT_DIR}/struct_array_field_assign.ll"
+grep -q "typecheck: invalid assignment target" \
+  "${TEST_OUT_DIR}/struct_array_field_assign_temporary.stderr"
+grep -q "typecheck: cannot assign bool to variable 'h' of type i32" \
+  "${TEST_OUT_DIR}/struct_array_field_assign_type_mismatch.stderr"
 grep -q "typecheck: unknown type 'Nope'" \
   "${TEST_OUT_DIR}/struct_unknown_type.stderr"
 grep -q "typecheck: duplicate struct 'Point'" \
@@ -1226,8 +1309,13 @@ if [[ -n "${CLANG}" ]]; then
       "${ROOT_DIR}/examples/basic/integer_shift_right_too_large_runtime.noria" \
       70 "integer shift count out of range"
 
+    phase "optimized f64 NaN inequality"
+    run_optimized_native_exit_test "${ROOT_DIR}/examples/basic/float_nan_not_equal.noria" 0
+
     phase "optimized checked f64 to i32 casts"
     run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_too_large.noria" \
+      70 "invalid f64 to i32 cast"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_nan.noria" \
       70 "invalid f64 to i32 cast"
     run_optimized_native_stdout_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.noria" \
       "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.expected"

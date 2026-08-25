@@ -1,13 +1,19 @@
 fn main() -> i32 {
   print_float(3.14);
+  println();
   print_float(-0.5);
+  println();
   print_float(1000000.0);
+  println();
   print_float(6.0 / 4.0);
+  println();
 
   if 1.0000001 > 1.00000005 {
     print_float(0.25);
+    println();
   } else {
     print_float(999.0);
+    println();
   }
   return 0;
 }

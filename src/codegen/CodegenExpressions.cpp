@@ -156,22 +156,26 @@ namespace noria {
   LLVMGenerator::Value LLVMGenerator::generateArrayLiteral(
       const ast::ArrayLiteral& literal, IREmitter& emitter, FunctionCodegenContext& context,
       const std::vector<Scope>& scopes, const std::optional<Type>& expectedType) const {
+    std::optional<Type> expectedElementType;
+    if (expectedType && expectedType->kind == TypeKind::Array && expectedType->element) {
+      expectedElementType = *expectedType->element;
+    }
+
     std::vector<Value> elements;
     elements.reserve(literal.elements.size());
 
     for (const auto& element : literal.elements) {
-      elements.push_back(generateRvalue(*element, emitter, context, scopes));
+      elements.push_back(generateRvalue(*element, emitter, context, scopes, expectedElementType));
     }
 
-    Type elementType;
     if (elements.empty()) {
-      if (!expectedType || expectedType->kind != TypeKind::Array || !expectedType->element) {
+      if (!expectedElementType) {
         throw CompileError("codegen: empty array literal missing expected array type");
       }
-      elementType = *expectedType->element;
-    } else {
-      elementType = elements.front().type;
+      return emitDefaultValue(Type::array(*expectedElementType), emitter, context);
     }
+
+    const Type elementType = elements.front().type;
     const Type arrayType = Type::array(elementType);
     const std::size_t count = elements.size();
     const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);

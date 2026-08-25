@@ -1,0 +1,9 @@
+struct Holder {
+  items: [i32];
+}
+
+fn main() -> i32 {
+  let h: Holder = Holder { items: [1, 2] };
+  h.items[0] = true;
+  return 0;
+}

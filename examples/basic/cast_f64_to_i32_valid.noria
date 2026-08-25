@@ -1,9 +1,15 @@
 fn main() -> i32 {
   print_int(42.9 as i32);
+  println();
   print_int((-42.9) as i32);
+  println();
   print_int(2147483647.0 as i32);
+  println();
   print_int((-2147483648.0) as i32);
+  println();
   print_int(2147483647.5 as i32);
+  println();
   print_int((-2147483648.5) as i32);
+  println();
   return 0;
 }

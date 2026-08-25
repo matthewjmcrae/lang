@@ -1,5 +1,6 @@
 fn main() -> i32 {
-  if true || 1 / 0 == 1 {
+  let zero: i32 = 0;
+  if true || 1 / zero == 1 {
     return 7;
   }
   return 0;

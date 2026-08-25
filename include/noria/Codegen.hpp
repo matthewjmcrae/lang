@@ -215,6 +215,9 @@ namespace noria {
                             const std::vector<Scope>&) const;
     Value emitRtByteOffsetBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,
                                   const std::vector<Scope>&) const;
+    Value emitDefaultValue(const Type&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDefaultStore(const Type&, const std::string& slot, IREmitter&,
+                          FunctionCodegenContext&) const;
     std::string defaultIRValue(const Type&) const;
     std::string modulePreamble() const;
     bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding) const;

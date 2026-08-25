@@ -29,7 +29,10 @@ namespace noria {
   class TypeCheckerStructs;
   class TypeRelationsStrategy;
 
-  struct FunctionSignature { Type returnType; std::vector<Type> parameterTypes; };
+  struct FunctionSignature {
+    Type returnType;
+    std::vector<Type> parameterTypes;
+  };
 
   class TypeChecker {
   public:
@@ -42,9 +45,10 @@ namespace noria {
 
     void check(const ast::Module& module, const SymbolOrigins& symbolOrigins = {});
     void checkSpecializationFrontier(const ast::Module& module, std::size_t firstNewStruct,
-                                    std::size_t firstNewFunction,
-                                    const SymbolOrigins& symbolOrigins = {});
+                                     std::size_t firstNewFunction,
+                                     const SymbolOrigins& symbolOrigins = {});
     void registerFunctionSpecialization(std::string mangledName, std::vector<Type> typeArgs);
+    void registerStructSpecialization(std::string mangledName, std::vector<Type> typeArgs);
     const std::vector<SpecializationRequest>& specializationRequests() const;
     const std::vector<StructSpecializationRequest>& structSpecializationRequests() const;
     void clearSpecializationRequests();
@@ -54,12 +58,20 @@ namespace noria {
 
   private:
     using Scope = std::unordered_map<std::string, Type>;
-    struct PlaceInfo { std::string name; Type type; };
+    struct PlaceInfo {
+      std::string name;
+      Type type;
+    };
     struct StructFieldInfo {
-      std::string name; Type type; std::size_t index;
+      std::string name;
+      Type type;
+      std::size_t index;
       ast::FieldVisibility visibility = ast::FieldVisibility::Public;
     };
-    struct StructInfo { std::vector<StructFieldInfo> fields; HashTable<std::string, std::size_t> fieldIndex; };
+    struct StructInfo {
+      std::vector<StructFieldInfo> fields;
+      HashTable<std::string, std::size_t> fieldIndex;
+    };
     struct TypeEnvironment {
       const ast::Module* activeModule = nullptr;
       SymbolOrigins symbolOrigins;
@@ -73,6 +85,7 @@ namespace noria {
       mutable std::vector<StructSpecializationRequest> structSpecializationRequests;
       std::string currentFunctionName;
       std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs;
+      std::unordered_map<std::string, std::vector<Type>> structSpecializationTypeArgs;
       std::vector<Scope> scopes;
     };
 
@@ -108,6 +121,7 @@ namespace noria {
       bool isAssignable(Type, Type) const;
 
     private:
+      Type canonicalStructType(const Type&) const;
       TypeChecker& checker_;
     };
     class StrategyScope {
@@ -116,6 +130,7 @@ namespace noria {
       ~StrategyScope();
       StrategyScope(const StrategyScope&) = delete;
       StrategyScope& operator=(const StrategyScope&) = delete;
+
     private:
       TypeChecker& checker_;
       std::unique_ptr<TypeCheckerStrategy> previous_;
@@ -124,7 +139,7 @@ namespace noria {
 
     void checkImpl(const ast::Module&, const SymbolOrigins&);
     void checkSpecializationFrontierImpl(const ast::Module&, std::size_t, std::size_t,
-                                        const SymbolOrigins&);
+                                         const SymbolOrigins&);
     void checkFunction(const ast::Function&);
     bool checkStatements(const std::vector<std::unique_ptr<ast::Statement>>&, Type);
     bool checkStatement(const ast::Statement&, Type);
@@ -142,15 +157,18 @@ namespace noria {
     StructInfo resolveStructInfo(const Type&, SourceLocation) const;
     Type checkStructLiteral(const ast::StructLiteral&);
     Type checkGenericStructLiteral(const ast::StructLiteral&, const ast::StructDecl&);
-    Type checkConcreteStructLiteral(const ast::StructLiteral&, const StructInfo&, std::vector<Type>);
+    Type checkConcreteStructLiteral(const ast::StructLiteral&, const StructInfo&,
+                                    std::vector<Type>);
     std::vector<Type> inferStructLiteralTypeArgs(const ast::StructLiteral&, const ast::StructDecl&);
-    std::unordered_map<std::string, Type> checkStructLiteralFields(const ast::StructLiteral&, const StructInfo&);
+    std::unordered_map<std::string, Type> checkStructLiteralFields(const ast::StructLiteral&,
+                                                                   const StructInfo&);
     void requireStructLiteralComplete(const ast::StructLiteral&, const StructInfo&,
                                       const std::unordered_map<std::string, Type>&) const;
 
     void collectFunctionSignatures(const ast::Module&);
     void collectGenericFunctionSignature(const ast::Function&, std::size_t);
     void collectConcreteFunctionSignature(const ast::Function&);
+    void requireDefinableFunctionName(const ast::Function&) const;
     void validateGenericFunctionFamily(std::string_view, const std::vector<std::size_t>&) const;
     Type checkBuiltinCall(const ast::CallExpression&, const BuiltinSignature&);
     void requireBuiltinCallable(const ast::CallExpression&, const BuiltinSignature&) const;
@@ -164,8 +182,8 @@ namespace noria {
     Type checkGenericFunctionCall(const ast::CallExpression&, const std::vector<std::size_t>&,
                                   const std::optional<Type>&);
     Type checkConcreteFunctionCall(const ast::CallExpression&, const FunctionSignature&);
-    std::vector<Type> inferGenericCallTypeArgs(const ast::CallExpression&, const ast::Function&, bool,
-                                               const std::optional<Type>&,
+    std::vector<Type> inferGenericCallTypeArgs(const ast::CallExpression&, const ast::Function&,
+                                               bool, const std::optional<Type>&,
                                                std::unordered_map<std::string, Type>&);
     Type resolveWitnessType(SourceLocation) const;
     bool isEnclosingFunctionSpecialized() const;
@@ -180,9 +198,11 @@ namespace noria {
     Type checkBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     void rejectStaticallyInvalidIntegerOperation(const ast::BinaryExpression&, const Type&) const;
     Type checkLogicalBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
-    Type checkAdditiveBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
+    Type checkAdditiveBinaryExpression(const ast::BinaryExpression&, const Type&,
+                                       const Type&) const;
     Type checkIntegerBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
-    Type checkOrderedComparisonExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
+    Type checkOrderedComparisonExpression(const ast::BinaryExpression&, const Type&,
+                                          const Type&) const;
     Type checkEqualityExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     Type checkUnaryExpression(const ast::UnaryExpression&, const Type&) const;
     Type checkNumericUnaryExpression(const ast::UnaryExpression&, const Type&) const;
@@ -192,12 +212,16 @@ namespace noria {
     void requireKnownType(const Type&, SourceLocation,
                           const std::unordered_set<std::string>* = nullptr,
                           bool allowImplTags = false, bool allowInternalTypes = false) const;
-    void unifyTypes(const Type&, const Type&, std::unordered_map<std::string, Type>&, SourceLocation) const;
+    void unifyTypes(const Type&, const Type&, std::unordered_map<std::string, Type>&,
+                    SourceLocation) const;
     bool isAssignable(Type, Type) const;
-    void checkSpecializationConstraints(const std::string&, const std::vector<Type>&, SourceLocation) const;
-    void recordStructSpecialization(const std::string&, const std::vector<Type>&, SourceLocation) const;
+    void checkSpecializationConstraints(const std::string&, const std::vector<Type>&,
+                                        SourceLocation) const;
+    void recordStructSpecialization(const std::string&, const std::vector<Type>&,
+                                    SourceLocation) const;
 
-    void pushScope(); void popScope();
+    void pushScope();
+    void popScope();
     bool declareLocal(const std::string&, Type);
     Type lookupLocal(const std::string&, SourceLocation) const;
     bool isStdlibOrigin(const std::string&) const;
@@ -215,9 +239,14 @@ namespace noria {
     TypeRelations relations_;
     std::unique_ptr<TypeCheckerStrategy> activeStrategy_;
     friend class TypeCheckerStrategy;
-    friend class TypeCheckerDriver; friend class TypeCheckerCalls; friend class TypeCheckerDeclarations;
-    friend class TypeCheckerExpressions; friend class TypeCheckerPlaces; friend class TypeCheckerStatements;
-    friend class TypeCheckerStructs; friend class TypeRelationsStrategy;
+    friend class TypeCheckerDriver;
+    friend class TypeCheckerCalls;
+    friend class TypeCheckerDeclarations;
+    friend class TypeCheckerExpressions;
+    friend class TypeCheckerPlaces;
+    friend class TypeCheckerStatements;
+    friend class TypeCheckerStructs;
+    friend class TypeRelationsStrategy;
   };
 
 } // namespace noria

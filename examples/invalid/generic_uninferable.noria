@@ -1,12 +1,7 @@
-fn make<T>() -> T {
-  let x: i32 = 1;
-  return x;
-}
-
-fn id(value: i32) -> i32 {
-  return value;
+fn make<T>() -> i32 {
+  return 1;
 }
 
 fn main() -> i32 {
-  return id(make());
+  return make();
 }

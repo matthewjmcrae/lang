@@ -94,6 +94,9 @@ namespace noria {
   void TypeChecker::registerFunctionSpecialization(std::string mangledName, std::vector<Type> typeArgs) {
     session_.functionSpecializationTypeArgs.emplace(std::move(mangledName), std::move(typeArgs));
   }
+  void TypeChecker::registerStructSpecialization(std::string mangledName, std::vector<Type> typeArgs) {
+    session_.structSpecializationTypeArgs.emplace(std::move(mangledName), std::move(typeArgs));
+  }
   const std::vector<SpecializationRequest>& TypeChecker::specializationRequests() const { return session_.specializationRequests; }
   const std::vector<StructSpecializationRequest>& TypeChecker::structSpecializationRequests() const { return session_.structSpecializationRequests; }
   void TypeChecker::clearSpecializationRequests() { session_.specializationRequests.clear(); }

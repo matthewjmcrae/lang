@@ -208,9 +208,8 @@ namespace noria {
 
   std::optional<ast::Module> CompilerCache::cloneParsedStdlibModule(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return parsedStdlibModules_.get(key, [](const CachedParsedModule& cached) {
-      return ast::cloneModule(cached.module);
-    });
+    return parsedStdlibModules_.get(
+        key, [](const CachedParsedModule& cached) { return ast::cloneModule(cached.module); });
   }
 
   void CompilerCache::storeParsedStdlibModule(const std::string& key, const ast::Module& module) {
@@ -313,8 +312,7 @@ namespace noria {
     return stdlibRootKey + "|" + modulePath;
   }
 
-  std::string stdlibSpecializationCacheKey(std::string_view kind,
-                                           const std::string& originModule,
+  std::string stdlibSpecializationCacheKey(std::string_view kind, const std::string& originModule,
                                            const std::string& mangledName) {
     std::ostringstream out;
     out << kind << '|' << originModule << '|' << mangledName;

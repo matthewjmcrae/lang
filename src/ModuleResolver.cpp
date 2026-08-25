@@ -122,13 +122,12 @@ namespace noria {
       return structNames;
     }
 
-    void validateConcreteFunctionExport(const ast::Function& function,
-                                        std::unordered_set<std::string>& exportedFunctionNames,
-                                        const std::unordered_map<std::string,
-                                                                 std::vector<const ast::Function*>>&
-                                            genericFamilies,
-                                        const std::string& modulePath) {
-      if (exportedFunctionNames.contains(function.name) || genericFamilies.contains(function.name)) {
+    void validateConcreteFunctionExport(
+        const ast::Function& function, std::unordered_set<std::string>& exportedFunctionNames,
+        const std::unordered_map<std::string, std::vector<const ast::Function*>>& genericFamilies,
+        const std::string& modulePath) {
+      if (exportedFunctionNames.contains(function.name) ||
+          genericFamilies.contains(function.name)) {
         throwResolverError(function.location, modulePath,
                            "duplicate function '" + function.name + "'");
       }
@@ -208,8 +207,7 @@ namespace noria {
           : provider_(provider), ownedSources_(ownedSources), compilerCache_(compilerCache),
             stdlibRootKey_(std::move(stdlibRootKey)) {}
 
-      const ast::Module& loadModule(const std::vector<std::string>& path,
-                                    SourceLocation location) {
+      const ast::Module& loadModule(const std::vector<std::string>& path, SourceLocation location) {
         const std::string modulePath = formatModulePath(path);
 
         if (const ast::Module* cached = cachedModule(modulePath)) {
@@ -370,7 +368,8 @@ namespace noria {
                              "duplicate symbol '" + importedName.name + "'");
         }
 
-        merged.structs.push_back(ast::cloneStructDecl(**findStruct(sourceModule, importedName.name)));
+        merged.structs.push_back(
+            ast::cloneStructDecl(**findStruct(sourceModule, importedName.name)));
         symbolOrigins.structs.emplace(importedName.name, modulePath);
         return;
       }
@@ -486,8 +485,7 @@ namespace noria {
   }
 
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
-                                 ModuleSourceProvider& provider,
-                                 CompilerCache* compilerCache) {
+                                 ModuleSourceProvider& provider, CompilerCache* compilerCache) {
     ResolvedProgram resolved;
     resolved.module.imports = std::move(rootModule.imports);
     resolved.module.structs = std::move(rootModule.structs);

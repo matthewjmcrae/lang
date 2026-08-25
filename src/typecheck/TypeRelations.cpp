@@ -218,24 +218,52 @@ namespace noria {
     }
   }
 
+  Type TypeChecker::TypeRelations::canonicalStructType(const Type& type) const {
+    if (type.kind != TypeKind::Struct || !type.typeArgs.empty()) {
+      return type;
+    }
+
+    const auto specialization =
+        checker_.session_.structSpecializationTypeArgs.find(type.structName);
+    if (specialization == checker_.session_.structSpecializationTypeArgs.end()) {
+      return type;
+    }
+
+    const std::size_t dollar = type.structName.find('$');
+    if (dollar == std::string::npos) {
+      return type;
+    }
+
+    return Type::structType(type.structName.substr(0, dollar), specialization->second);
+  }
+
   void TypeChecker::TypeRelations::unifyStructTypes(
       const Type& expected, const Type& actual, std::unordered_map<std::string, Type>& bindings,
       SourceLocation location) const {
-    if (actual.kind != TypeKind::Struct || expected.structName != actual.structName) {
+    if (actual.kind != TypeKind::Struct) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
     }
 
-    if (expected.typeArgs.size() != actual.typeArgs.size()) {
-      throw CompileError(
-          formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                           "expected " + expected.name() + ", got " + actual.name()));
+    const Type expectedStruct = canonicalStructType(expected);
+    const Type actualStruct = canonicalStructType(actual);
+    if (expectedStruct.structName == actualStruct.structName &&
+        expectedStruct.typeArgs.size() == actualStruct.typeArgs.size()) {
+      for (std::size_t index{}; index < expectedStruct.typeArgs.size(); ++index) {
+        unifyTypes(expectedStruct.typeArgs[index], actualStruct.typeArgs[index], bindings,
+                   location);
+      }
+      return;
     }
 
-    for (std::size_t index{}; index < expected.typeArgs.size(); ++index) {
-      unifyTypes(expected.typeArgs[index], actual.typeArgs[index], bindings, location);
+    if (structSpecializationsMatch(expected, actual)) {
+      return;
     }
+
+    throw CompileError(
+        formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                         "expected " + expected.name() + ", got " + actual.name()));
   }
 
   void TypeChecker::TypeRelations::checkSpecializationConstraints(
@@ -285,6 +313,7 @@ namespace noria {
                                                                const std::vector<Type>& typeArgs,
                                                                SourceLocation location) const {
     checkSpecializationConstraints(templateName, typeArgs, location);
+    checker_.registerStructSpecialization(mangleSpecialization(templateName, typeArgs), typeArgs);
     checker_.session_.structSpecializationRequests.push_back(StructSpecializationRequest{
         templateName, typeArgs, location, checker_.session_.currentFunctionName});
   }

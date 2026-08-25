@@ -64,11 +64,53 @@ namespace noria {
       return "false";
     if (type == Type::f64())
       return "0.0";
-    if (type.kind == TypeKind::Struct)
-      return "zeroinitializer";
-    if (type.kind == TypeKind::Str || type.kind == TypeKind::Array || type.kind == TypeKind::RawPtr)
+    if (type.kind == TypeKind::I32)
+      return "0";
+    if (type.kind == TypeKind::RawPtr)
       return "null";
-    return "0";
+    throw CompileError("codegen: type '" + type.name() + "' has no constant default IR value");
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitDefaultValue(const Type& type, IREmitter& emitter,
+                                                       FunctionCodegenContext& context) const {
+    if (type.kind == TypeKind::Str) {
+      return Value{emitCStringPointer("", emitter, context), Type::str()};
+    }
+
+    if (type.kind == TypeKind::Array) {
+      if (!type.element) {
+        throw CompileError("codegen: array type missing element type");
+      }
+      const std::string base = emitCheckedMalloc("8", emitter, context);
+      emitter.line("store i64 0, ptr " + base);
+      return Value{base, type};
+    }
+
+    if (type.kind == TypeKind::Struct) {
+      const std::string slot = emitter.freshTemp();
+      emitter.emitAlloca(type, slot);
+      emitDefaultStore(type, slot, emitter, context);
+      const std::string result = emitter.freshTemp();
+      emitter.emitLoad(type, slot, result);
+      return Value{result, type};
+    }
+
+    return Value{defaultIRValue(type), type};
+  }
+
+  void LLVMGenerator::emitDefaultStore(const Type& type, const std::string& slot, IREmitter& emitter,
+                                       FunctionCodegenContext& context) const {
+    if (type.kind == TypeKind::Struct) {
+      const StructLayout& layout = lookupStructLayout(context, type);
+      for (std::size_t index{}; index < layout.fieldTypes.size(); ++index) {
+        const std::string fieldPointer = emitStructFieldPointer(type, slot, index, emitter);
+        emitDefaultStore(layout.fieldTypes[index], fieldPointer, emitter, context);
+      }
+      return;
+    }
+
+    const Value value = emitDefaultValue(type, emitter, context);
+    emitter.emitStore(type, value.text, slot);
   }
 
   std::string LLVMGenerator::generateFunction(const ast::Function& function,

@@ -299,6 +299,12 @@ namespace noria {
   }
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+    std::optional<Type> expectedElementType;
+    if (expectedType_ && expectedType_->kind == TypeKind::Array && expectedType_->element &&
+        !containsUnboundTypeParam(*expectedType_->element)) {
+      expectedElementType = *expectedType_->element;
+    }
+
     if (literal.elements.empty()) {
       if (expectedType_ && expectedType_->kind == TypeKind::Array && expectedType_->element &&
           !containsUnboundTypeParam(*expectedType_)) {
@@ -310,9 +316,9 @@ namespace noria {
                                           "cannot infer element type of empty array literal"));
     }
 
-    const Type elementType = checker_.checkRvalue(*literal.elements[0]);
+    const Type elementType = checker_.checkRvalue(*literal.elements[0], expectedElementType);
     for (std::size_t index = 1; index < literal.elements.size(); ++index) {
-      const Type actual = checker_.checkRvalue(*literal.elements[index]);
+      const Type actual = checker_.checkRvalue(*literal.elements[index], expectedElementType);
       if (actual != elementType) {
         std::ostringstream out;
         out << "array literal element " << (index + 1) << " has type " << actual.name()

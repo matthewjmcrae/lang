@@ -34,10 +34,16 @@ namespace noria {
       }
 
       if (left.typeArgs.empty() && !right.typeArgs.empty()) {
+        if (containsUnboundTypeParam(right)) {
+          return false;
+        }
         return left.structName == mangleSpecialization(right.structName, right.typeArgs);
       }
 
       if (right.typeArgs.empty() && !left.typeArgs.empty()) {
+        if (containsUnboundTypeParam(left)) {
+          return false;
+        }
         return right.structName == mangleSpecialization(left.structName, left.typeArgs);
       }
 

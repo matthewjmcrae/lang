@@ -28,8 +28,8 @@ namespace noria {
     std::optional<Type> builtinTypeFromName(std::string_view name) {
       using TypeFactory = Type (*)();
       static const std::unordered_map<std::string_view, TypeFactory> builtinTypes = {
-          {"i32", Type::i32}, {"f64", Type::f64},         {"bool", Type::boolean},
-          {"str", Type::str}, {"void", Type::voidType},   {"__rt_ptr", Type::rawPtr},
+          {"i32", Type::i32}, {"f64", Type::f64},       {"bool", Type::boolean},
+          {"str", Type::str}, {"void", Type::voidType}, {"__rt_ptr", Type::rawPtr},
       };
 
       if (const auto type = builtinTypes.find(name); type != builtinTypes.end()) {
@@ -173,8 +173,8 @@ namespace noria {
 
       TypedBinding field = parseTypedBinding("expected field name", "expected field type");
       expect(TokenKind::Semicolon, "expected ';' after field declaration");
-      decl.fields.push_back(ast::StructField{field.name, std::move(field.type), field.location,
-                                             currentVisibility});
+      decl.fields.push_back(
+          ast::StructField{field.name, std::move(field.type), field.location, currentVisibility});
     }
 
     typeParamsInScope_ = std::move(savedTypeParams);
@@ -382,19 +382,19 @@ namespace noria {
       }
     } else if (peek().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Semicolon) {
       const Token& nameToken = advance();
-      throw CompileError(formatDiagnostic(
-          nameToken.location, "local declaration '" + nameToken.text +
-                                  "' requires a type or initializer"));
+      throw CompileError(
+          formatDiagnostic(nameToken.location, "local declaration '" + nameToken.text +
+                                                   "' requires a type or initializer"));
     } else {
       const Token& nameToken = expect(TokenKind::Identifier, "expected identifier");
-      throw CompileError(formatDiagnostic(
-          nameToken.location, "local declaration '" + nameToken.text +
-                                  "' requires a type or initializer"));
+      throw CompileError(
+          formatDiagnostic(nameToken.location, "local declaration '" + nameToken.text +
+                                                   "' requires a type or initializer"));
     }
 
     if (!declaredType && !initializer) {
-      throw CompileError(formatDiagnostic(letToken.location,
-                                          "local declaration requires a type or initializer"));
+      throw CompileError(
+          formatDiagnostic(letToken.location, "local declaration requires a type or initializer"));
     }
 
     expect(TokenKind::Semicolon, "expected ';' after variable declaration");
@@ -462,9 +462,9 @@ namespace noria {
       initializer = parseExpression();
     }
     expect(TokenKind::Semicolon, "expected ';' after variable declaration");
-    return std::make_unique<ast::LetStatement>(
-        std::move(binding.name), std::make_optional(std::move(binding.type)),
-        std::move(initializer), location);
+    return std::make_unique<ast::LetStatement>(std::move(binding.name),
+                                               std::make_optional(std::move(binding.type)),
+                                               std::move(initializer), location);
   }
 
   bool Parser::isTypedBindingStart() const {
@@ -474,7 +474,8 @@ namespace noria {
   }
 
   bool Parser::isClearSimpleTypeName(std::string_view name) const {
-    return builtinTypeFromName(name).has_value() || typeParamsInScope_.contains(std::string(name)) ||
+    return builtinTypeFromName(name).has_value() ||
+           typeParamsInScope_.contains(std::string(name)) ||
            structNames_.contains(std::string(name));
   }
 
@@ -691,8 +692,7 @@ namespace noria {
       const Token& opToken = advance();
       auto operand = parseUnary();
       return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
-                                                    std::move(operand),
-                                                    opToken.location);
+                                                    std::move(operand), opToken.location);
     }
 
     if (peek().kind == TokenKind::Minus) {
@@ -708,16 +708,14 @@ namespace noria {
 
       auto operand = parseUnary();
       return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
-                                                    std::move(operand),
-                                                    opToken.location);
+                                                    std::move(operand), opToken.location);
     }
 
     if (peek().kind == TokenKind::Tilde) {
       const Token& opToken = advance();
       auto operand = parseUnary();
       return std::make_unique<ast::UnaryExpression>(*unaryOperatorFromSymbol(opToken.text),
-                                                    std::move(operand),
-                                                    opToken.location);
+                                                    std::move(operand), opToken.location);
     }
 
     return parseCast();
@@ -873,8 +871,8 @@ namespace noria {
     return nullptr;
   }
 
-  std::unique_ptr<ast::Expression>
-  Parser::parseStructLiteralAfterName(const Token& name, std::vector<Type> typeArgs) {
+  std::unique_ptr<ast::Expression> Parser::parseStructLiteralAfterName(const Token& name,
+                                                                       std::vector<Type> typeArgs) {
     const SourceLocation location = peek().location;
     advance();
     std::vector<ast::StructLiteralField> fields = parseStructLiteralFields();

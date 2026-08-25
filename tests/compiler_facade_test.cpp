@@ -104,10 +104,70 @@ fn main() -> i32 {
       "fn main(argc: i32) -> i32 { return argc; }\n";
   constexpr std::string_view boolMainSource = "fn main() -> bool { return true; }\n";
   constexpr std::string_view f64MainSource = "fn main() -> f64 { return 1.0; }\n";
+  constexpr std::string_view voidMainSource = "fn main() -> void { return; }\n";
+  constexpr std::string_view strMainSource = "fn main() -> str { return \"x\"; }\n";
   constexpr std::string_view invalidInMultipleWaysMainSource =
       "fn main<T>(argc: i32) -> bool { return true; }\n";
   constexpr std::string_view duplicateMainSource = R"(fn main() -> i32 { return 0; }
 fn main() -> i32 { return 0; }
+)";
+  constexpr std::string_view userPrintSource = R"(fn print(msg: str) -> void {
+  return;
+}
+
+fn main() -> i32 {
+  print("should not appear if overridden");
+  return 0;
+}
+)";
+  constexpr std::string_view unusedPrintlnSource = R"(fn println() -> void {
+  return;
+}
+
+fn main() -> i32 {
+  return 0;
+}
+)";
+  constexpr std::string_view userGenericLenSource = R"(fn len<T>(value: T) -> i32 {
+  return 0;
+}
+
+fn main() -> i32 {
+  return 0;
+}
+)";
+  constexpr std::string_view emptyTypedArraySource = R"(
+fn main() -> i32 {
+  let values: [i32] = [];
+  return len(values);
+}
+)";
+  constexpr std::string_view defaultArraySource = R"(
+fn main() -> i32 {
+  values: [i32];
+  return len(values);
+}
+)";
+  constexpr std::string_view defaultStrSource = R"(
+fn main() -> i32 {
+  s: str;
+  return len(s);
+}
+)";
+  constexpr std::string_view emptyUntypedArraySource = R"(
+fn main() -> i32 {
+  let values = [];
+  return 0;
+}
+)";
+  constexpr std::string_view checkedIntegerOpsSource = R"(
+fn main() -> i32 {
+  let zero: i32 = 0;
+  let wide: i32 = 32;
+  let quotient: i32 = 1 / zero;
+  let shifted: i32 = 1 << wide;
+  return quotient + shifted;
+}
 )";
 
   const noria::PipelineOutput typedOutput =
@@ -175,6 +235,44 @@ fn main() -> i32 {
              checkedCastOutput.LLVM.find("fptosi double", conversion + 1) == std::string::npos,
          "checked-cast fixture emits exactly one fptosi");
 
+  const noria::PipelineOutput checkedIntegerOutput =
+      noria::compileSource(checkedIntegerOpsSource, noria::StopAfter::Ir);
+  const std::size_t divisorCheck = checkedIntegerOutput.LLVM.find("icmp ne i32");
+  const std::size_t divisorTrap = checkedIntegerOutput.LLVM.find("integer.divisor.fail");
+  const std::size_t division = checkedIntegerOutput.LLVM.find("sdiv i32");
+  const std::size_t shiftCheck = checkedIntegerOutput.LLVM.find("icmp ult i32");
+  const std::size_t shiftTrap = checkedIntegerOutput.LLVM.find("integer.shift.fail");
+  const std::size_t shift = checkedIntegerOutput.LLVM.find("shl i32");
+  expect(divisorCheck != std::string::npos && divisorTrap != std::string::npos &&
+             division != std::string::npos && divisorCheck < division && divisorTrap < division,
+         "integer division emits a zero-divisor guard before sdiv");
+  expect(shiftCheck != std::string::npos && shiftTrap != std::string::npos &&
+             shift != std::string::npos && shiftCheck < shift && shiftTrap < shift,
+         "integer shifts emit a 0..31 count guard before shl");
+
+  const noria::PipelineOutput emptyTypedArrayOutput =
+      noria::compileSource(emptyTypedArraySource, noria::StopAfter::Ir);
+  expect(emptyTypedArrayOutput.LLVM.find("call ptr @malloc(i64 8)") != std::string::npos,
+         "typed empty array literals allocate an 8-byte header");
+  expect(emptyTypedArrayOutput.LLVM.find("store i64 0") != std::string::npos,
+         "typed empty array literals store a zero length");
+
+  const noria::PipelineOutput defaultArrayOutput =
+      noria::compileSource(defaultArraySource, noria::StopAfter::Ir);
+  expect(defaultArrayOutput.LLVM.find("call ptr @malloc(i64 8)") != std::string::npos,
+         "default-initialized arrays allocate an 8-byte header");
+  expect(defaultArrayOutput.LLVM.find("store i64 0") != std::string::npos,
+         "default-initialized arrays store a zero length");
+  expect(defaultArrayOutput.LLVM.find("store ptr null") == std::string::npos,
+         "default-initialized arrays must not store null");
+
+  const noria::PipelineOutput defaultStrOutput =
+      noria::compileSource(defaultStrSource, noria::StopAfter::Ir);
+  expect(defaultStrOutput.LLVM.find("store ptr null") == std::string::npos,
+         "default-initialized strings must not store null");
+  expect(defaultStrOutput.LLVM.find("[1 x i8]") != std::string::npos,
+         "default-initialized strings materialize an empty C string");
+
   expectCompileError(noria::StopAfter::Typed, typeInvalidSource, "Typed stop throws on type error");
   expectCompileError(noria::StopAfter::Ast, syntaxInvalidSource, "Ast stop throws on syntax error");
   expectCompileErrorMessage(
@@ -198,6 +296,15 @@ fn main() -> i32 {
   expectCompileErrorMessage(noria::StopAfter::Ir, f64MainSource,
                             "1:1: typecheck: entry point 'main' must return i32, got f64",
                             "Ir stop rejects f64 main return type");
+  expectCompileErrorMessage(noria::StopAfter::Ir, voidMainSource,
+                            "1:1: typecheck: entry point 'main' must return i32, got void",
+                            "Ir stop rejects void main return type");
+  expectCompileErrorMessage(noria::StopAfter::Ir, strMainSource,
+                            "1:1: typecheck: entry point 'main' must return i32, got str",
+                            "Ir stop rejects str main return type");
+  expectCompileErrorMessage(noria::StopAfter::Typed, emptyUntypedArraySource,
+                            "3:16: typecheck: cannot infer element type of empty array literal",
+                            "Typed stop still rejects an unannotated empty array literal");
   expectCompileErrorMessage(
       noria::StopAfter::Ir, invalidInMultipleWaysMainSource,
       "1:1: typecheck: entry point 'main' must not be generic; expected 'fn main() -> i32'",
@@ -205,6 +312,15 @@ fn main() -> i32 {
   expectCompileErrorMessage(noria::StopAfter::Typed, duplicateMainSource,
                             "2:1: typecheck: duplicate function 'main'",
                             "Type checking retains duplicate main diagnostic");
+  expectCompileErrorMessage(noria::StopAfter::Typed, userPrintSource,
+                            "1:1: typecheck: cannot define function 'print': name is a builtin",
+                            "Type checking rejects a user function named after a called builtin");
+  expectCompileErrorMessage(noria::StopAfter::Typed, unusedPrintlnSource,
+                            "1:1: typecheck: cannot define function 'println': name is a builtin",
+                            "Type checking rejects a user function named after an unused builtin");
+  expectCompileErrorMessage(noria::StopAfter::Typed, userGenericLenSource,
+                            "1:1: typecheck: cannot define function 'len': name is a builtin",
+                            "Type checking rejects a generic function named after a builtin");
 
   noria::TypeChecker checker;
   try {

@@ -188,6 +188,16 @@ namespace {
     return std::string(toolName);
   }
 
+  // Homebrew LLVM's clang cannot link macOS host binaries (SDK / libSystem).
+  // Native builds use the system driver; llvmToolPath stays for `opt` only.
+  std::string hostClangPath() {
+    const std::filesystem::path systemClang{"/usr/bin/clang"};
+    if (std::filesystem::exists(systemClang)) {
+      return systemClang.string();
+    }
+    return "clang";
+  }
+
   std::filesystem::path temporaryLlvmPath(std::string_view suffix) {
     const auto timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
     return std::filesystem::temp_directory_path() /
@@ -218,7 +228,7 @@ namespace {
     const std::string targetTriple = noria::runtime::targetTriple();
 
     writeOutput(llPath, llvmIr);
-    std::string command = shellQuote(llvmToolPath("clang"));
+    std::string command = shellQuote(hostClangPath());
     if (!targetTriple.empty()) {
       command += " " + shellQuote("--target=" + targetTriple);
     }

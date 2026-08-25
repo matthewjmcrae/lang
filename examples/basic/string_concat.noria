@@ -13,7 +13,9 @@ fn main() -> i32 {
   println();
 
   print_int(len("ab" + "cd"));
+  println();
   print_int(("xy" + "z")[2]);
+  println();
 
   return 0;
 }

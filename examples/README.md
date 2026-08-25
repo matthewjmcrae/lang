@@ -77,6 +77,7 @@ They cover:
 - Unknown variables and functions
 - Out-of-scope variables
 - Duplicate functions, parameters, and locals
+- Functions named after builtins
 - Assignment type mismatches
 - Return type mismatches
 - Missing return paths and invalid void returns

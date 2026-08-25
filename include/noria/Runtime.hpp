@@ -62,7 +62,7 @@ namespace noria::runtime {
   };
 
   constexpr std::array<std::string_view, 2> runtimeGlobals = {
-      "@.fmt.float = private unnamed_addr constant [4 x i8] c\"%g\\0A\\00\"\n",
+      "@.fmt.float = private unnamed_addr constant [3 x i8] c\"%g\\00\"\n",
       "@.fmt.str = private unnamed_addr constant [3 x i8] c\"%s\\00\"\n",
   };
 
@@ -73,7 +73,6 @@ namespace noria::runtime {
       "  br i1 %is_zero, label %zero, label %check_sign\n"
       "zero:\n"
       "  call i32 @putchar(i32 48)\n"
-      "  call i32 @putchar(i32 10)\n"
       "  ret void\n"
       "check_sign:\n"
       "  %is_neg = icmp slt i32 %value, 0\n"
@@ -114,7 +113,7 @@ namespace noria::runtime {
       "print_loop:\n"
       "  %i = load i32, ptr %idx\n"
       "  %more = icmp ugt i32 %i, 0\n"
-      "  br i1 %more, label %print_one, label %newline\n"
+      "  br i1 %more, label %print_one, label %end\n"
       "print_one:\n"
       "  %i1 = sub i32 %i, 1\n"
       "  %cp = getelementptr [12 x i8], ptr %buf, i32 0, i32 %i1\n"
@@ -123,8 +122,7 @@ namespace noria::runtime {
       "  call i32 @putchar(i32 %c)\n"
       "  store i32 %i1, ptr %idx\n"
       "  br label %print_loop\n"
-      "newline:\n"
-      "  call i32 @putchar(i32 10)\n"
+      "end:\n"
       "  ret void\n"
       "}\n\n"
       "define i32 @noria_hash_str(ptr %s) {\n"

@@ -1,0 +1,8 @@
+fn print(msg: str) -> void {
+  return;
+}
+
+fn main() -> i32 {
+  print("should not appear if overridden");
+  return 0;
+}

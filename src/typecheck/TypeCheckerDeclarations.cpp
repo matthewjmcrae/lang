@@ -37,7 +37,7 @@ namespace noria {
   }
 
   void TypeChecker::requireFunctionCallable(const std::string& calleeName,
-                                                  SourceLocation location) const {
+                                            SourceLocation location) const {
     const auto origin = environment_.symbolOrigins.functions.find(calleeName);
     if (origin == environment_.symbolOrigins.functions.end()) {
       return;
@@ -83,9 +83,23 @@ namespace noria {
     }
   }
 
+  void TypeChecker::requireDefinableFunctionName(const ast::Function& function) const {
+    if (lookupBuiltin(function.name) != nullptr) {
+      throw CompileError(
+          formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                           "cannot define function '" + function.name + "': name is a builtin"));
+    }
+
+    if (function.name.rfind("__rt_", 0) == 0 && !allowsInternalFunctionTypes(function)) {
+      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
+                                          "name '" + function.name + "' is reserved"));
+    }
+  }
+
   void TypeChecker::collectGenericFunctionSignature(const ast::Function& function,
                                                     std::size_t moduleIndex) {
     const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
+    requireDefinableFunctionName(function);
     const auto existing = environment_.genericFunctions.find(function.name);
     if (existing != environment_.genericFunctions.end()) {
       for (std::size_t candidateIndex : existing->second) {
@@ -112,10 +126,6 @@ namespace noria {
     }
 
     const bool allowInternal = allowsInternalFunctionTypes(function);
-    if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
-      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                          "name '" + function.name + "' is reserved"));
-    }
 
     std::unordered_set<std::string> allowedTypeParams;
     for (const auto& typeParam : function.typeParams) {
@@ -136,6 +146,7 @@ namespace noria {
 
   void TypeChecker::collectConcreteFunctionSignature(const ast::Function& function) {
     const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
+    requireDefinableFunctionName(function);
     if (environment_.functions.contains(function.name) ||
         environment_.genericFunctions.contains(function.name)) {
       throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
@@ -143,10 +154,6 @@ namespace noria {
     }
 
     const bool allowInternal = allowsInternalFunctionTypes(function);
-    if (function.name.rfind("__rt_", 0) == 0 && !allowInternal) {
-      throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
-                                          "name '" + function.name + "' is reserved"));
-    }
 
     FunctionSignature signature;
     if (function.returnType != Type::voidType()) {
@@ -162,9 +169,8 @@ namespace noria {
     environment_.functions.emplace(function.name, std::move(signature));
   }
 
-  void
-  TypeChecker::validateGenericFunctionFamily(std::string_view name,
-                                                   const std::vector<std::size_t>& family) const {
+  void TypeChecker::validateGenericFunctionFamily(std::string_view name,
+                                                  const std::vector<std::size_t>& family) const {
     if (family.size() <= 1) {
       return;
     }

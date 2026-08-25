@@ -66,7 +66,8 @@ Language coverage programs live under `examples/basic/`, including LeetCode-styl
 - CMake 3.20+
 - A C++20 compiler
 - LLVM tools: `opt` for optimizer coverage and `llc` for the optional manual LLVM IR path
-- `clang` for linking generated object files
+- Host `clang` for linking native executables. `noria build` uses `/usr/bin/clang` when present
+  (Apple clang on macOS), not Homebrew LLVM's `clang`. Set `LLVM_BIN` to select `opt` only.
 
 ## Build
 

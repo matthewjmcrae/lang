@@ -527,6 +527,37 @@ fn main() -> i32 {
   expect(countDefines(sameLocationNestedCallsOutput.LLVM, "id$s.bool") == 1,
          "nested same-location bool call is rewritten in its enclosing specialization");
 
+  constexpr std::string_view specializedStructNestedCallSource = R"(
+struct Box<T, I> {
+  value: T;
+}
+
+fn id<T, I>(b: Box<T, I>) -> Box<T, I> impl arr {
+  return b;
+}
+
+fn wrap<T, I>(b: Box<T, I>) -> Box<T, I> impl arr {
+  b = id(b);
+  return b;
+}
+
+fn main() -> i32 {
+  let b: Box<i32, arr> = Box<i32, arr> { value: 4 };
+  let c: Box<i32, arr> = wrap(b);
+  return c.value;
+}
+)";
+
+  const noria::PipelineOutput specializedStructNestedCallOutput =
+      noria::compileSource(specializedStructNestedCallSource, noria::StopAfter::Ir);
+  expect(countDefines(specializedStructNestedCallOutput.LLVM, "wrap$s.i32$tag.arr") == 1,
+         "tagged wrapper specialization is emitted");
+  expect(countDefines(specializedStructNestedCallOutput.LLVM, "id$s.i32$tag.arr") == 1,
+         "nested tagged call unifies specialized struct with generic application");
+  expect(specializedStructNestedCallOutput.LLVM.find("%Box$s.i32$tag.arr = type") !=
+             std::string::npos,
+         "tagged struct specialization is emitted for nested generic call");
+
   constexpr std::string_view inferredStructLiteralFrontierSource = R"(
 struct Box<T> {
   value: T;

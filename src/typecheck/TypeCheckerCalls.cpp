@@ -428,6 +428,19 @@ namespace noria {
       return;
     }
 
+    // Bound returns must be compared as specialized types; Sequence<T, I> does
+    // not unify with the mangled Sequence$s.i32$tag.arr form by struct name.
+    Substitution substitution(bindings.begin(), bindings.end());
+    if (allTypeParamsSubstituted(returnType, substitution)) {
+      const Type specializedReturn = substituteSpecializationType(returnType, substitution);
+      if (!isAssignable(*expectedType, specializedReturn)) {
+        throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                            "expected " + expectedType->name() + ", got " +
+                                                specializedReturn.name()));
+      }
+      return;
+    }
+
     unifyTypes(returnType, *expectedType, bindings, location);
   }
 

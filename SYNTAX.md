@@ -324,6 +324,8 @@ Local variables may use the original `let name: Type = expr;` form, a shorthand
 typed form without `let`, or `let name = expr;` when the type can be inferred
 from the initializer. Bare `name = expr;` remains assignment. Declarations
 without an initializer must include an explicit type and are default-initialized.
+Defaults are `0` for `i32`, `false` for `bool`, `0.0` for `f64`, `""` for `str`,
+a length-0 heap array for `[T]`, and field-wise defaults for structs.
 
 ```noria
 let x: i32 = 42;
@@ -332,6 +334,8 @@ x: i32 = 1;
 i32: y = 2;
 let inferred = x + y;
 z: i32;
+s: str;
+values: [i32];
 ```
 
 Variables can be reassigned:
@@ -425,6 +429,11 @@ let same: bool = "noria" == "noria";
 
 `==` and `!=` work on matching `i32`, `f64`, `bool`, or `str` operands. Ordered comparisons (`<`, `<=`, `>`, `>=`) work only on matching `i32` or `f64` operands.
 
+`f64` `==` is IEEE-754 ordered equality: it is false if either operand is NaN.
+`f64` `!=` is unordered not-equal: it is true if the values differ or if either
+operand is NaN, so `x != x` detects NaN. Ordered comparisons stay false when
+either operand is NaN.
+
 ## Unary Operators
 
 Unary operators apply to a single operand:
@@ -462,7 +471,8 @@ Example:
 
 ```noria
 fn main() -> i32 {
-  if false && 1 / 0 == 1 {
+  let zero: i32 = 0;
+  if false && 1 / zero == 1 {
     return 99;
   }
   return 0;
@@ -603,7 +613,9 @@ Floating-point literals use decimal notation with a fractional part:
 0.5
 ```
 
-Arithmetic on `f64` values uses `+`, `-`, `*`, and `/`. Comparisons use the same operators as integers.
+Arithmetic on `f64` values uses `+`, `-`, `*`, and `/`. Comparisons use the same
+operators as integers. `f64` `!=` is true when either operand is NaN; `==` and
+ordered comparisons are false when either operand is NaN.
 
 Exponent syntax such as `1e3` is not supported.
 
@@ -640,7 +652,7 @@ fn main() -> i32 {
 }
 ```
 
-Use the `print` builtin to write a string to stdout without adding a newline; call `println()` when a newline is needed. For example, `print("A"); print("B");` writes `AB`. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Out-of-range indexes, including negatives, trap at runtime. Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Failed allocations trap. Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance. `str` values compare with `==` and `!=`.
+Use `print`, `print_int`, `print_float`, and `print_char` to write to stdout without adding a newline; call `println()` when a newline is needed. For example, `print("A"); print("B");` writes `AB`, and `print_int(7); print(" items");` writes `7 items`. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Out-of-range indexes, including negatives, trap at runtime. Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Failed allocations trap. Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance. `str` values compare with `==` and `!=`. A typed `str` local without an initializer is the empty string, not a null pointer.
 
 ## Arrays
 
@@ -650,9 +662,10 @@ Array types are written `[T]` where `T` is a scalar or array element type (for e
 let values: [i32] = [3, 4, 5, 6];
 let names: [str] = ["alice", "bob"];
 let empty: [i32] = [];
+let grid: [[i32]] = [[]];
 ```
 
-An empty literal uses a direct expected array type, such as a typed local declaration, function parameter, return value, assignment target, or struct-literal field. An unannotated declaration such as `let values = [];` is rejected because its element type cannot be inferred. Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+An empty literal uses a direct expected array type, such as a typed local declaration, function parameter, return value, assignment target, or struct-literal field. When an array literal is checked against `[T]`, each element is checked against `T`, so a nested `[]` is allowed when `T` is itself an array type (`let grid: [[i32]] = [[]];` or `let grid: [[i32]] = [[1], []];`). Unannotated declarations such as `let values = [];` and `let grid = [[]];` are rejected because no element type is known. A typed `[T]` local without an initializer is an empty array, equivalent to `[]`. Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Field and nested index chains rooted at a local are the same kind of assignment place: `h.items[i] = expr` and `h.grid[0][1] = expr` store through the shared heap buffer. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
 
 String indexing is read-only; `s[i] = expr` is rejected at type check.
 
@@ -712,11 +725,12 @@ Read a field as an rvalue with postfix `.ident`:
 origin.x + origin.y
 ```
 
-Struct values are first-class aggregates stored in local slots. Copying a struct (`let b: Point = a;`) copies the aggregate value. Passing a struct to a function or returning one from a function also copies the aggregate; callee mutations to parameter fields do not affect the caller's local. Mutate a field through a local with postfix assignment:
+Struct values are first-class aggregates stored in local slots. A typed struct local without an initializer default-initializes each field. Copying a struct (`let b: Point = a;`) copies the aggregate value. Passing a struct to a function or returning one from a function also copies the aggregate; callee mutations to parameter fields do not affect the caller's local. Mutate a field through a local with postfix assignment:
 
 ```noria
 p.x = 10;
 p.y = p.y + 1;
+h.items[0] = 50;
 ```
 
 Example:
@@ -749,6 +763,13 @@ Noria provides a small set of builtin functions:
 | `pow` | 2 | `f64`, `f64` | `f64` |
 | `len` | 1 | `str` or array | `i32` |
 
+Builtin names are reserved. Declaring a user function whose name matches a builtin
+(`print`, `print_int`, `len`, and the rest of the table) is a type error at the
+`fn` keyword. Calls always resolve to the builtin; user declarations cannot shadow
+them.
+
+`print`, `print_int`, `print_float`, and `print_char` write to stdout without a trailing newline. `println()` is the only builtin that writes a newline.
+
 Example:
 
 ```noria
@@ -756,7 +777,10 @@ fn main() -> i32 {
   print("Hello, world!");
   println();
   print_int(42);
+  print(" items");
+  println();
   print_float(3.14);
+  println();
   print_char(65);
   println();
   let root: f64 = sqrt(2.0);

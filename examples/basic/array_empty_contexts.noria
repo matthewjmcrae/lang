@@ -13,9 +13,10 @@ fn empty_floats() -> [f64] {
 fn main() -> i32 {
   let values: [i32] = [];
   values = [];
+  let names: [str] = [];
 
   let holder: Holder = Holder { nested: [] };
   holder.nested = [];
 
-  return len(values) + count_flags([]) + len(empty_floats()) + len(holder.nested);
+  return len(values) + len(names) + count_flags([]) + len(empty_floats()) + len(holder.nested);
 }

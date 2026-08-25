@@ -49,7 +49,7 @@ namespace noria {
     if (initializer) {
       emitter_.emitStore(localType, initializer->text, slot);
     } else {
-      emitter_.emitStore(localType, generator_.defaultIRValue(localType), slot);
+      generator_.emitDefaultStore(localType, slot, emitter_, context_);
     }
     returned_ = false;
   }
