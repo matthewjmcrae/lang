@@ -172,20 +172,6 @@ namespace noria {
       return visitor.result();
     }
 
-    std::size_t structDeclWeight(const ast::StructDecl& structDecl) {
-      std::size_t weight = sizeof(structDecl) + stringWeight(structDecl.name) +
-                           stringWeight(structDecl.location.file);
-      for (const auto& typeParam : structDecl.typeParams) {
-        weight += sizeof(typeParam) + stringWeight(typeParam.name) +
-                  stringWeight(typeParam.location.file);
-      }
-      for (const auto& field : structDecl.fields) {
-        weight += sizeof(field) + stringWeight(field.name) + stringWeight(field.location.file) +
-                  typeWeight(field.type);
-      }
-      return weight;
-    }
-
     std::size_t functionWeight(const ast::Function& function) {
       std::size_t weight = sizeof(function) + stringWeight(function.name) +
                            stringWeight(function.location.file) + typeWeight(function.returnType);
@@ -212,15 +198,11 @@ namespace noria {
       return std::max<std::size_t>(1, weight);
     }
 
-    std::size_t specializationWeight(const ast::StructDecl& structDecl) {
-      return std::max<std::size_t>(1, structDeclWeight(structDecl));
-    }
-
   } // namespace
 
   CompilerCache::CompilerCache()
-      : parsedStdlibModules_(kMaxParsedStdlibModules, kMaxParsedStdlibSourceBytes),
-        stdlibSpecializations_(kMaxStdlibSpecializations, kMaxStdlibSpecializationWeight) {}
+      : parsedStdlibModules_(kMaxParsedStdlibModules),
+        stdlibSpecializations_(kMaxStdlibSpecializations) {}
 
   std::optional<ast::Module> CompilerCache::cloneParsedStdlibModule(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -229,13 +211,12 @@ namespace noria {
     });
   }
 
-  void CompilerCache::storeParsedStdlibModule(const std::string& key, const ast::Module& module,
-                                              std::size_t sourceBytes) {
+  void CompilerCache::storeParsedStdlibModule(const std::string& key, const ast::Module& module) {
     CachedParsedModule cached;
     cached.module = ast::cloneModule(module);
 
     std::lock_guard<std::mutex> lock(mutex_);
-    parsedStdlibModules_.put(key, std::move(cached), std::max<std::size_t>(1, sourceBytes));
+    parsedStdlibModules_.put(key, std::move(cached));
   }
 
   std::optional<CachedFunctionSpecialization>
@@ -264,7 +245,7 @@ namespace noria {
     cached.functionTypeArgs = typeArgs;
 
     std::lock_guard<std::mutex> lock(mutex_);
-    stdlibSpecializations_.put(key, std::move(cached), weight);
+    stdlibSpecializations_.put(key, std::move(cached));
   }
 
   std::optional<ast::StructDecl>
@@ -283,14 +264,12 @@ namespace noria {
     if (structDecl.fields.size() < kMinCachedStdlibStructFields) {
       return;
     }
-    const std::size_t weight = specializationWeight(structDecl);
-
     CachedSpecialization cached;
     cached.kind = CachedSpecialization::Kind::Struct;
     cached.structDecl = ast::cloneStructDecl(structDecl);
 
     std::lock_guard<std::mutex> lock(mutex_);
-    stdlibSpecializations_.put(key, std::move(cached), weight);
+    stdlibSpecializations_.put(key, std::move(cached));
   }
 
   std::size_t CompilerCache::parsedStdlibModuleCount() const {

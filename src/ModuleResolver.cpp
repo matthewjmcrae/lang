@@ -246,8 +246,7 @@ namespace noria {
         parsed.module = std::move(module);
         if (compilerCache_ != nullptr && isStdlibModulePath(modulePath)) {
           const std::string cacheKey = parsedStdlibModuleCacheKey(stdlibRootKey_, modulePath);
-          compilerCache_->storeParsedStdlibModule(cacheKey, parsed.module,
-                                                  parsedSource.sourceBytes);
+          compilerCache_->storeParsedStdlibModule(cacheKey, parsed.module);
         }
         auto [iterator, inserted] = cache_.emplace(modulePath, std::move(parsed));
         (void)inserted;

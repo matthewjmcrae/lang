@@ -3,6 +3,7 @@
 #include "noria/Ast.hpp"
 #include "noria/Types.hpp"
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -34,6 +35,11 @@ namespace noria {
   public:
     explicit SpecializationCache(CompilerCache* compilerCache = nullptr,
                                  SymbolOrigins* symbolOrigins = nullptr);
+    ~SpecializationCache();
+    SpecializationCache(const SpecializationCache& other);
+    SpecializationCache& operator=(const SpecializationCache& other);
+    SpecializationCache(SpecializationCache&& other) noexcept;
+    SpecializationCache& operator=(SpecializationCache&& other) noexcept;
 
     void seedFromModule(const ast::Module& module);
 
@@ -48,20 +54,11 @@ namespace noria {
     std::size_t emitStruct(ast::Module& module, const StructSpecializationRequest& request);
 
     const std::unordered_map<std::string, std::vector<Type>>&
-    functionSpecializationTypeArgs() const {
-      return functionSpecializationTypeArgs_;
-    }
+    functionSpecializationTypeArgs() const;
 
   private:
-    std::unordered_set<std::string> emittedFunctions_;
-    std::unordered_set<std::string> emittedStructs_;
-    std::unordered_map<std::string, std::string> dependencyParent_;
-    std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
-    CompilerCache* compilerCache_ = nullptr;
-    SymbolOrigins* symbolOrigins_ = nullptr;
-
-    [[noreturn]] void throwCycle(SourceLocation location, std::string_view childMangled,
-                                 std::string_view parentMangled) const;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
   };
 
   struct MonomorphizationResult {

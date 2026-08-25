@@ -20,17 +20,14 @@ namespace noria {
   class CompilerCache {
   public:
     static constexpr std::size_t kMaxParsedStdlibModules = 64;
-    static constexpr std::size_t kMaxParsedStdlibSourceBytes = 8 * 1024 * 1024;
     static constexpr std::size_t kMaxStdlibSpecializations = 256;
-    static constexpr std::size_t kMaxStdlibSpecializationWeight = 32 * 1024 * 1024;
     static constexpr std::size_t kMinCachedStdlibFunctionSpecializationWeight = 1024;
     static constexpr std::size_t kMinCachedStdlibStructFields = 8;
 
     CompilerCache();
 
     std::optional<ast::Module> cloneParsedStdlibModule(const std::string& key);
-    void storeParsedStdlibModule(const std::string& key, const ast::Module& module,
-                                 std::size_t sourceBytes);
+    void storeParsedStdlibModule(const std::string& key, const ast::Module& module);
 
     std::optional<CachedFunctionSpecialization>
     cloneStdlibFunctionSpecialization(const std::string& key);
@@ -61,8 +58,8 @@ namespace noria {
     };
 
     mutable std::mutex mutex_;
-    LfuCache<std::string, CachedParsedModule> parsedStdlibModules_;
-    LfuCache<std::string, CachedSpecialization> stdlibSpecializations_;
+    LFUCache<std::string, CachedParsedModule> parsedStdlibModules_;
+    LFUCache<std::string, CachedSpecialization> stdlibSpecializations_;
   };
 
   CompilerCache& processCompilerCache();

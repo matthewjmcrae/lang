@@ -415,6 +415,9 @@ fn main() -> i32 {
   cache.seedFromModule(seededModule);
   expect(cache.hasFunction("seed$s.i32"), "cache seed records existing specialization");
   expect(!cache.hasFunction("missing$s.i32"), "cache seed does not invent specializations");
+  const noria::SpecializationCache copiedCache = cache;
+  expect(copiedCache.hasFunction("seed$s.i32"),
+         "copying specialization cache preserves emitted tracking");
 
   noria::SpecializationCache linkCache;
   bool linkCycleDetected = false;
@@ -574,6 +577,47 @@ fn main() -> i32 {
          "outer generic struct specialization is emitted");
   expect(nestedGenericStructFrontierOutput.LLVM.find("%Pair$s.i32 = type") != std::string::npos,
          "nested generic struct specialization discovered from frontier is emitted");
+
+  std::ostringstream hashTableStressSource;
+  for (std::size_t index = 0; index < 16; ++index) {
+    hashTableStressSource << "struct Generic" << index << "<T> {\n"
+                          << "  value: T;\n"
+                          << "}\n\n"
+                          << "struct Record" << index << " {\n";
+    for (std::size_t field = 0; field < 8; ++field) {
+      hashTableStressSource << "  field" << field << ": i32;\n";
+    }
+    hashTableStressSource << "}\n\n";
+  }
+  hashTableStressSource << "fn id<T>(x: T) -> T {\n"
+                        << "  return x;\n"
+                        << "}\n\n";
+  for (std::size_t index = 0; index < 16; ++index) {
+    hashTableStressSource << "fn use" << index << "() -> i32 {\n"
+                          << "  return id(" << index << ");\n"
+                          << "}\n\n";
+  }
+  hashTableStressSource << "fn main() -> i32 {\n"
+                        << "  let record: Record0 = Record0 {\n";
+  for (std::size_t field = 0; field < 8; ++field) {
+    hashTableStressSource << "    field" << field << ": " << field;
+    if (field + 1 < 8) {
+      hashTableStressSource << ',';
+    }
+    hashTableStressSource << "\n";
+  }
+  hashTableStressSource << "  };\n  return record.field7";
+  for (std::size_t index = 0; index < 16; ++index) {
+    hashTableStressSource << " + use" << index << "()";
+  }
+  hashTableStressSource << ";\n}\n";
+
+  const noria::PipelineOutput hashTableStressOutput =
+      noria::compileSource(hashTableStressSource.str(), noria::StopAfter::Ir);
+  expect(hashTableStressOutput.LLVM.find("%Record15 = type") != std::string::npos,
+         "many concrete structs preserve field layouts through type checking and codegen");
+  expect(countDefines(hashTableStressOutput.LLVM, "id$s.i32") == 1,
+         "many concrete callers rewrite through the function index correctly");
 
   constexpr std::string_view stdlibGenericSource = R"(
 import std::generic_id::{id};

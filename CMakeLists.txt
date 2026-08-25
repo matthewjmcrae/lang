@@ -33,16 +33,37 @@ add_library(noria_core OBJECT
   src/AstPrinter.cpp
   src/AstVisitor.cpp
   src/Codegen.cpp
+  src/codegen/CodegenBuiltins.cpp
+  src/codegen/CodegenExpressions.cpp
+  src/codegen/CodegenModule.cpp
+  src/codegen/CodegenPlaces.cpp
+  src/codegen/CodegenStatements.cpp
+  src/codegen/CodegenStructs.cpp
+  src/codegen/CodegenSupport.cpp
   src/CompilerCache.cpp
   src/Compiler.cpp
   src/Constraints.cpp
   src/Diagnostic.cpp
   src/IrEmitter.cpp
+  src/internal/SpecializationSupport.cpp
   src/Lexer.cpp
   src/ModuleResolver.cpp
-  src/Monomorphize.cpp
+  src/monomorphize/Monomorphize.cpp
+  src/monomorphize/SpecializationCache.cpp
+  src/monomorphize/SpecializationClone.cpp
+  src/monomorphize/SpecializationRewrite.cpp
+  src/monomorphize/SpecializationTypes.cpp
   src/Parser.cpp
   src/TypeChecker.cpp
+  src/typecheck/TypeCheckerCalls.cpp
+  src/typecheck/TypeCheckerDeclarations.cpp
+  src/typecheck/TypeCheckerDriver.cpp
+  src/typecheck/TypeCheckerExpressions.cpp
+  src/typecheck/TypeCheckerPlaces.cpp
+  src/typecheck/TypeCheckerStatements.cpp
+  src/typecheck/TypeCheckerStructs.cpp
+  src/typecheck/TypeCheckerSupport.cpp
+  src/typecheck/TypeRelations.cpp
   src/Types.cpp
 )
 
@@ -97,6 +118,13 @@ add_executable(lfu_cache_test
 
 target_include_directories(lfu_cache_test PRIVATE include)
 noria_configure_executable(lfu_cache_test)
+
+add_executable(hash_table_test
+  tests/hash_table_test.cpp
+)
+
+target_include_directories(hash_table_test PRIVATE include)
+noria_configure_executable(hash_table_test)
 
 add_executable(compiler_cache_test
   tests/compiler_cache_test.cpp
@@ -160,6 +188,7 @@ add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
 add_test(NAME ast_clone COMMAND ast_clone_test)
 add_test(NAME lfu_cache COMMAND lfu_cache_test)
+add_test(NAME hash_table COMMAND hash_table_test)
 add_test(NAME compiler_cache COMMAND compiler_cache_test)
 add_test(NAME compiler_facade COMMAND compiler_facade_test)
 add_test(NAME module_resolver COMMAND module_resolver_test)

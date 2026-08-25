@@ -1,9 +1,13 @@
+#include "noria/Codegen.hpp"
 #include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
+#include "noria/Monomorphize.hpp"
+#include "noria/TypeChecker.hpp"
 
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <type_traits>
 
 namespace {
 
@@ -28,6 +32,19 @@ namespace {
 } // namespace
 
 int main() {
+  static_assert(std::is_copy_constructible_v<noria::TypeChecker>);
+  static_assert(std::is_copy_assignable_v<noria::TypeChecker>);
+  static_assert(std::is_move_constructible_v<noria::TypeChecker>);
+  static_assert(std::is_move_assignable_v<noria::TypeChecker>);
+  static_assert(std::is_copy_constructible_v<noria::LLVMGenerator>);
+  static_assert(std::is_copy_assignable_v<noria::LLVMGenerator>);
+  static_assert(std::is_move_constructible_v<noria::LLVMGenerator>);
+  static_assert(std::is_move_assignable_v<noria::LLVMGenerator>);
+  static_assert(std::is_copy_constructible_v<noria::SpecializationCache>);
+  static_assert(std::is_copy_assignable_v<noria::SpecializationCache>);
+  static_assert(std::is_move_constructible_v<noria::SpecializationCache>);
+  static_assert(std::is_move_assignable_v<noria::SpecializationCache>);
+
   constexpr std::string_view goodSource = R"(
 fn main() -> i32 {
   return 42;
@@ -67,6 +84,15 @@ fn main() -> i32 {
       noria::compileSource(goodSource, noria::StopAfter::Ir);
   expect(irOutput.LLVM.find("define i32 @main") != std::string::npos,
          "Ir stop generates main");
+  constexpr std::string_view expectedMainIr = R"(define i32 @main() {
+entry:
+  ret i32 42
+}
+
+)";
+  const std::size_t mainStart = irOutput.LLVM.find("define i32 @main()");
+  expect(mainStart != std::string::npos && irOutput.LLVM.substr(mainStart) == expectedMainIr,
+         "representative main IR remains byte-for-byte stable");
 
   expectCompileError(noria::StopAfter::Typed, typeInvalidSource,
                      "Typed stop throws on type error");
