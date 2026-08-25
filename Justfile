@@ -1,6 +1,6 @@
 set shell := ["bash", "-cu"]
 
-llvm_bin := env_var_or_default("LLVM_BIN", "/opt/homebrew/opt/llvm@15/bin")
+llvm_bin := env_var_or_default("LLVM_BIN", "")
 build_dir := env_var_or_default("BUILD_DIR", "build")
 sanitize_build_dir := env_var_or_default("SANITIZE_BUILD_DIR", "build-sanitize")
 noria := build_dir + "/noria"
@@ -14,19 +14,19 @@ configure:
 build: configure
     cmake --build {{build_dir}}
 
-test:
-    BUILD_DIR={{build_dir}} ./tests/run_examples.sh
+test: build
+    ctest --test-dir {{build_dir}} --output-on-failure
 
 sanitize:
     cmake -S . -B {{sanitize_build_dir}} -DNORIA_ENABLE_SANITIZERS=ON
     cmake --build {{sanitize_build_dir}}
-    BUILD_DIR={{sanitize_build_dir}} ./tests/run_examples.sh
+    ctest --test-dir {{sanitize_build_dir}} --output-on-failure
 
 valgrind: build
     command -v valgrind >/dev/null
-    NORIA_PREFIX="valgrind --leak-check=full --error-exitcode=1" BUILD_DIR={{build_dir}} ./tests/run_examples.sh
+    NORIA_PREFIX="valgrind --leak-check=full --error-exitcode=1" ctest --test-dir {{build_dir}} --output-on-failure
 
-ctest: configure
+ctest: build
     ctest --test-dir {{build_dir}} --output-on-failure
 
 tokens file="examples/basic/lexer_smoke.noria": build
@@ -47,11 +47,11 @@ run file="examples/basic/factorial.noria" output="build/out" opt="-O2": build
 
 manual-native file="examples/basic/factorial.noria" output="build/out" opt="-O0": build
     {{noria}} {{opt}} {{file}} -o {{output}}.ll
-    {{llvm_bin}}/llc -filetype=obj {{output}}.ll -o {{output}}.o
+    if [[ -n "{{llvm_bin}}" ]]; then llc="{{llvm_bin}}/llc"; else llc="$(command -v llc)"; fi; "${llc}" -filetype=obj {{output}}.ll -o {{output}}.o
     clang {{output}}.o -o {{output}}
 
 format:
-    {{llvm_bin}}/clang-format -i include/noria/*.hpp src/*.cpp
+    if [[ -n "{{llvm_bin}}" ]]; then clang_format="{{llvm_bin}}/clang-format"; else clang_format="$(command -v clang-format)"; fi; "${clang_format}" -i include/noria/*.hpp src/*.cpp
 
 help:
     @echo "Common recipes:"

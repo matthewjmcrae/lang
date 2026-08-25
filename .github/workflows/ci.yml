@@ -2,13 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -36,17 +38,28 @@ jobs:
 
       - name: Configure LLVM tools (macOS)
         if: runner.os == 'macOS'
-        run: echo "LLVM_BIN=$(brew --prefix llvm)/bin" >> "$GITHUB_ENV"
+        run: |
+          llvm_bin="$(brew --prefix llvm)/bin"
+          echo "LLVM_BIN=${llvm_bin}" >> "$GITHUB_ENV"
+          echo "${llvm_bin}" >> "$GITHUB_PATH"
 
       - name: Configure LLVM tools (Linux)
         if: runner.os == 'Linux'
-        run: echo "LLVM_BIN=$(llvm-config --bindir)" >> "$GITHUB_ENV"
+        run: |
+          llvm_bin="$(llvm-config --bindir)"
+          echo "LLVM_BIN=${llvm_bin}" >> "$GITHUB_ENV"
+          echo "${llvm_bin}" >> "$GITHUB_PATH"
+
+      - name: Verify LLVM tools
+        run: |
+          clang --version
+          opt --version
 
       - name: Configure CMake
         run: cmake -S . -B build
 
       - name: Build compiler
-        run: cmake --build build
+        run: cmake --build build --parallel
 
       - name: Run compiler test suite
-        run: ctest --test-dir build --output-on-failure
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 ctest --test-dir build --output-on-failure --no-tests=error

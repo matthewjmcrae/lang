@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-build}"
@@ -10,33 +10,88 @@ TEST_OUT_DIR="${BUILD_DIR}/test-output"
 NORIA="${BUILD_DIR}/noria"
 NORIA_PREFIX="${NORIA_PREFIX:-}"
 read -r -a NORIA_PREFIX_ARGS <<<"${NORIA_PREFIX}"
+NORIA_REQUIRE_LLVM_TOOLS="${NORIA_REQUIRE_LLVM_TOOLS:-0}"
+
+CURRENT_PHASE="initialization"
+CURRENT_CASE=""
+
+print_failure_context() {
+  printf '[noria-tests] phase: %s\n' "${CURRENT_PHASE}" >&2
+  if [[ -n "${CURRENT_CASE}" ]]; then
+    printf '[noria-tests] case: %s\n' "${CURRENT_CASE}" >&2
+  fi
+  printf '[noria-tests] artifacts: %s\n' "${TEST_OUT_DIR}" >&2
+}
+
+report_failure() {
+  local status="$1"
+  local command="$2"
+  local line="$3"
+
+  trap - ERR
+  printf '[noria-tests] failed command (line %s): %s\n' "${line}" "${command}" >&2
+  print_failure_context
+  exit "${status}"
+}
+
+fail() {
+  printf '[noria-tests] error: %s\n' "$1" >&2
+  print_failure_context
+  exit 1
+}
+
+phase() {
+  CURRENT_PHASE="$1"
+  CURRENT_CASE=""
+  echo "[noria-tests] ${CURRENT_PHASE}"
+}
+
+set_case() {
+  CURRENT_CASE="$1"
+}
+
+trap 'report_failure "$?" "$BASH_COMMAND" "$LINENO"' ERR
 
 LLVM_BIN="${LLVM_BIN:-}"
-LLC_TRIPLE=""
-if [[ -z "${LLVM_BIN}" ]]; then
-  if [[ -x "/opt/homebrew/opt/llvm/bin/llc" ]]; then
-    LLVM_BIN="/opt/homebrew/opt/llvm/bin"
-  elif [[ -x "/opt/homebrew/opt/llvm@15/bin/llc" ]]; then
-    LLVM_BIN="/opt/homebrew/opt/llvm@15/bin"
-  elif command -v llc >/dev/null 2>&1; then
-    LLVM_BIN="$(dirname "$(command -v llc)")"
+if [[ -n "${LLVM_BIN}" ]]; then
+  LLVM_BIN="${LLVM_BIN%/}"
+  if [[ -d "${LLVM_BIN}" ]]; then
+    export PATH="${LLVM_BIN}:${PATH}"
+  elif [[ "${NORIA_REQUIRE_LLVM_TOOLS}" != "0" ]]; then
+    fail "LLVM_BIN does not name a directory: ${LLVM_BIN}"
   else
-    LLVM_BIN=""
+    echo "[noria-tests] warning: LLVM_BIN does not name a directory: ${LLVM_BIN}" >&2
   fi
 fi
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  if [[ "$(uname -m)" == "arm64" ]]; then
-    LLC_TRIPLE="arm64-apple-macosx"
-  else
-    LLC_TRIPLE="x86_64-apple-macosx"
+resolve_tool() {
+  local tool="$1"
+
+  if [[ -n "${LLVM_BIN}" && -x "${LLVM_BIN}/${tool}" ]]; then
+    printf '%s\n' "${LLVM_BIN}/${tool}"
+    return
   fi
-elif [[ "$(uname -s)" == "Linux" ]]; then
-  if [[ "$(uname -m)" == "aarch64" ]]; then
-    LLC_TRIPLE="aarch64-unknown-linux-gnu"
-  else
-    LLC_TRIPLE="x86_64-unknown-linux-gnu"
+
+  if command -v "${tool}"; then
+    return
   fi
+
+  return 0
+}
+
+CLANG="$(resolve_tool clang)"
+OPT="$(resolve_tool opt)"
+
+if [[ ! -x "${NORIA}" ]]; then
+  fail "compiler not found at ${NORIA}; configure and build before running this harness"
+fi
+
+if [[ "${NORIA_REQUIRE_LLVM_TOOLS}" != "0" && -z "${CLANG}" ]]; then
+  fail "clang is required when NORIA_REQUIRE_LLVM_TOOLS is enabled"
+fi
+
+if [[ "${NORIA_REQUIRE_LLVM_TOOLS}" != "0" && -z "${OPT}" ]]; then
+  fail "opt is required when NORIA_REQUIRE_LLVM_TOOLS is enabled"
 fi
 
 mkdir -p "${TEST_OUT_DIR}"
@@ -49,18 +104,13 @@ run_noria() {
   fi
 }
 
-echo "[noria-tests] configure"
-cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" >/dev/null
-
-echo "[noria-tests] build"
-cmake --build "${BUILD_DIR}" >/dev/null
-
 compile_example() {
   local source="$1"
   local name
   name="$(basename "${source}" .noria)"
   local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
 
+  set_case "compile ${source#${ROOT_DIR}/}"
   echo "[noria-tests] compile ${source#${ROOT_DIR}/}"
   run_noria "${source}" -o "${llvm_ir}"
   test -s "${llvm_ir}"
@@ -74,22 +124,24 @@ run_native_exit_test() {
   local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
   local executable="${TEST_OUT_DIR}/${name}"
 
-  if ! command -v clang >/dev/null 2>&1; then
+  set_case "native ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
     echo "[noria-tests] skip native ${source#${ROOT_DIR}/}: clang not found"
     return
   fi
 
   echo "[noria-tests] native ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  clang "${llvm_ir}" -o "${executable}"
+  "${CLANG}" "${llvm_ir}" -o "${executable}"
 
-  set +e
-  "${executable}"
-  local actual_exit="$?"
-  set -e
+  local actual_exit
+  if "${executable}"; then
+    actual_exit=0
+  else
+    actual_exit="$?"
+  fi
 
   if [[ "${actual_exit}" != "${expected_exit}" ]]; then
-    echo "[noria-tests] expected exit ${expected_exit}, got ${actual_exit} for ${source}" >&2
-    exit 1
+    fail "expected exit ${expected_exit}, got ${actual_exit} for ${source}"
   fi
 }
 
@@ -103,26 +155,32 @@ run_native_failure_test() {
   local executable="${TEST_OUT_DIR}/${name}"
   local stderr_file="${TEST_OUT_DIR}/${name}.runtime.stderr"
 
-  if ! command -v clang >/dev/null 2>&1; then
+  set_case "native failure ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
     echo "[noria-tests] skip native failure ${source#${ROOT_DIR}/}: clang not found"
     return
   fi
 
   echo "[noria-tests] native failure ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  clang "${llvm_ir}" -o "${executable}"
+  "${CLANG}" "${llvm_ir}" -o "${executable}"
 
-  set +e
+  local actual_exit
   if [[ -n "${expected_stderr}" ]]; then
-    "${executable}" >/dev/null 2>"${stderr_file}"
+    if "${executable}" >/dev/null 2>"${stderr_file}"; then
+      actual_exit=0
+    else
+      actual_exit="$?"
+    fi
   else
-    "${executable}"
+    if "${executable}"; then
+      actual_exit=0
+    else
+      actual_exit="$?"
+    fi
   fi
-  local actual_exit="$?"
-  set -e
 
   if [[ "${actual_exit}" != "${expected_exit}" ]]; then
-    echo "[noria-tests] expected exit ${expected_exit}, got ${actual_exit} for ${source}" >&2
-    exit 1
+    fail "expected exit ${expected_exit}, got ${actual_exit} for ${source}"
   fi
 
   if [[ -n "${expected_stderr}" ]]; then
@@ -139,18 +197,18 @@ run_native_stdout_test() {
   local executable="${TEST_OUT_DIR}/${name}_stdout"
   local actual_file="${TEST_OUT_DIR}/${name}.stdout"
 
-  if ! command -v clang >/dev/null 2>&1; then
+  set_case "native stdout ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
     echo "[noria-tests] skip stdout ${source#${ROOT_DIR}/}: clang not found"
     return
   fi
 
   echo "[noria-tests] stdout ${source#${ROOT_DIR}/}"
-  clang "${llvm_ir}" -o "${executable}"
+  "${CLANG}" "${llvm_ir}" -o "${executable}"
   "${executable}" >"${actual_file}"
 
   if ! diff -u "${expected_file}" "${actual_file}"; then
-    echo "[noria-tests] stdout mismatch for ${source}" >&2
-    exit 1
+    fail "stdout mismatch for ${source}"
   fi
 }
 
@@ -160,15 +218,17 @@ expect_compile_failure() {
   name="$(basename "${source}" .noria)"
   local stderr_file="${TEST_OUT_DIR}/${name}.stderr"
 
+  set_case "compile failure ${source#${ROOT_DIR}/}"
   echo "[noria-tests] expect failure ${source#${ROOT_DIR}/}"
-  set +e
-  run_noria "${source}" -o "${TEST_OUT_DIR}/${name}.ll" >"${TEST_OUT_DIR}/${name}.stdout" 2>"${stderr_file}"
-  local status="$?"
-  set -e
+  local status
+  if run_noria "${source}" -o "${TEST_OUT_DIR}/${name}.ll" >"${TEST_OUT_DIR}/${name}.stdout" 2>"${stderr_file}"; then
+    status=0
+  else
+    status="$?"
+  fi
 
   if [[ "${status}" == "0" ]]; then
-    echo "[noria-tests] expected compile failure for ${source}" >&2
-    exit 1
+    fail "expected compile failure for ${source}"
   fi
 
   grep -q "typecheck:" "${stderr_file}"
@@ -181,32 +241,37 @@ expect_compile_failure_contains() {
   name="$(basename "${source}" .noria)"
   local stderr_file="${TEST_OUT_DIR}/${name}.stderr"
 
+  set_case "compile failure ${source#${ROOT_DIR}/}"
   echo "[noria-tests] expect failure ${source#${ROOT_DIR}/}"
-  set +e
-  run_noria "${source}" -o "${TEST_OUT_DIR}/${name}.ll" >"${TEST_OUT_DIR}/${name}.stdout" 2>"${stderr_file}"
-  local status="$?"
-  set -e
+  local status
+  if run_noria "${source}" -o "${TEST_OUT_DIR}/${name}.ll" >"${TEST_OUT_DIR}/${name}.stdout" 2>"${stderr_file}"; then
+    status=0
+  else
+    status="$?"
+  fi
 
   if [[ "${status}" == "0" ]]; then
-    echo "[noria-tests] expected compile failure for ${source}" >&2
-    exit 1
+    fail "expected compile failure for ${source}"
   fi
 
   grep -q "${expected}" "${stderr_file}"
 }
 
+phase "compile basic examples"
 for source in "${ROOT_DIR}"/examples/basic/*.noria; do
   compile_example "${source}"
 done
 
-echo "[noria-tests] emit tokens examples/basic/lexer_smoke.noria"
+phase "emit tokens examples/basic/lexer_smoke.noria"
+set_case "examples/basic/lexer_smoke.noria"
 run_noria --emit-tokens "${ROOT_DIR}/examples/basic/lexer_smoke.noria" \
   -o "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q 'let "let"' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q '>= ">="' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q '!= "!="' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 
-echo "[noria-tests] emit ast examples/basic/ast_smoke.noria"
+phase "emit ast examples/basic/ast_smoke.noria"
+set_case "examples/basic/ast_smoke.noria"
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/ast_smoke.noria" \
   -o "${TEST_OUT_DIR}/ast_smoke.ast"
 grep -q "Module" "${TEST_OUT_DIR}/ast_smoke.ast"
@@ -215,22 +280,12 @@ grep -q "Let value: i32" "${TEST_OUT_DIR}/ast_smoke.ast"
 grep -q "If" "${TEST_OUT_DIR}/ast_smoke.ast"
 grep -q "Call factorial" "${TEST_OUT_DIR}/ast_smoke.ast"
 
-echo "[noria-tests] type future params examples/basic/type_future_params_smoke.noria"
+phase "type future params examples/basic/type_future_params_smoke.noria"
+set_case "examples/basic/type_future_params_smoke.noria"
 grep -q "define i32 @consume_f64(double" "${TEST_OUT_DIR}/type_future_params_smoke.ll"
 grep -q "define i32 @consume_str(ptr" "${TEST_OUT_DIR}/type_future_params_smoke.ll"
 
-echo "[noria-tests] type representation unit tests"
-"${BUILD_DIR}/type_representation_test"
-"${BUILD_DIR}/builtin_registry_test"
-"${BUILD_DIR}/visitor_smoke_test"
-"${BUILD_DIR}/ast_clone_test"
-"${BUILD_DIR}/lfu_cache_test"
-"${BUILD_DIR}/compiler_facade_test"
-"${BUILD_DIR}/module_resolver_test"
-"${BUILD_DIR}/diagnostic_location_test"
-"${BUILD_DIR}/generics_test"
-"${BUILD_DIR}/constraints_test"
-
+phase "negative type-checking examples"
 for source in "${ROOT_DIR}"/examples/invalid/*.noria; do
   case "$(basename "${source}")" in
     import_private_runtime.noria)
@@ -253,7 +308,7 @@ grep -q "typecheck: array element type cannot be a struct" \
 grep -q "typecheck: unknown function 'missing'" \
   "${TEST_OUT_DIR}/unreachable_after_exhaustive_if.stderr"
 
-echo "[noria-tests] future type name() diagnostics"
+phase "future type name() diagnostics"
 grep -q "typecheck: cannot initialize 'x' of type f64 with bool" \
   "${TEST_OUT_DIR}/f64_bool_mismatch.stderr"
 grep -q "typecheck: cannot assign bool to variable 'x' of type f64" \
@@ -286,7 +341,7 @@ grep -q "typecheck: cannot initialize 'x' of type i32 with bool" \
 grep -q "typecheck: unknown type 'widget'" \
   "${TEST_OUT_DIR}/unknown_future_type.stderr"
 
-echo "[noria-tests] phase 1 operator diagnostics"
+phase "phase 1 operator diagnostics"
 grep -q "typecheck: logical operator requires bool operands, got i32 and bool" \
   "${TEST_OUT_DIR}/logical_non_bool.stderr"
 grep -q "typecheck: integer operator requires i32 operands, got bool and bool" \
@@ -294,17 +349,17 @@ grep -q "typecheck: integer operator requires i32 operands, got bool and bool" \
 grep -q "typecheck: cannot cast bool to f64" \
   "${TEST_OUT_DIR}/cast_bad_type.stderr"
 
-echo "[noria-tests] phase 2 io and cast diagnostics"
+phase "phase 2 io and cast diagnostics"
 grep -q "typecheck: print_int expects i32, got str" \
   "${TEST_OUT_DIR}/print_int_wrong_type.stderr"
 grep -q "typecheck: expression statement must be a function call" \
   "${TEST_OUT_DIR}/bare_expression_statement.stderr"
 
-echo "[noria-tests] phase 3 string length diagnostics"
+phase "phase 3 string length diagnostics"
 grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/len_wrong_type.stderr"
 
-echo "[noria-tests] phase 6 generic diagnostics"
+phase "phase 6 generic diagnostics"
 grep -q "typecheck: function 'id' expects 1 argument(s), got 2" \
   "${TEST_OUT_DIR}/generic_wrong_arity.stderr"
 grep -q "typecheck: cannot infer type parameter 'T'" \
@@ -344,12 +399,13 @@ grep -q "typecheck: generic function 'kind' mixes tagged and untagged implementa
 grep -q "typecheck: cannot select implementation of 'kind' without an implementation tag in inferred type arguments" \
   "${TEST_OUT_DIR}/generic_impl_untagged_call.stderr"
 
-echo "[noria-tests] phase 3 string index diagnostics"
+phase "phase 3 string index diagnostics"
 grep -q "typecheck: index requires str or array base, got i32" \
   "${TEST_OUT_DIR}/index_non_str_base.stderr"
 grep -q "typecheck: index requires i32 index, got bool" \
   "${TEST_OUT_DIR}/index_non_i32.stderr"
 
+phase "invalid syntax examples"
 for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
   case "$(basename "${source}")" in
     import_after_function.noria)
@@ -516,7 +572,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/cast_roundtrip.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_precision_loss.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/math_builtins.noria" 1
 
-echo "[noria-tests] phase 2 stdout acceptance programs"
+phase "phase 2 stdout acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
   "${ROOT_DIR}/examples/basic/hello_world.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
@@ -525,29 +581,29 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/float_output.noria" \
   "${ROOT_DIR}/examples/basic/float_output.expected"
 grep -Fq "call i32 (ptr, ...) @printf(" "${TEST_OUT_DIR}/float_output.ll"
 
-echo "[noria-tests] phase 3 string length acceptance programs"
+phase "phase 3 string length acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_length.noria" \
   "${ROOT_DIR}/examples/basic/string_length.expected"
 grep -q "call i64 @strlen" "${TEST_OUT_DIR}/string_length.ll"
 
-echo "[noria-tests] phase 3 string index acceptance programs"
+phase "phase 3 string index acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_index.noria" \
   "${ROOT_DIR}/examples/basic/string_index.expected"
 grep -q "getelementptr inbounds i8" "${TEST_OUT_DIR}/string_index.ll"
 grep -q "zext i8" "${TEST_OUT_DIR}/string_index.ll"
 
-echo "[noria-tests] phase 3 string concat acceptance programs"
+phase "phase 3 string concat acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_concat.noria" \
   "${ROOT_DIR}/examples/basic/string_concat.expected"
 grep -q "call ptr @malloc" "${TEST_OUT_DIR}/string_concat.ll"
 grep -q "call ptr @strcpy" "${TEST_OUT_DIR}/string_concat.ll"
 grep -q "call ptr @strcat" "${TEST_OUT_DIR}/string_concat.ll"
 
-echo "[noria-tests] phase 3 string escape acceptance programs"
+phase "phase 3 string escape acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_escapes.noria" \
   "${ROOT_DIR}/examples/basic/string_escapes.expected"
 
-echo "[noria-tests] phase 3 string output acceptance programs"
+phase "phase 3 string output acceptance programs"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/string_output.noria" \
   "${ROOT_DIR}/examples/basic/string_output.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/str_equality.noria" 0
@@ -555,7 +611,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/empty_string.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/string_index_oob.noria" 70 \
   "string index out of bounds"
 
-echo "[noria-tests] phase 4 array acceptance programs"
+phase "phase 4 array acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/arrays_sum.noria" 18
 run_native_stdout_test "${ROOT_DIR}/examples/basic/array_length.noria" \
   "${ROOT_DIR}/examples/basic/array_length.expected"
@@ -575,13 +631,13 @@ grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
 
-echo "[noria-tests] phase 3 string concat diagnostics"
+phase "phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
   "${TEST_OUT_DIR}/concat_str_i32.stderr"
 grep -q "typecheck: string concatenation requires str operands, got i32 and str" \
   "${TEST_OUT_DIR}/concat_i32_str.stderr"
 
-echo "[noria-tests] phase 4 array diagnostics"
+phase "phase 4 array diagnostics"
 grep -q "typecheck: array literal element 2 has type bool, expected i32" \
   "${TEST_OUT_DIR}/array_literal_mixed_types.stderr"
 grep -q "typecheck: cannot infer element type of empty array literal" \
@@ -603,7 +659,7 @@ grep -q "store i32 99, ptr %t[0-9]*" "${TEST_OUT_DIR}/array_indexed_assignment.l
 grep -q "typecheck: len expects str or array, got i32" \
   "${TEST_OUT_DIR}/array_len_of_element.stderr"
 
-echo "[noria-tests] phase 5 struct acceptance programs"
+phase "phase 5 struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_point.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_by_value.noria" 106
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_aggregate_fields.noria" 23
@@ -628,12 +684,13 @@ grep -q "call %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
 grep -q "store %Point %.*\.param" "${TEST_OUT_DIR}/struct_param_by_value.ll"
 grep -q "ret %Point zeroinitializer" "${TEST_OUT_DIR}/struct_default_return.ll"
 
-echo "[noria-tests] emit ast examples/basic/struct_point.noria"
+phase "emit ast examples/basic/struct_point.noria"
+set_case "examples/basic/struct_point.noria"
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/struct_point.noria" \
   -o "${TEST_OUT_DIR}/struct_point.ast"
 grep -q "Struct Point" "${TEST_OUT_DIR}/struct_point.ast"
 
-echo "[noria-tests] phase 5 struct diagnostics"
+phase "phase 5 struct diagnostics"
 grep -q "typecheck: struct 'Point' has no field 'z'" \
   "${TEST_OUT_DIR}/struct_unknown_field.stderr"
 grep -q "typecheck: struct literal for 'Point' is missing field 'y'" \
@@ -669,7 +726,7 @@ grep -q "typecheck: argument 1 of 'm' expects Point, got i32" \
 grep -q "typecheck: return type i32 does not match expected Point" \
   "${TEST_OUT_DIR}/struct_return_type_mismatch.stderr"
 
-echo "[noria-tests] phase 6 import acceptance programs"
+phase "phase 6 import acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_math.noria" 25
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_shadow_comparison.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/import_two_names.noria" 17
@@ -682,11 +739,11 @@ run_noria --emit-ast "${ROOT_DIR}/examples/basic/import_math.noria" \
   -o "${TEST_OUT_DIR}/import_math.ast"
 grep -q "Import std::mathx {square}" "${TEST_OUT_DIR}/import_math.ast"
 
-echo "[noria-tests] phase 6 private runtime ABI"
+phase "phase 6 private runtime ABI"
 run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_memory_probe.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
 
-echo "[noria-tests] phase 7 sequence acceptance programs"
+phase "phase 7 sequence acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
 run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_container_type_first.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
@@ -774,7 +831,7 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/heap_pop_empty.noria" 70 \
 grep -c 'define i32 @heappop$s.i32$tag.arr' "${TEST_OUT_DIR}/heap_arr_ops.ll" | grep -q "^1$"
 grep -c 'define i32 @heappop$s.i32$tag.list' "${TEST_OUT_DIR}/heap_list_ops.ll" | grep -q "^1$"
 
-echo "[noria-tests] phase 7 sequence diagnostics"
+phase "phase 7 sequence diagnostics"
 grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
   "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
 grep -q "typecheck: implementation tag 'hashmap' requires 'hash' for key type f64" \
@@ -794,7 +851,7 @@ grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
 grep -q "typecheck: __rt_sizeof requires a scalar element type, got Point" \
   "${TEST_OUT_DIR}/sequence_struct_element.stderr"
 
-echo "[noria-tests] phase 7.0 private struct field diagnostics"
+phase "phase 7.0 private struct field diagnostics"
 grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
   "${TEST_OUT_DIR}/private_field_read.stderr"
 grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
@@ -811,65 +868,69 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/struct_private_same_module.nori
 run_native_exit_test "${ROOT_DIR}/examples/basic/comparison_uppercase_ident.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_lowercase.noria" 42
 
-echo "[noria-tests] phase 7 witness runtime bad stdlib diagnostics"
+phase "phase 7 witness runtime bad stdlib diagnostics"
 RT_LOAD_ARITY_STDERR="${TEST_OUT_DIR}/import_rt_load_wrong_arity.stderr"
-set +e
-run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+set_case "tests/fixtures/bad_stdlib/import_rt_load_wrong_arity.noria"
+if run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
   "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_rt_load_wrong_arity.noria" \
   -o "${TEST_OUT_DIR}/import_rt_load_wrong_arity.ll" \
-  >"${TEST_OUT_DIR}/import_rt_load_wrong_arity.stdout" 2>"${RT_LOAD_ARITY_STDERR}"
-rt_load_arity_status="$?"
-set -e
+  >"${TEST_OUT_DIR}/import_rt_load_wrong_arity.stdout" 2>"${RT_LOAD_ARITY_STDERR}"; then
+  rt_load_arity_status=0
+else
+  rt_load_arity_status="$?"
+fi
 if [[ "${rt_load_arity_status}" == "0" ]]; then
-  echo "[noria-tests] expected compile failure for import_rt_load_wrong_arity.noria" >&2
-  exit 1
+  fail "expected compile failure for import_rt_load_wrong_arity.noria"
 fi
 grep -q "typecheck: __rt_load expects 2 arguments" "${RT_LOAD_ARITY_STDERR}"
 
 RT_STORE_MISMATCH_STDERR="${TEST_OUT_DIR}/import_rt_store_mismatch.stderr"
-set +e
-run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+set_case "tests/fixtures/bad_stdlib/import_rt_store_mismatch.noria"
+if run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
   "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_rt_store_mismatch.noria" \
   -o "${TEST_OUT_DIR}/import_rt_store_mismatch.ll" \
-  >"${TEST_OUT_DIR}/import_rt_store_mismatch.stdout" 2>"${RT_STORE_MISMATCH_STDERR}"
-rt_store_mismatch_status="$?"
-set -e
+  >"${TEST_OUT_DIR}/import_rt_store_mismatch.stdout" 2>"${RT_STORE_MISMATCH_STDERR}"; then
+  rt_store_mismatch_status=0
+else
+  rt_store_mismatch_status="$?"
+fi
 if [[ "${rt_store_mismatch_status}" == "0" ]]; then
-  echo "[noria-tests] expected compile failure for import_rt_store_mismatch.noria" >&2
-  exit 1
+  fail "expected compile failure for import_rt_store_mismatch.noria"
 fi
 grep -q "typecheck: __rt_store expects i32, got bool" "${RT_STORE_MISMATCH_STDERR}"
 
-echo "[noria-tests] phase 6 import diagnostic file attribution"
+phase "phase 6 import diagnostic file attribution"
 BAD_TYPE_STDERR="${TEST_OUT_DIR}/import_bad_type.stderr"
-set +e
-run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+set_case "tests/fixtures/bad_stdlib/import_bad_type.noria"
+if run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
   "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_bad_type.noria" \
-  -o "${TEST_OUT_DIR}/import_bad_type.ll" >"${TEST_OUT_DIR}/import_bad_type.stdout" 2>"${BAD_TYPE_STDERR}"
-bad_type_status="$?"
-set -e
+  -o "${TEST_OUT_DIR}/import_bad_type.ll" >"${TEST_OUT_DIR}/import_bad_type.stdout" 2>"${BAD_TYPE_STDERR}"; then
+  bad_type_status=0
+else
+  bad_type_status="$?"
+fi
 if [[ "${bad_type_status}" == "0" ]]; then
-  echo "[noria-tests] expected compile failure for import_bad_type.noria" >&2
-  exit 1
+  fail "expected compile failure for import_bad_type.noria"
 fi
 grep -q "std::badmath:2:10: typecheck: return type bool does not match expected i32" \
   "${BAD_TYPE_STDERR}"
 
-echo "[noria-tests] phase 6 duplicate export diagnostic"
+phase "phase 6 duplicate export diagnostic"
 DUPEXPORT_STDERR="${TEST_OUT_DIR}/import_dupexport.stderr"
-set +e
-run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
+set_case "tests/fixtures/bad_stdlib/import_dupexport.noria"
+if run_noria --stdlib "${ROOT_DIR}/tests/fixtures/bad_stdlib" \
   "${ROOT_DIR}/tests/fixtures/bad_stdlib/import_dupexport.noria" \
-  -o "${TEST_OUT_DIR}/import_dupexport.ll" >"${TEST_OUT_DIR}/import_dupexport.stdout" 2>"${DUPEXPORT_STDERR}"
-dupexport_status="$?"
-set -e
+  -o "${TEST_OUT_DIR}/import_dupexport.ll" >"${TEST_OUT_DIR}/import_dupexport.stdout" 2>"${DUPEXPORT_STDERR}"; then
+  dupexport_status=0
+else
+  dupexport_status="$?"
+fi
 if [[ "${dupexport_status}" == "0" ]]; then
-  echo "[noria-tests] expected compile failure for import_dupexport.noria" >&2
-  exit 1
+  fail "expected compile failure for import_dupexport.noria"
 fi
 grep -q "std::dupexport:5:1: import: duplicate function 'dup'" "${DUPEXPORT_STDERR}"
 
-echo "[noria-tests] phase 6 generic acceptance programs"
+phase "phase 6 generic acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_i32.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_cast.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_id_struct_field.noria" 1
@@ -882,7 +943,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_with_comparison.noria" 
 grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_same_type.ll" | grep -q "^1$"
 grep -c 'define i32 @id$s.i32' "${TEST_OUT_DIR}/generic_reuse_two_paths.ll" | grep -q "^1$"
 
-echo "[noria-tests] phase 6 generic struct acceptance programs"
+phase "phase 6 generic struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_box.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_two_params.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_nested.noria" 15
@@ -895,7 +956,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_select_tag.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_tag_constraint_ok.noria" 43
 
-echo "[noria-tests] production review leetcode and mixed-adt programs"
+phase "production review leetcode and mixed-adt programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_two_sum.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_valid_parentheses.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_max_subarray.noria" 0
@@ -914,35 +975,42 @@ grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.
 grep -c 'define i32 @kind$s.i32$tag.arr' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
 grep -c 'define i32 @kind$s.i32$tag.list' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
 
-echo "[noria-tests] direct build examples/basic/factorial.noria"
-run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
-set +e
-"${TEST_OUT_DIR}/factorial_direct"
-actual_exit="$?"
-set -e
-if [[ "${actual_exit}" != "120" ]]; then
-  echo "[noria-tests] expected exit 120, got ${actual_exit} for direct build" >&2
-  exit 1
-fi
-
-if [[ -n "${LLVM_BIN}" && -x "${LLVM_BIN}/opt" ]]; then
-  echo "[noria-tests] optimized llvm examples/basic/variables.noria"
-  run_noria -O2 "${ROOT_DIR}/examples/basic/variables.noria" -o "${TEST_OUT_DIR}/variables.opt.ll"
-  grep -q "ret i32 7" "${TEST_OUT_DIR}/variables.opt.ll"
-
-  echo "[noria-tests] optimized direct build examples/basic/factorial.noria"
-  run_noria build -O2 "${ROOT_DIR}/examples/basic/factorial.noria" \
-    -o "${TEST_OUT_DIR}/factorial_optimized"
-  set +e
-  "${TEST_OUT_DIR}/factorial_optimized"
-  actual_exit="$?"
-  set -e
+if [[ -n "${CLANG}" ]]; then
+  phase "direct build examples/basic/factorial.noria"
+  set_case "examples/basic/factorial.noria"
+  run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
+  if "${TEST_OUT_DIR}/factorial_direct"; then
+    actual_exit=0
+  else
+    actual_exit="$?"
+  fi
   if [[ "${actual_exit}" != "120" ]]; then
-    echo "[noria-tests] expected exit 120, got ${actual_exit} for optimized direct build" >&2
-    exit 1
+    fail "expected exit 120, got ${actual_exit} for direct build"
+  fi
+
+  if [[ -n "${OPT}" ]]; then
+    phase "optimized llvm examples/basic/variables.noria"
+    set_case "examples/basic/variables.noria"
+    run_noria -O2 "${ROOT_DIR}/examples/basic/variables.noria" -o "${TEST_OUT_DIR}/variables.opt.ll"
+    grep -q "ret i32 7" "${TEST_OUT_DIR}/variables.opt.ll"
+
+    phase "optimized direct build examples/basic/factorial.noria"
+    set_case "examples/basic/factorial.noria"
+    run_noria build -O2 "${ROOT_DIR}/examples/basic/factorial.noria" \
+      -o "${TEST_OUT_DIR}/factorial_optimized"
+    if "${TEST_OUT_DIR}/factorial_optimized"; then
+      actual_exit=0
+    else
+      actual_exit="$?"
+    fi
+    if [[ "${actual_exit}" != "120" ]]; then
+      fail "expected exit 120, got ${actual_exit} for optimized direct build"
+    fi
+  else
+    echo "[noria-tests] skip optimizer checks: opt not found; set LLVM_BIN or add opt to PATH" >&2
   fi
 else
-  echo "[noria-tests] skip optimizer checks: opt not found"
+  echo "[noria-tests] skip direct native and optimizer checks: clang not found" >&2
 fi
 
 echo "[noria-tests] ok"

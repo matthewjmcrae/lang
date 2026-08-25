@@ -182,7 +182,11 @@ add_executable(semantic_tables_test
 target_include_directories(semantic_tables_test PRIVATE include)
 noria_configure_executable(semantic_tables_test)
 
-add_test(NAME examples COMMAND ${CMAKE_SOURCE_DIR}/tests/run_examples.sh)
+add_test(
+  NAME examples
+  COMMAND ${CMAKE_COMMAND} -E env "BUILD_DIR=${CMAKE_BINARY_DIR}"
+          ${CMAKE_SOURCE_DIR}/tests/run_examples.sh
+)
 add_test(NAME type_representation COMMAND type_representation_test)
 add_test(NAME builtin_registry COMMAND builtin_registry_test)
 add_test(NAME visitor_smoke COMMAND visitor_smoke_test)
@@ -196,3 +200,22 @@ add_test(NAME diagnostic_location COMMAND diagnostic_location_test)
 add_test(NAME generics COMMAND generics_test)
 add_test(NAME constraints COMMAND constraints_test)
 add_test(NAME semantic_tables COMMAND semantic_tables_test)
+
+set_tests_properties(examples PROPERTIES LABELS "e2e" TIMEOUT 180)
+
+set(NORIA_UNIT_TESTS
+  type_representation
+  builtin_registry
+  visitor_smoke
+  ast_clone
+  lfu_cache
+  hash_table
+  compiler_cache
+  compiler_facade
+  module_resolver
+  diagnostic_location
+  generics
+  constraints
+  semantic_tables
+)
+set_tests_properties(${NORIA_UNIT_TESTS} PROPERTIES LABELS "unit")

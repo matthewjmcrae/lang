@@ -1,5 +1,7 @@
 # Noria | Statically Typed Custom Programming Language
 
+[![CI](https://github.com/VisasStarfrost/lang/actions/workflows/ci.yml/badge.svg)](https://github.com/VisasStarfrost/lang/actions/workflows/ci.yml)
+
 Noria is a small statically typed language and C++ compiler project created by Matthew McRae. The goal is a compact, defensible compiler MVP that demonstrates the core pieces of a real language implementation without overbuilding.
 
 Noria is actively in development. The `examples/future/` directory holds design sketches for upcoming work; some entries are superseded stubs that point at passing programs in `examples/basic/`.
@@ -62,7 +64,7 @@ Language coverage programs live under `examples/basic/`, including LeetCode-styl
 
 - CMake 3.20+
 - A C++20 compiler
-- LLVM tools for native executable tests, especially `llc`
+- LLVM tools: `opt` for optimizer coverage and `llc` for the optional manual LLVM IR path
 - `clang` for linking generated object files
 
 ## Build
@@ -85,18 +87,22 @@ just run examples/basic/factorial.noria build/factorial -O2
 
 ## Run Tests
 
-The test script builds the compiler, compiles every program in `examples/basic`, and runs native executable checks for examples with shell-friendly exit codes.
-
-```bash
-./tests/run_examples.sh
-```
-
-You can also run it through CTest after configuring the project:
+CTest is the canonical test runner. It runs the focused C++ unit tests and an end-to-end compiler suite that compiles every program in `examples/basic` and exercises native executable checks.
 
 ```bash
 cmake -S . -B build
+cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+Run only the end-to-end compiler suite or the unit tests with:
+
+```bash
+ctest --test-dir build -R '^examples$' --output-on-failure
+ctest --test-dir build -L unit --output-on-failure
+```
+
+`tests/run_examples.sh` is the end-to-end harness used by CTest and expects the compiler to have already been built. Locally, optimizer checks are skipped with a clear message if `opt` is unavailable; CI sets `NORIA_REQUIRE_LLVM_TOOLS=1` to make missing LLVM tools fail the run.
 
 ## Memory Safety Checks
 
@@ -118,10 +124,10 @@ That wraps every compiler invocation in `valgrind --leak-check=full --error-exit
 
 ## Continuous Integration
 
-GitHub Actions runs the same compiler test suite on macOS and Linux for every push and pull request. The workflow installs LLVM, configures CMake, builds the compiler, and runs:
+GitHub Actions runs the same compiler test suite on macOS and Linux for every push and pull request, with manual dispatch available for reruns. The workflow installs LLVM, configures CMake, builds the compiler in parallel, and runs:
 
 ```bash
-ctest --test-dir build --output-on-failure
+NORIA_REQUIRE_LLVM_TOOLS=1 ctest --test-dir build --output-on-failure --no-tests=error
 ```
 
 ## Compile A Program To LLVM IR
