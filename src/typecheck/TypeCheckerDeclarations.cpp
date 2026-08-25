@@ -122,8 +122,10 @@ namespace noria {
       allowedTypeParams.insert(typeParam.name);
     }
 
-    requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
-                     allowInternal);
+    if (function.returnType != Type::voidType()) {
+      requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
+                       allowInternal);
+    }
     for (const auto& parameter : function.parameters) {
       requireKnownType(parameter.type, parameter.location, &allowedTypeParams, false,
                        allowInternal);
@@ -147,7 +149,9 @@ namespace noria {
     }
 
     FunctionSignature signature;
-    requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    if (function.returnType != Type::voidType()) {
+      requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    }
     signature.returnType = function.returnType;
 
     for (const auto& parameter : function.parameters) {

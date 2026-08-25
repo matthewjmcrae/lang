@@ -1,6 +1,7 @@
 #include "noria/AstPrinter.hpp"
 #include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
+#include "noria/Runtime.hpp"
 #include "noria/Token.hpp"
 
 #include <chrono>
@@ -214,9 +215,15 @@ namespace {
   void buildNativeExecutable(const std::filesystem::path& outputPath, const std::string& llvmIr) {
     const std::filesystem::path executable = outputPath.empty() ? "a.out" : outputPath;
     const std::filesystem::path llPath = executable.string() + ".ll";
+    const std::string targetTriple = noria::runtime::targetTriple();
 
     writeOutput(llPath, llvmIr);
-    runCommand("clang " + shellQuote(llPath) + " -o " + shellQuote(executable));
+    std::string command = shellQuote(llvmToolPath("clang"));
+    if (!targetTriple.empty()) {
+      command += " " + shellQuote("--target=" + targetTriple);
+    }
+    command += " " + shellQuote(llPath) + " -o " + shellQuote(executable);
+    runCommand(command);
   }
 
   std::string escapeTokenText(const std::string& text) {

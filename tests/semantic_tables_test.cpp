@@ -46,7 +46,30 @@ int main() {
     expect(addInfo->typeCheckRule == noria::BinaryTypeCheckRule::Numeric, "add type rule");
     expectText(addInfo->LLVMIntegerInstruction, "add", "add integer LLVM instruction");
     expectText(addInfo->LLVMFloatInstruction, "fadd", "add float LLVM instruction");
+    expect(addInfo->integerSafetyRule == noria::IntegerSafetyRule::None,
+           "add has no integer safety rule");
   }
+
+  const noria::BinaryOperatorInfo* divideInfo = noria::binaryOperatorInfo(BinaryOperator::Divide);
+  expect(divideInfo != nullptr, "divide operator info exists");
+  if (divideInfo != nullptr) {
+    expect(divideInfo->integerSafetyRule == noria::IntegerSafetyRule::SignedDivisionOrRemainder,
+           "divide checks signed division safety");
+  }
+
+  const noria::BinaryOperatorInfo* moduloInfo = noria::binaryOperatorInfo(BinaryOperator::Modulo);
+  expect(moduloInfo != nullptr, "modulo operator info exists");
+  if (moduloInfo != nullptr) {
+    expect(moduloInfo->integerSafetyRule == noria::IntegerSafetyRule::SignedDivisionOrRemainder,
+           "modulo checks signed remainder safety");
+  }
+
+  const noria::BinaryOperatorInfo* shlInfo = noria::binaryOperatorInfo(BinaryOperator::Shl);
+  const noria::BinaryOperatorInfo* shrInfo = noria::binaryOperatorInfo(BinaryOperator::Shr);
+  expect(shlInfo != nullptr && shlInfo->integerSafetyRule == noria::IntegerSafetyRule::ShiftCount,
+         "left shift checks count range");
+  expect(shrInfo != nullptr && shrInfo->integerSafetyRule == noria::IntegerSafetyRule::ShiftCount,
+         "right shift checks count range");
 
   const noria::BinaryOperatorInfo* equalInfo = noria::binaryOperatorInfo(BinaryOperator::Equal);
   expect(equalInfo != nullptr, "equality operator info exists");

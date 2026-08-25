@@ -221,6 +221,7 @@ namespace noria::ast {
     void accept(AstVisitor& visitor) const override { visitor.visit(*this); }
     void accept(AstMutator& visitor) override { visitor.visit(*this); }
 
+    // A null expression represents a bare `return;` from a void function.
     std::unique_ptr<Expression> expression;
   };
 

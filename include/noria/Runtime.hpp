@@ -6,11 +6,24 @@
 
 namespace noria::runtime {
 
+#if defined(__APPLE__)
+  inline std::string macOSDeploymentVersion() {
+#if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__)
+    constexpr int deploymentTarget = __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__;
+    return std::to_string(deploymentTarget / 10000) + "." +
+           std::to_string((deploymentTarget / 100) % 100) + "." +
+           std::to_string(deploymentTarget % 100);
+#else
+    return "";
+#endif
+  }
+#endif
+
   inline std::string targetTriple() {
 #if defined(__APPLE__) && defined(__aarch64__)
-    return "arm64-apple-macosx";
+    return "arm64-apple-macosx" + macOSDeploymentVersion();
 #elif defined(__APPLE__) && defined(__x86_64__)
-    return "x86_64-apple-macosx";
+    return "x86_64-apple-macosx" + macOSDeploymentVersion();
 #elif defined(__linux__) && defined(__aarch64__)
     return "aarch64-unknown-linux-gnu";
 #elif defined(__linux__) && defined(__x86_64__)
@@ -34,9 +47,8 @@ namespace noria::runtime {
 #endif
   }
 
-  constexpr std::array<std::string_view, 12> runtimeDeclarations = {
+  constexpr std::array<std::string_view, 11> runtimeDeclarations = {
       "declare i32 @printf(ptr, ...)\n",
-      "declare i32 @puts(ptr)\n",
       "declare i32 @putchar(i32)\n",
       "declare double @llvm.sqrt.f64(double)\n",
       "declare double @llvm.pow.f64(double, double)\n",
@@ -49,8 +61,9 @@ namespace noria::runtime {
       "declare ptr @strcat(ptr, ptr)\n",
   };
 
-  constexpr std::array<std::string_view, 1> runtimeGlobals = {
+  constexpr std::array<std::string_view, 2> runtimeGlobals = {
       "@.fmt.float = private unnamed_addr constant [4 x i8] c\"%g\\0A\\00\"\n",
+      "@.fmt.str = private unnamed_addr constant [3 x i8] c\"%s\\00\"\n",
   };
 
   constexpr std::string_view runtimeDefinitions =

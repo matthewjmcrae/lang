@@ -12,11 +12,38 @@
 #include "codegen/CodegenStrategy.hpp"
 #include "typecheck/TypeCheckerStrategy.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 namespace noria {
 
   namespace {
+
+    void validateMainEntryPoint(const ast::Module& module, SourceLocation endOfFile) {
+      const auto main =
+          std::find_if(module.functions.begin(), module.functions.end(),
+                       [](const ast::Function& function) { return function.name == "main"; });
+      if (main == module.functions.end()) {
+        throw CompileError(formatDiagnostic(endOfFile, DiagnosticStage::TypeCheck,
+                                            "missing entry point; expected 'fn main() -> i32'"));
+      }
+
+      if (!main->typeParams.empty() || main->implTag.has_value()) {
+        throw CompileError(formatDiagnostic(
+            main->location, DiagnosticStage::TypeCheck,
+            "entry point 'main' must not be generic; expected 'fn main() -> i32'"));
+      }
+      if (!main->parameters.empty()) {
+        throw CompileError(formatDiagnostic(
+            main->location, DiagnosticStage::TypeCheck,
+            "entry point 'main' must accept no parameters; expected 'fn main() -> i32'"));
+      }
+      if (main->returnType != Type::i32()) {
+        throw CompileError(
+            formatDiagnostic(main->location, DiagnosticStage::TypeCheck,
+                             "entry point 'main' must return i32, got " + main->returnType.name()));
+      }
+    }
 
     PipelineOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
                                        StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
@@ -30,6 +57,7 @@ namespace noria {
 
       TypeChecker checker = makeTypeCheckerWithDriverStrategy();
       checker.check(output.module, symbolOrigins);
+      validateMainEntryPoint(output.module, output.tokens.back().location);
 
       const MonomorphizationResult monomorphization =
           monomorphizeGenerics(output.module, checker, symbolOrigins, &processCompilerCache());

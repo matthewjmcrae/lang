@@ -1,0 +1,21 @@
+struct Holder {
+  nested: [[i32]];
+}
+
+fn count_flags(flags: [bool]) -> i32 {
+  return len(flags);
+}
+
+fn empty_floats() -> [f64] {
+  return [];
+}
+
+fn main() -> i32 {
+  let values: [i32] = [];
+  values = [];
+
+  let holder: Holder = Holder { nested: [] };
+  holder.nested = [];
+
+  return len(values) + count_flags([]) + len(empty_floats()) + len(holder.nested);
+}

@@ -1,0 +1,9 @@
+fn spin() -> i32 {
+  while true {
+    return 1;
+  }
+}
+
+fn main() -> i32 {
+  return 0;
+}

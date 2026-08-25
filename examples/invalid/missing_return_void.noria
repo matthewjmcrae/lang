@@ -1,0 +1,7 @@
+fn announce() -> void {
+  println();
+}
+
+fn main() -> i32 {
+  return 0;
+}

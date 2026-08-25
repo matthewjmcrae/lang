@@ -86,7 +86,11 @@ namespace noria::ast {
       }
 
       void visit(const ReturnStatement& node) override {
-        statement_ = std::make_unique<ReturnStatement>(cloneChild(*node.expression), node.location);
+        std::unique_ptr<Expression> expression;
+        if (node.expression) {
+          expression = cloneChild(*node.expression);
+        }
+        statement_ = std::make_unique<ReturnStatement>(std::move(expression), node.location);
       }
 
       void visit(const LetStatement& node) override {

@@ -6,5 +6,6 @@ fn main() -> i32 {
   let m: Message = Message { text: "hello" };
   m.text = "world";
   print(m.text);
+  println();
   return 0;
 }

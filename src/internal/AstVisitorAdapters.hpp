@@ -80,7 +80,11 @@ namespace noria::internal {
     }
     void visit(ast::FieldAccessExpression& node) override { node.base->accept(*this); }
 
-    void visit(ast::ReturnStatement& node) override { node.expression->accept(*this); }
+    void visit(ast::ReturnStatement& node) override {
+      if (node.expression) {
+        node.expression->accept(*this);
+      }
+    }
     void visit(ast::LetStatement& node) override {
       if (node.initializer) {
         node.initializer->accept(*this);

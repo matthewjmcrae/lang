@@ -1,0 +1,14 @@
+fn announce(value: i32) -> void {
+  if value > 0 {
+    print_int(value);
+    return;
+  } else {
+    println();
+    return;
+  }
+}
+
+fn main() -> i32 {
+  announce(7);
+  return 0;
+}

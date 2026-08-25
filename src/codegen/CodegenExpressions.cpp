@@ -9,6 +9,7 @@
 #include "CodegenSupport.hpp"
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <limits>
 #include <sstream>
 #include <string_view>
@@ -21,11 +22,12 @@ namespace noria {
   using namespace codegen_detail;
 
   LLVMGenerator::ExpressionVisitor::ExpressionVisitor(const LLVMGenerator& generator,
-                                                            IREmitter& emitter,
-                                                            FunctionCodegenContext& context,
-                                                            const std::vector<Scope>& scopes)
+                                                      IREmitter& emitter,
+                                                      FunctionCodegenContext& context,
+                                                      const std::vector<Scope>& scopes,
+                                                      std::optional<Type> expectedType)
       : ExpressionOnlyVisitor("codegen"), generator_(generator), emitter_(emitter),
-        context_(context), scopes_(scopes) {}
+        context_(context), scopes_(scopes), expectedType_(std::move(expectedType)) {}
 
   void LLVMGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
@@ -106,13 +108,18 @@ namespace noria {
     std::vector<Value> arguments;
     arguments.reserve(call.arguments.size());
 
-    for (const auto& argument : call.arguments) {
-      arguments.push_back(generator_.generateRvalue(*argument, emitter_, context_, scopes_));
+    for (std::size_t index{}; index < call.arguments.size(); ++index) {
+      const Type expectedType = function->second.parameterTypes[index];
+      arguments.push_back(generator_.generateRvalue(*call.arguments[index], emitter_, context_,
+                                                    scopes_, expectedType));
     }
 
-    const std::string result = emitter_.freshTemp();
-    std::string callLine =
-        result + " = call " + LLVMType(function->second.returnType) + " @" + call.callee + "(";
+    const bool returnsVoid = function->second.returnType == Type::voidType();
+    const std::string result = returnsVoid ? "" : emitter_.freshTemp();
+    std::string callLine = returnsVoid
+                               ? "call void @" + call.callee + "("
+                               : result + " = call " + LLVMType(function->second.returnType) +
+                                     " @" + call.callee + "(";
     for (std::size_t index{}; index < arguments.size(); ++index) {
       if (index != 0)
         callLine += ", ";
@@ -125,7 +132,7 @@ namespace noria {
   }
 
   void LLVMGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
-    result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_);
+    result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_, expectedType_);
   }
 
   void LLVMGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
@@ -140,16 +147,15 @@ namespace noria {
     result_ = generator_.generateFieldAccess(access, emitter_, context_, scopes_);
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::generateStringLiteral(const ast::StringLiteral& literal, IREmitter& emitter,
-                                             FunctionCodegenContext& context) const {
+  LLVMGenerator::Value LLVMGenerator::generateStringLiteral(const ast::StringLiteral& literal,
+                                                            IREmitter& emitter,
+                                                            FunctionCodegenContext& context) const {
     return Value{emitCStringPointer(literal.value, emitter, context), Type::str()};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::generateArrayLiteral(const ast::ArrayLiteral& literal, IREmitter& emitter,
-                                            FunctionCodegenContext& context,
-                                            const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateArrayLiteral(
+      const ast::ArrayLiteral& literal, IREmitter& emitter, FunctionCodegenContext& context,
+      const std::vector<Scope>& scopes, const std::optional<Type>& expectedType) const {
     std::vector<Value> elements;
     elements.reserve(literal.elements.size());
 
@@ -157,7 +163,15 @@ namespace noria {
       elements.push_back(generateRvalue(*element, emitter, context, scopes));
     }
 
-    const Type elementType = elements.front().type;
+    Type elementType;
+    if (elements.empty()) {
+      if (!expectedType || expectedType->kind != TypeKind::Array || !expectedType->element) {
+        throw CompileError("codegen: empty array literal missing expected array type");
+      }
+      elementType = *expectedType->element;
+    } else {
+      elementType = elements.front().type;
+    }
     const Type arrayType = Type::array(elementType);
     const std::size_t count = elements.size();
     const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);
@@ -179,9 +193,9 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateIndexExpression(const ast::IndexExpression& index,
-                                               IREmitter& emitter, FunctionCodegenContext& context,
-                                               const std::vector<Scope>& scopes) const {
+  LLVMGenerator::generateIndexExpression(const ast::IndexExpression& index, IREmitter& emitter,
+                                         FunctionCodegenContext& context,
+                                         const std::vector<Scope>& scopes) const {
     const Value base = generateRvalue(*index.base, emitter, context, scopes);
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
 
@@ -211,33 +225,56 @@ namespace noria {
   }
 
   LLVMGenerator::Value
+  LLVMGenerator::emitCheckedF64ToI32Cast(const Value& source, IREmitter& emitter,
+                                         FunctionCodegenContext& context) const {
+    constexpr double minimumInput =
+        static_cast<double>(std::numeric_limits<std::int32_t>::min()) - 1.0;
+    constexpr double maximumInput =
+        static_cast<double>(std::numeric_limits<std::int32_t>::max()) + 1.0;
+
+    const std::string aboveMinimum = emitter.freshTemp();
+    emitter.line(aboveMinimum + " = fcmp ogt double " + source.text + ", " +
+                 formatLLVMFloatLiteral(minimumInput));
+    const std::string belowMaximum = emitter.freshTemp();
+    emitter.line(belowMaximum + " = fcmp olt double " + source.text + ", " +
+                 formatLLVMFloatLiteral(maximumInput));
+    const std::string inRange = emitter.freshTemp();
+    emitter.line(inRange + " = and i1 " + aboveMinimum + ", " + belowMaximum);
+    emitTrapUnless(inRange, "cast", emitter, context, "invalid f64 to i32 cast\n");
+
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = fptosi double " + source.text + " to i32");
+    return Value{result, Type::i32()};
+  }
+
+  LLVMGenerator::Value
   LLVMGenerator::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
-                                              FunctionCodegenContext& context,
-                                              const std::vector<Scope>& scopes) const {
+                                        FunctionCodegenContext& context,
+                                        const std::vector<Scope>& scopes) const {
     const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
     const Type targetType = cast.targetType;
 
     if (source.type == targetType)
       return source;
 
-    const std::string result = emitter.freshTemp();
-
     if (source.type == Type::i32() && targetType == Type::f64()) {
+      const std::string result = emitter.freshTemp();
       emitter.line(result + " = sitofp i32 " + source.text + " to double");
       return Value{result, Type::f64()};
     }
 
     if (source.type == Type::f64() && targetType == Type::i32()) {
-      emitter.line(result + " = fptosi double " + source.text + " to i32");
-      return Value{result, Type::i32()};
+      return emitCheckedF64ToI32Cast(source, emitter, context);
     }
 
     if (source.type == Type::boolean() && targetType == Type::i32()) {
+      const std::string result = emitter.freshTemp();
       emitter.line(result + " = zext i1 " + source.text + " to i32");
       return Value{result, Type::i32()};
     }
 
     if (source.type == Type::i32() && targetType == Type::boolean()) {
+      const std::string result = emitter.freshTemp();
       emitter.line(result + " = icmp ne i32 " + source.text + ", 0");
       return Value{result, Type::boolean()};
     }
@@ -246,8 +283,7 @@ namespace noria {
   }
 
   std::string LLVMGenerator::generateCondition(const ast::Expression& expression,
-                                                     IREmitter& emitter,
-                                                     FunctionCodegenContext& context,
+                                               IREmitter& emitter, FunctionCodegenContext& context,
                                                const std::vector<Scope>& scopes) const {
     const auto strategy = activate(CodegenStrategyKind::Expressions);
     const Value value = generateRvalue(expression, emitter, context, scopes);
@@ -256,20 +292,21 @@ namespace noria {
     return value.text;
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::generateRvalue(const ast::Expression& expression, IREmitter& emitter,
-                                      FunctionCodegenContext& context,
-                                const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateRvalue(const ast::Expression& expression,
+                                                     IREmitter& emitter,
+                                                     FunctionCodegenContext& context,
+                                                     const std::vector<Scope>& scopes,
+                                                     std::optional<Type> expectedType) const {
     const auto strategy = activate(CodegenStrategyKind::Expressions);
-    ExpressionVisitor visitor(*this, emitter, context, scopes);
+    ExpressionVisitor visitor(*this, emitter, context, scopes, std::move(expectedType));
     expression.accept(visitor);
     return visitor.result();
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateBinaryExpression(const ast::BinaryExpression& binary,
-                                                IREmitter& emitter, FunctionCodegenContext& context,
-                                                const std::vector<Scope>& scopes) const {
+  LLVMGenerator::generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
+                                          FunctionCodegenContext& context,
+                                          const std::vector<Scope>& scopes) const {
 
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
@@ -292,7 +329,7 @@ namespace noria {
       return generateComparisonExpression(binary, left, right, emitter);
     }
 
-    return generateNumericBinaryExpression(binary, left, right, emitter);
+    return generateNumericBinaryExpression(binary, left, right, emitter, context);
   }
 
   LLVMGenerator::Value LLVMGenerator::generateShortCircuitBinaryExpression(
@@ -336,8 +373,8 @@ namespace noria {
 
   LLVMGenerator::Value
   LLVMGenerator::generateStringConcatExpression(const Value& left, const Value& right,
-                                                      IREmitter& emitter,
-                                                      FunctionCodegenContext& context) const {
+                                                IREmitter& emitter,
+                                                FunctionCodegenContext& context) const {
     const std::string leftLength = emitter.freshTemp();
     emitter.line(leftLength + " = call i64 @strlen(ptr " + left.text + ")");
     const std::string rightLength = emitter.freshTemp();
@@ -354,8 +391,8 @@ namespace noria {
 
   LLVMGenerator::Value
   LLVMGenerator::generateComparisonExpression(const ast::BinaryExpression& binary,
-                                                    const Value& left, const Value& right,
-                                                    IREmitter& emitter) const {
+                                              const Value& left, const Value& right,
+                                              IREmitter& emitter) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
       throw CompileError("codegen: internal error: unknown comparison operator");
@@ -382,10 +419,9 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::generateNumericBinaryExpression(const ast::BinaryExpression& binary,
-                                                       const Value& left, const Value& right,
-                                                       IREmitter& emitter) const {
+  LLVMGenerator::Value LLVMGenerator::generateNumericBinaryExpression(
+      const ast::BinaryExpression& binary, const Value& left, const Value& right,
+      IREmitter& emitter, FunctionCodegenContext& context) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
       throw CompileError("codegen: internal error: unknown numeric operator");
@@ -396,6 +432,32 @@ namespace noria {
       emitter.line(result + " = " + std::string(info->LLVMFloatInstruction) + " double " +
                    left.text + ", " + right.text);
       return Value{result, Type::f64()};
+    }
+
+    if (info->integerSafetyRule == IntegerSafetyRule::SignedDivisionOrRemainder) {
+      const bool division = binary.op == ast::BinaryOperator::Divide;
+      const std::string operation = division ? "division" : "remainder";
+      const std::string divisorNonZero = emitter.freshTemp();
+      emitter.line(divisorNonZero + " = icmp ne i32 " + right.text + ", 0");
+      emitTrapUnless(divisorNonZero, "integer.divisor", emitter, context,
+                     "integer " + operation + " by zero\n");
+
+      const std::string leftIsMin = emitter.freshTemp();
+      emitter.line(leftIsMin + " = icmp eq i32 " + left.text + ", " +
+                   std::to_string(std::numeric_limits<std::int32_t>::min()));
+      const std::string rightIsNegativeOne = emitter.freshTemp();
+      emitter.line(rightIsNegativeOne + " = icmp eq i32 " + right.text + ", -1");
+      const std::string overflows = emitter.freshTemp();
+      emitter.line(overflows + " = and i1 " + leftIsMin + ", " + rightIsNegativeOne);
+      const std::string noOverflow = emitter.freshTemp();
+      emitter.line(noOverflow + " = xor i1 " + overflows + ", true");
+      emitTrapUnless(noOverflow, "integer.overflow", emitter, context,
+                     "integer " + operation + " overflow\n");
+    } else if (info->integerSafetyRule == IntegerSafetyRule::ShiftCount) {
+      const std::string countInRange = emitter.freshTemp();
+      emitter.line(countInRange + " = icmp ult i32 " + right.text + ", 32");
+      emitTrapUnless(countInRange, "integer.shift", emitter, context,
+                     "integer shift count out of range (expected 0..31)\n");
     }
 
     emitter.line(result + " = " + std::string(info->LLVMIntegerInstruction) + " i32 " + left.text +

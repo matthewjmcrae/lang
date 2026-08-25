@@ -20,6 +20,73 @@ namespace noria {
 
   using namespace typecheck_detail;
 
+  namespace {
+
+    bool statementAlwaysReturns(const ast::Statement& statement);
+    void requireReturnForms(const std::vector<std::unique_ptr<ast::Statement>>& statements,
+                            const Type& returnType);
+
+    bool statementsAlwaysReturn(const std::vector<std::unique_ptr<ast::Statement>>& statements) {
+      for (const auto& statement : statements) {
+        if (statementAlwaysReturns(*statement)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool statementAlwaysReturns(const ast::Statement& statement) {
+      if (dynamic_cast<const ast::ReturnStatement*>(&statement) != nullptr) {
+        return true;
+      }
+
+      const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement);
+      return ifStatement != nullptr && !ifStatement->elseBranch.empty() &&
+             statementsAlwaysReturn(ifStatement->thenBranch) &&
+             statementsAlwaysReturn(ifStatement->elseBranch);
+    }
+
+    void requireReturnForm(const ast::ReturnStatement& returnStatement, const Type& returnType) {
+      if (returnStatement.expression && returnType == Type::voidType()) {
+        throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
+                                            "void function cannot return a value"));
+      }
+      if (!returnStatement.expression && returnType != Type::voidType()) {
+        throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
+                                            "non-void function must return a value"));
+      }
+    }
+
+    void requireReturnForms(const std::vector<std::unique_ptr<ast::Statement>>& statements,
+                            const Type& returnType) {
+      for (const auto& statement : statements) {
+        if (const auto* returnStatement = dynamic_cast<const ast::ReturnStatement*>(statement.get())) {
+          requireReturnForm(*returnStatement, returnType);
+          continue;
+        }
+        if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(statement.get())) {
+          requireReturnForms(ifStatement->thenBranch, returnType);
+          requireReturnForms(ifStatement->elseBranch, returnType);
+          continue;
+        }
+        if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(statement.get())) {
+          requireReturnForms(whileStatement->body, returnType);
+        }
+      }
+    }
+
+    void requireExplicitReturn(const ast::Function& function) {
+      requireReturnForms(function.body, function.returnType);
+      if (statementsAlwaysReturn(function.body)) {
+        return;
+      }
+      throw CompileError(formatDiagnostic(
+          function.location, DiagnosticStage::TypeCheck,
+          "not all control-flow paths in function '" + function.name + "' return"));
+    }
+
+  } // namespace
+
   void TypeChecker::checkImpl(const ast::Module& module, const SymbolOrigins& symbolOrigins) {
     environment_.activeModule = &module;
     environment_.functions.clear();
@@ -29,6 +96,10 @@ namespace noria {
     session_.scopes.clear();
     session_.currentFunctionName.clear();
     environment_.symbolOrigins = symbolOrigins;
+
+    for (const auto& function : module.functions) {
+      requireExplicitReturn(function);
+    }
 
     collectStructDecls(module);
     collectFunctionSignatures(module);
@@ -72,6 +143,7 @@ namespace noria {
             "typecheck: internal error: specialization frontier contains generic function");
       }
       collectConcreteFunctionSignature(function);
+      requireExplicitReturn(function);
     }
 
     for (std::size_t index = firstNewFunction; index < module.functions.size(); ++index) {
@@ -86,7 +158,9 @@ namespace noria {
     session_.currentFunctionName = function.name;
 
     const bool allowInternal = isStdlibContext();
-    requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    if (function.returnType != Type::voidType()) {
+      requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    }
     const Type expectedReturnType = function.returnType;
 
     for (const auto& parameter : function.parameters) {

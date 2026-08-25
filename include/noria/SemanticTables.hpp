@@ -30,6 +30,12 @@ namespace noria {
     Equality,
   };
 
+  enum class IntegerSafetyRule {
+    None,
+    SignedDivisionOrRemainder,
+    ShiftCount,
+  };
+
   enum class UnaryTypeCheckRule {
     Numeric,
     Boolean,
@@ -51,6 +57,7 @@ namespace noria {
     std::string_view LLVMFloatInstruction;
     std::string_view LLVMIntegerPredicate;
     std::string_view LLVMFloatPredicate;
+    IntegerSafetyRule integerSafetyRule = IntegerSafetyRule::None;
   };
 
   struct UnaryOperatorInfo {
@@ -89,9 +96,11 @@ namespace noria {
             {ast::BinaryOperator::Multiply,
              {"*", BinaryTypeCheckRule::Numeric, false, false, "mul", "fmul", "", ""}},
             {ast::BinaryOperator::Divide,
-             {"/", BinaryTypeCheckRule::Numeric, false, false, "sdiv", "fdiv", "", ""}},
+             {"/", BinaryTypeCheckRule::Numeric, false, false, "sdiv", "fdiv", "", "",
+              IntegerSafetyRule::SignedDivisionOrRemainder}},
             {ast::BinaryOperator::Modulo,
-             {"%", BinaryTypeCheckRule::Integer, false, false, "srem", "", "", ""}},
+             {"%", BinaryTypeCheckRule::Integer, false, false, "srem", "", "", "",
+              IntegerSafetyRule::SignedDivisionOrRemainder}},
             {ast::BinaryOperator::And,
              {"&&", BinaryTypeCheckRule::Logical, true, false, "", "", "", ""}},
             {ast::BinaryOperator::Or,
@@ -103,9 +112,11 @@ namespace noria {
             {ast::BinaryOperator::BitXor,
              {"^", BinaryTypeCheckRule::Integer, false, false, "xor", "", "", ""}},
             {ast::BinaryOperator::Shl,
-             {"<<", BinaryTypeCheckRule::Integer, false, false, "shl", "", "", ""}},
+             {"<<", BinaryTypeCheckRule::Integer, false, false, "shl", "", "", "",
+              IntegerSafetyRule::ShiftCount}},
             {ast::BinaryOperator::Shr,
-             {">>", BinaryTypeCheckRule::Integer, false, false, "ashr", "", "", ""}},
+             {">>", BinaryTypeCheckRule::Integer, false, false, "ashr", "", "", "",
+              IntegerSafetyRule::ShiftCount}},
             {ast::BinaryOperator::Less,
              {"<", BinaryTypeCheckRule::OrderedComparison, false, true, "", "", "slt", "olt"}},
             {ast::BinaryOperator::LessEqual,

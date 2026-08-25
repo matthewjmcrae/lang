@@ -8,11 +8,12 @@ Noria is actively in development. The `examples/future/` directory holds design 
 
 ## Current Status
 
-The compiler currently supports `i32`, `bool`, `f64`, and `str` values; local variables with explicit or initializer-inferred types; assignment; arithmetic; `==`/`!=` on `i32`, `f64`, `bool`, and `str` (ordered compares stay numeric); unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void builtins; functions; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; runtime traps for array/string OOB and failed allocations; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
+The compiler currently supports `i32`, `bool`, `f64`, and `str` values; `void` procedures with explicit bare returns; local variables with explicit or initializer-inferred types; assignment; arithmetic; `==`/`!=` on `i32`, `f64`, `bool`, and `str` (ordered compares stay numeric); unary operators (`!`, `-`, `~`); short-circuit logical operators (`&&`, `||`); bitwise operators and `%` on integers; `if` / `else` / `else if`; `while` loops; `as` casts between `i32`, `f64`, and `bool`; builtins (`print`, `print_int`, `print_float`, `print_char`, `println`, `sqrt`, `pow`, `len`); expression statements that call void functions; functions with explicit returns on every completing path; recursion; lexical scoping; generic functions and structs with compile-time implementation tags (`arr`, `list`, `bst`, `hashmap`); module-private struct fields; `import std::<path>::{...}` from the bundled `stdlib/`; a private standard-library runtime ABI (`__rt_ptr`, `__rt_alloc`, `__rt_realloc`, `__rt_release`) usable only inside stdlib modules; compile-time diagnostics and runtime traps for invalid integer division, remainder, and shifts; runtime traps for array/string OOB and failed allocations; static type checking; LLVM IR generation; LLVM optimization; and native macOS executable output:
 
 ```noria
 fn main() -> i32 {
   print("Hello, world!");
+  println();
   return 0;
 }
 ```
@@ -216,9 +217,9 @@ Expected result:
 
 ## Examples
 
-Passing examples live in `examples/basic` (152 programs).
+Passing examples live in `examples/basic` (216 programs).
 
-Negative type-checking examples live in `examples/invalid` (98 programs).
+Negative type-checking examples live in `examples/invalid` (127 programs).
 
 Lexer and parser failure examples live in `examples/invalid_syntax` (19 programs).
 

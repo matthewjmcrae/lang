@@ -86,7 +86,7 @@ namespace noria {
 
   const LLVMGenerator::StructLayout&
   LLVMGenerator::lookupStructLayout(const FunctionCodegenContext& context,
-                                          const Type& structType) const {
+                                    const Type& structType) const {
     const auto layout = context.structs.find(structType.structName);
     if (layout == context.structs.end()) {
       throw CompileError("codegen: unknown struct '" + structType.structName + "'");
@@ -95,10 +95,9 @@ namespace noria {
     return layout->second;
   }
 
-  std::string LLVMGenerator::emitStructFieldPointer(const Type& structType,
-                                                          const std::string& slot,
-                                                          std::size_t fieldIndex,
-                                                          IREmitter& emitter) const {
+  std::string LLVMGenerator::emitStructFieldPointer(const Type& structType, const std::string& slot,
+                                                    std::size_t fieldIndex,
+                                                    IREmitter& emitter) const {
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = getelementptr inbounds " + LLVMType(structType) + ", ptr " + slot +
                  ", i32 0, i32 " + std::to_string(fieldIndex));
@@ -107,7 +106,7 @@ namespace noria {
 
   LLVMGenerator::Value
   LLVMGenerator::generateStructLiteral(const ast::StructLiteral& literal, IREmitter& emitter,
-                                             FunctionCodegenContext& context,
+                                       FunctionCodegenContext& context,
                                        const std::vector<Scope>& scopes) const {
     const auto strategy = activate(CodegenStrategyKind::Structs);
     const Type structType = Type::structType(literal.structName);
@@ -128,7 +127,8 @@ namespace noria {
         throw CompileError("codegen: missing struct literal field '" + fieldName + "'");
       }
 
-      const Value fieldValue = generateRvalue(*valueExpression->second, emitter, context, scopes);
+      const Value fieldValue = generateRvalue(*valueExpression->second, emitter, context, scopes,
+                                              layout.fieldTypes[index]);
       const std::string pointer = emitStructFieldPointer(structType, slot, index, emitter);
       emitter.emitStore(layout.fieldTypes[index], fieldValue.text, pointer);
     }
@@ -138,10 +138,10 @@ namespace noria {
     return Value{result, structType};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
-                                           IREmitter& emitter, FunctionCodegenContext& context,
-                                     const std::vector<Scope>& scopes) const {
+  LLVMGenerator::Value LLVMGenerator::generateFieldAccess(const ast::FieldAccessExpression& access,
+                                                          IREmitter& emitter,
+                                                          FunctionCodegenContext& context,
+                                                          const std::vector<Scope>& scopes) const {
     const auto strategy = activate(CodegenStrategyKind::Structs);
     std::string slot;
     Type structType;

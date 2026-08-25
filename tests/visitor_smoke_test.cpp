@@ -44,6 +44,7 @@ namespace {
     void visit(const noria::ast::ExpressionStatement&) override { ++expressionStatement_; }
 
     int integerLiteralCount() const { return integerLiteral_; }
+    int returnStatementCount() const { return returnStatement_; }
 
     void expectEachOnce() const {
       expect(integerLiteral_ == 1, "IntegerLiteral visited once");
@@ -200,6 +201,12 @@ namespace {
 
     Module module;
     module.functions.push_back(std::move(function));
+    Function procedure;
+    procedure.name = "bare_return";
+    procedure.returnType = Type::voidType();
+    procedure.location = loc;
+    procedure.body.push_back(std::make_unique<ReturnStatement>(nullptr, loc));
+    module.functions.push_back(std::move(procedure));
     return module;
   }
 
@@ -263,6 +270,7 @@ int main() {
                                               loc);
 
   ReturnStatement returnStatement(std::make_unique<IntegerLiteral>(1, loc), loc);
+  ReturnStatement bareReturnStatement(nullptr, loc);
   LetStatement letStatement("a", Type::i32(), std::make_unique<IntegerLiteral>(1, loc), loc);
   IfStatement ifStatement(std::make_unique<BoolLiteral>(true, loc),
                           std::vector<std::unique_ptr<noria::ast::Statement>>{},
@@ -294,6 +302,10 @@ int main() {
   expressionStatement.accept(counter);
 
   counter.expectEachOnce();
+
+  CountingVisitor bareReturnCounter;
+  bareReturnStatement.accept(bareReturnCounter);
+  expect(bareReturnCounter.returnStatementCount() == 1, "Bare ReturnStatement visits normally");
 
   CountingVisitor baseCounter;
   const noria::ast::ASTNode& baseNode = integerLiteral;

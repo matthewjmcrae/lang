@@ -45,7 +45,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkConcreteFunctionCall(const ast::CallExpression& call,
-                                                    const FunctionSignature& signature) {
+                                              const FunctionSignature& signature) {
     if (call.arguments.size() != signature.parameterTypes.size()) {
       std::ostringstream out;
       out << "function '" << call.callee << "' expects " << signature.parameterTypes.size()
@@ -54,8 +54,8 @@ namespace noria {
     }
 
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
-      const Type actual = checkRvalue(*call.arguments[index]);
       const Type expected = signature.parameterTypes[index];
+      const Type actual = checkRvalue(*call.arguments[index], expected);
       if (!isAssignable(expected, actual)) {
         std::ostringstream out;
         out << "argument " << (index + 1) << " of '" << call.callee << "' expects "
@@ -69,8 +69,8 @@ namespace noria {
   }
 
   Type TypeChecker::checkGenericFunctionCall(const ast::CallExpression& call,
-                                                   const std::vector<std::size_t>& family,
-                                                   const std::optional<Type>& expectedType) {
+                                             const std::vector<std::size_t>& family,
+                                             const std::optional<Type>& expectedType) {
     const bool calleeHasImplTags =
         std::any_of(family.begin(), family.end(), [&](std::size_t candidateIndex) {
           return genericFunctionAt(candidateIndex).implTag.has_value();
@@ -148,7 +148,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
-                                           const BuiltinSignature& descriptor) {
+                                     const BuiltinSignature& descriptor) {
     requireBuiltinCallable(call, descriptor);
 
     if (descriptor.id == BuiltinId::Len) {
@@ -179,7 +179,7 @@ namespace noria {
   }
 
   void TypeChecker::requireBuiltinCallable(const ast::CallExpression& call,
-                                                 const BuiltinSignature& descriptor) const {
+                                           const BuiltinSignature& descriptor) const {
     if (descriptor.visibility == Visibility::Internal && !isStdlibContext()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           "internal runtime builtin '" +
@@ -229,7 +229,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkRtLoadBuiltin(const ast::CallExpression& call,
-                                             const BuiltinSignature& descriptor) {
+                                       const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
     if (pointer != Type::rawPtr()) {
@@ -254,7 +254,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkRtStoreBuiltin(const ast::CallExpression& call,
-                                              const BuiltinSignature& descriptor) {
+                                        const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
     const Type value = checkRvalue(*call.arguments[2]);
@@ -284,7 +284,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkAllArgumentsBuiltin(const ast::CallExpression& call,
-                                                   const BuiltinSignature& descriptor) {
+                                             const BuiltinSignature& descriptor) {
     const Type firstType = checkRvalue(*call.arguments[0]);
     const Type secondType = checkRvalue(*call.arguments[1]);
     const Type expected = Type(descriptor.parameters[0]);
@@ -298,7 +298,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
-                                                        const BuiltinSignature& descriptor) {
+                                                  const BuiltinSignature& descriptor) {
     for (std::size_t index{}; index < descriptor.arity; ++index) {
       const Type actual = checkRvalue(*call.arguments[index]);
       const TypeKind expectedKind = descriptor.parameters[index];

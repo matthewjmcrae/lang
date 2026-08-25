@@ -40,9 +40,19 @@ namespace noria {
     std::string generate(const ast::Module& module) const;
 
   private:
-    struct Value { std::string text; Type type; };
-    struct LocalBinding { std::string slot; Type type; bool byteBuffer = false; };
-    struct FunctionBinding { Type returnType; std::vector<Type> parameterTypes; };
+    struct Value {
+      std::string text;
+      Type type;
+    };
+    struct LocalBinding {
+      std::string slot;
+      Type type;
+      bool byteBuffer = false;
+    };
+    struct FunctionBinding {
+      Type returnType;
+      std::vector<Type> parameterTypes;
+    };
     struct StructLayout {
       std::vector<std::string> fieldNames;
       std::vector<Type> fieldTypes;
@@ -78,8 +88,8 @@ namespace noria {
     };
 
     using BuiltinEmitter = Value (LLVMGenerator::*)(const ast::CallExpression&, IREmitter&,
-                                                      FunctionCodegenContext&,
-                                                      const std::vector<Scope>&) const;
+                                                    FunctionCodegenContext&,
+                                                    const std::vector<Scope>&) const;
     class StatementVisitor;
     class ExpressionVisitor;
     class PlaceVisitor;
@@ -90,6 +100,7 @@ namespace noria {
       ~StrategyScope();
       StrategyScope(const StrategyScope&) = delete;
       StrategyScope& operator=(const StrategyScope&) = delete;
+
     private:
       const LLVMGenerator& generator_;
       std::unique_ptr<CodegenStrategy> previous_;
@@ -97,7 +108,8 @@ namespace noria {
     StrategyScope activate(CodegenStrategyKind requested) const;
 
     std::string generateModule(const ast::Module& module) const;
-    std::string generateFunction(const ast::Function& function, ModuleCodegenContext& context) const;
+    std::string generateFunction(const ast::Function& function,
+                                 ModuleCodegenContext& context) const;
     bool generateStatement(const ast::Statement& statement, IREmitter& emitter,
                            FunctionCodegenContext& context, Type expectedReturnType,
                            std::vector<Scope>& scopes) const;
@@ -112,41 +124,50 @@ namespace noria {
                                const std::vector<Scope>& scopes) const;
     std::string emitArrayElementPointer(const Value&, const Value&, const Type&, IREmitter&,
                                         FunctionCodegenContext&) const;
-    std::string emitRawBufferElementPointer(const Value&, const Value&, const Type&, IREmitter&) const;
+    std::string emitRawBufferElementPointer(const Value&, const Value&, const Type&,
+                                            IREmitter&) const;
     std::string emitBufferLoad(const Type&, const std::string&, IREmitter&) const;
     void emitBufferStore(const Type&, const std::string&, const std::string&, IREmitter&) const;
     std::string emitCStringPointer(std::string_view, IREmitter&, FunctionCodegenContext&) const;
     void emitRuntimeTrap(IREmitter&, FunctionCodegenContext&, std::string_view) const;
+    void emitTrapUnless(const std::string&, std::string_view, IREmitter&, FunctionCodegenContext&,
+                        std::string_view) const;
     void emitNullPointerCheck(const std::string&, IREmitter&, FunctionCodegenContext&) const;
     std::string emitCheckedMalloc(const std::string&, IREmitter&, FunctionCodegenContext&) const;
     void emitBoundsCheck(const std::string&, const Value&, IREmitter&, FunctionCodegenContext&,
                          std::string_view) const;
+    Value emitCheckedF64ToI32Cast(const Value&, IREmitter&, FunctionCodegenContext&) const;
     Value generateRvalue(const ast::Expression&, IREmitter&, FunctionCodegenContext&,
-                         const std::vector<Scope>&) const;
-    Value generateBinaryExpression(const ast::BinaryExpression&, IREmitter&, FunctionCodegenContext&,
-                                   const std::vector<Scope>&) const;
+                         const std::vector<Scope>&,
+                         std::optional<Type> expectedType = std::nullopt) const;
+    Value generateBinaryExpression(const ast::BinaryExpression&, IREmitter&,
+                                   FunctionCodegenContext&, const std::vector<Scope>&) const;
     Value generateShortCircuitBinaryExpression(const ast::BinaryExpression&, IREmitter&,
-                                               FunctionCodegenContext&, const std::vector<Scope>&) const;
+                                               FunctionCodegenContext&,
+                                               const std::vector<Scope>&) const;
     Value generateStringConcatExpression(const Value&, const Value&, IREmitter&,
                                          FunctionCodegenContext&) const;
     Value generateComparisonExpression(const ast::BinaryExpression&, const Value&, const Value&,
                                        IREmitter&) const;
     Value generateNumericBinaryExpression(const ast::BinaryExpression&, const Value&, const Value&,
-                                          IREmitter&) const;
-    Value generateStringLiteral(const ast::StringLiteral&, IREmitter&, FunctionCodegenContext&) const;
+                                          IREmitter&, FunctionCodegenContext&) const;
+    Value generateStringLiteral(const ast::StringLiteral&, IREmitter&,
+                                FunctionCodegenContext&) const;
     Value generateCastExpression(const ast::CastExpression&, IREmitter&, FunctionCodegenContext&,
                                  const std::vector<Scope>&) const;
     Value generateArrayLiteral(const ast::ArrayLiteral&, IREmitter&, FunctionCodegenContext&,
-                               const std::vector<Scope>&) const;
+                               const std::vector<Scope>&, const std::optional<Type>&) const;
     Value generateIndexExpression(const ast::IndexExpression&, IREmitter&, FunctionCodegenContext&,
                                   const std::vector<Scope>&) const;
     Value generateStructLiteral(const ast::StructLiteral&, IREmitter&, FunctionCodegenContext&,
                                 const std::vector<Scope>&) const;
-    Value generateFieldAccess(const ast::FieldAccessExpression&, IREmitter&, FunctionCodegenContext&,
-                              const std::vector<Scope>&) const;
-    std::string emitStructFieldPointer(const Type&, const std::string&, std::size_t, IREmitter&) const;
+    Value generateFieldAccess(const ast::FieldAccessExpression&, IREmitter&,
+                              FunctionCodegenContext&, const std::vector<Scope>&) const;
+    std::string emitStructFieldPointer(const Type&, const std::string&, std::size_t,
+                                       IREmitter&) const;
     std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression&, IREmitter&,
-                                                FunctionCodegenContext&, const std::vector<Scope>&) const;
+                                                FunctionCodegenContext&,
+                                                const std::vector<Scope>&) const;
     std::optional<BuiltinEmitter> builtinEmitterFor(BuiltinId) const;
     Value emitPrintlnBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,
                              const std::vector<Scope>&) const;
@@ -198,7 +219,8 @@ namespace noria {
     std::string modulePreamble() const;
     bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding) const;
     const LocalBinding& lookupLocal(const std::vector<Scope>&, const std::string&) const;
-    std::unordered_map<std::string, FunctionBinding> collectFunctionBindings(const ast::Module&) const;
+    std::unordered_map<std::string, FunctionBinding>
+    collectFunctionBindings(const ast::Module&) const;
     std::unordered_map<std::string, StructLayout> collectStructLayouts(const ast::Module&) const;
     std::string emitStructTypeDefinitions(const ast::Module&) const;
     const StructLayout& lookupStructLayout(const FunctionCodegenContext&, const Type&) const;

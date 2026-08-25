@@ -29,7 +29,7 @@ namespace noria {
       using TypeFactory = Type (*)();
       static const std::unordered_map<std::string_view, TypeFactory> builtinTypes = {
           {"i32", Type::i32}, {"f64", Type::f64},         {"bool", Type::boolean},
-          {"str", Type::str}, {"__rt_ptr", Type::rawPtr},
+          {"str", Type::str}, {"void", Type::voidType},   {"__rt_ptr", Type::rawPtr},
       };
 
       if (const auto type = builtinTypes.find(name); type != builtinTypes.end()) {
@@ -353,6 +353,9 @@ namespace noria {
 
   std::unique_ptr<ast::Statement> Parser::parseReturnStatement() {
     const Token& returnToken = advance();
+    if (match(TokenKind::Semicolon)) {
+      return std::make_unique<ast::ReturnStatement>(nullptr, returnToken.location);
+    }
     auto expression = parseExpression();
     expect(TokenKind::Semicolon, "expected ';' after return expression");
     return std::make_unique<ast::ReturnStatement>(std::move(expression), returnToken.location);

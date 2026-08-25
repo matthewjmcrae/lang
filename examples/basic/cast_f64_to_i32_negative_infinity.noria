@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let value: f64 = -1.0 / 0.0;
+  print_int(value as i32);
+  return 0;
+}

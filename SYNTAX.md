@@ -11,6 +11,7 @@ i32
 bool
 f64
 str
+void
 ```
 
 `i32` is a signed 32-bit integer.
@@ -25,6 +26,9 @@ false
 `f64` is a 64-bit floating-point value. Literals use decimal notation such as `2.0` or `3.14` (see [Floats](#floats)).
 
 `str` is a string value. String literals use double quotes (see [Strings](#strings)).
+
+`void` is available only as a function return type. A void function must end every potentially
+completing control-flow path with a bare `return;`.
 
 Noria does not perform implicit conversions among `i32`, `bool`, `f64`, or `str`. Use `as` casts where conversions are supported (see [Casts](#casts)).
 
@@ -245,7 +249,19 @@ fn main() -> i32 {
 }
 ```
 
-If a function reaches the end of its body without a `return`, code generation emits the type's zero value (`0`, `false`, `0.0`, `null`, or `zeroinitializer`). Missing returns are not a type error. Statements that follow an `if`/`else` where both branches `return` are still type-checked, but codegen does not emit them (unreachable).
+Every function must explicitly return on each control-flow path that can reach the end of its body. Non-void functions use `return <value>;`; void procedures use `return;`. A `while` loop is conservatively considered capable of ending, including `while true`. Statements that follow an `if`/`else` where both branches return are still type-checked, but codegen does not emit them (unreachable).
+
+```noria
+fn announce(value: i32) -> void {
+  print_int(value);
+  return;
+}
+
+fn main() -> i32 {
+  announce(42);
+  return 0;
+}
+```
 
 Recursion is supported:
 
@@ -385,7 +401,7 @@ Operator precedence is supported:
 (1 + 2) * 3   // 9
 ```
 
-Division is signed integer division that truncates toward zero. Integer `+`, `-`, and `*` wrap on overflow. Division or remainder by zero and shifts by 32 or more are LLVM poison; they are not trapped.
+Division is signed integer division that truncates toward zero. Integer `+`, `-`, and `*` wrap on overflow. Direct literal division or remainder by zero, `-2147483648 / -1`, `-2147483648 % -1`, and shifts with counts outside `0..31` are type errors. The same invalid operations with computed operands trap at runtime with exit status 70. Valid shifts use counts `0..31` and preserve LLVM's wrapping shift behavior.
 
 ## Comparisons
 
@@ -566,6 +582,11 @@ fn main() -> i32 {
 }
 ```
 
+An `f64 as i32` cast truncates toward zero. It traps at runtime if the input is
+NaN or infinite, or if its truncated value cannot be represented by `i32`.
+For example, `2147483647.5 as i32` produces `2147483647`, while
+`2147483648.0 as i32` traps.
+
 Other combinations are rejected:
 
 ```text
@@ -619,7 +640,7 @@ fn main() -> i32 {
 }
 ```
 
-Use the `print` builtin to write a string to stdout. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Out-of-range indexes, including negatives, trap at runtime. Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Failed allocations trap. Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance. `str` values compare with `==` and `!=`.
+Use the `print` builtin to write a string to stdout without adding a newline; call `println()` when a newline is needed. For example, `print("A"); print("B");` writes `AB`. Use `len(s)` to get the byte length of a string as an `i32`. Index a string with `s[i]` where `i` is an `i32`; the result is an `i32` byte value (0–255). Out-of-range indexes, including negatives, trap at runtime. Concatenate strings with `+`; the result is a newly allocated C string (`malloc` + `strcpy`/`strcat`). Failed allocations trap. Noria does not reclaim concatenated strings — they are leaked on program exit, consistent with the MVP allocator stance. `str` values compare with `==` and `!=`.
 
 ## Arrays
 
@@ -628,9 +649,10 @@ Array types are written `[T]` where `T` is a scalar or array element type (for e
 ```noria
 let values: [i32] = [3, 4, 5, 6];
 let names: [str] = ["alice", "bob"];
+let empty: [i32] = [];
 ```
 
-Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+An empty literal uses a direct expected array type, such as a typed local declaration, function parameter, return value, assignment target, or struct-literal field. An unannotated declaration such as `let values = [];` is rejected because its element type cannot be inferred. Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
 
 String indexing is read-only; `s[i] = expr` is rejected at type check.
 
@@ -732,6 +754,7 @@ Example:
 ```noria
 fn main() -> i32 {
   print("Hello, world!");
+  println();
   print_int(42);
   print_float(3.14);
   print_char(65);
@@ -744,11 +767,11 @@ fn main() -> i32 {
 
 ## Expression Statements
 
-A statement may be a call to a void-returning builtin followed by `;`. User-defined functions and builtins that return a value (such as `sqrt` or `pow`) cannot be used as standalone statements. Other bare expressions are rejected:
+A statement may be a call to any void-returning function followed by `;`. Functions and builtins that return a value (such as `sqrt` or `pow`) cannot be used as standalone statements. Other bare expressions are rejected:
 
 ```text
 noria: error: 2:3: typecheck: expression statement must be a function call
-noria: error: 2:3: typecheck: expression statement must call a void builtin
+noria: error: 2:3: typecheck: expression statement must call a void function
 ```
 
 Example:
@@ -868,7 +891,7 @@ Noria currently does not support:
 - `[T]` arrays whose element type `T` is a struct
 - reclaiming `str` concatenations or array/`malloc` buffers (leak-on-exit)
 
-Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, and failed `malloc`/`realloc`. Integer overflow wraps; `sdiv`/`srem` by zero and shifts of 32 or more are LLVM poison.
+Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, failed `malloc`/`realloc`, and computed invalid integer division, remainder, or shift operations. Integer `+`, `-`, `*`, and valid shifts wrap on overflow; direct invalid integer literals are type errors.
 
 ## Commands
 

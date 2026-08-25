@@ -178,6 +178,7 @@ namespace noria {
                                                const std::optional<Type>&, SourceLocation) const;
 
     Type checkBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
+    void rejectStaticallyInvalidIntegerOperation(const ast::BinaryExpression&, const Type&) const;
     Type checkLogicalBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     Type checkAdditiveBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     Type checkIntegerBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;

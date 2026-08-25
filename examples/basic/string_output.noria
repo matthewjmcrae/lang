@@ -1,6 +1,8 @@
 fn main() -> i32 {
   print("hello from noria");
+  println();
   print("compilers turn text into machines");
+  println();
 
   return 0;
 }

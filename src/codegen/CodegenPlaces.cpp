@@ -159,17 +159,23 @@ namespace noria {
     emitter.line("unreachable");
   }
 
+  void LLVMGenerator::emitTrapUnless(const std::string& condition, std::string_view labelPrefix,
+                                     IREmitter& emitter, FunctionCodegenContext& context,
+                                     std::string_view message) const {
+    const int labelId = emitter.freshLabelId();
+    const std::string trapLabel = std::string(labelPrefix) + ".fail" + std::to_string(labelId);
+    const std::string contLabel = std::string(labelPrefix) + ".ok" + std::to_string(labelId);
+    emitter.emitCondBranch(condition, contLabel, trapLabel);
+    emitter.emitLabel(trapLabel);
+    emitRuntimeTrap(emitter, context, message);
+    emitter.emitLabel(contLabel);
+  }
+
   void LLVMGenerator::emitNullPointerCheck(const std::string& pointer, IREmitter& emitter,
                                                  FunctionCodegenContext& context) const {
-    const int labelId = emitter.freshLabelId();
-    const std::string trapLabel = "alloc.fail" + std::to_string(labelId);
-    const std::string contLabel = "alloc.ok" + std::to_string(labelId);
-    const std::string isNull = emitter.freshTemp();
-    emitter.line(isNull + " = icmp eq ptr " + pointer + ", null");
-    emitter.emitCondBranch(isNull, trapLabel, contLabel);
-    emitter.emitLabel(trapLabel);
-    emitRuntimeTrap(emitter, context, "allocation failed\n");
-    emitter.emitLabel(contLabel);
+    const std::string isNonNull = emitter.freshTemp();
+    emitter.line(isNonNull + " = icmp ne ptr " + pointer + ", null");
+    emitTrapUnless(isNonNull, "alloc", emitter, context, "allocation failed\n");
   }
 
   std::string LLVMGenerator::emitCheckedMalloc(const std::string& size64, IREmitter& emitter,
@@ -183,17 +189,11 @@ namespace noria {
   void LLVMGenerator::emitBoundsCheck(const std::string& length64, const Value& indexValue,
                                             IREmitter& emitter, FunctionCodegenContext& context,
                                             std::string_view message) const {
-    const int labelId = emitter.freshLabelId();
-    const std::string trapLabel = "bounds.fail" + std::to_string(labelId);
-    const std::string contLabel = "bounds.ok" + std::to_string(labelId);
     const std::string index64 = emitter.freshTemp();
     emitter.line(index64 + " = zext i32 " + indexValue.text + " to i64");
     const std::string inBounds = emitter.freshTemp();
     emitter.line(inBounds + " = icmp ult i64 " + index64 + ", " + length64);
-    emitter.emitCondBranch(inBounds, contLabel, trapLabel);
-    emitter.emitLabel(trapLabel);
-    emitRuntimeTrap(emitter, context, message);
-    emitter.emitLabel(contLabel);
+    emitTrapUnless(inBounds, "bounds", emitter, context, message);
   }
 
   std::string LLVMGenerator::emitRawBufferElementPointer(const Value& base,

@@ -40,6 +40,21 @@ namespace {
     return function;
   }
 
+  noria::ast::Function makeVoidFunction(std::string name, std::size_t localCount) {
+    noria::ast::Function function;
+    function.name = std::move(name);
+    function.returnType = noria::Type::voidType();
+    function.location = loc();
+    for (std::size_t index{}; index < localCount; ++index) {
+      function.body.push_back(std::make_unique<noria::ast::LetStatement>(
+          "v" + std::to_string(index), noria::Type::i32(),
+          std::make_unique<noria::ast::IntegerLiteral>(static_cast<std::int64_t>(index), loc()),
+          loc()));
+    }
+    function.body.push_back(std::make_unique<noria::ast::ReturnStatement>(nullptr, loc()));
+    return function;
+  }
+
   noria::ast::StructDecl makeStruct(std::string name, std::size_t fieldCount) {
     noria::ast::StructDecl decl;
     decl.name = std::move(name);
@@ -101,6 +116,18 @@ int main() {
       cache.cloneStdlibStructSpecialization("struct|std::large|Large$s.i32");
   expect(secondStruct && secondStruct->fields[0].name == "f0",
          "cached struct retrieval returns independent clones");
+
+  const noria::ast::Function voidFunction = makeVoidFunction("void$s.i32", 64);
+  cache.storeStdlibFunctionSpecialization("fn|std::void|void$s.i32", voidFunction,
+                                          {noria::Type::i32()});
+  std::optional<noria::CachedFunctionSpecialization> cachedVoidFunction =
+      cache.cloneStdlibFunctionSpecialization("fn|std::void|void$s.i32");
+  const auto* cachedBareReturn = cachedVoidFunction
+                                     ? dynamic_cast<const noria::ast::ReturnStatement*>(
+                                           cachedVoidFunction->function.body.back().get())
+                                     : nullptr;
+  expect(cachedBareReturn != nullptr && !cachedBareReturn->expression,
+         "cached function specialization preserves bare returns");
 
   if (failures != 0) {
     std::cerr << failures << " compiler cache test failure(s)\n";

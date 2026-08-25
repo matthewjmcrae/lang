@@ -188,6 +188,51 @@ run_native_failure_test() {
   fi
 }
 
+run_optimized_native_failure_test() {
+  local source="$1"
+  local expected_exit="$2"
+  local expected_stderr="$3"
+  local name
+  name="$(basename "${source}" .noria)"
+  local executable="${TEST_OUT_DIR}/${name}_optimized"
+  local stderr_file="${TEST_OUT_DIR}/${name}.optimized.runtime.stderr"
+
+  set_case "optimized native failure ${source#${ROOT_DIR}/}"
+  echo "[noria-tests] optimized native failure ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
+  run_noria build -O2 "${source}" -o "${executable}"
+
+  local actual_exit
+  if "${executable}" >/dev/null 2>"${stderr_file}"; then
+    actual_exit=0
+  else
+    actual_exit="$?"
+  fi
+
+  if [[ "${actual_exit}" != "${expected_exit}" ]]; then
+    fail "expected exit ${expected_exit}, got ${actual_exit} for optimized ${source}"
+  fi
+
+  grep -q "${expected_stderr}" "${stderr_file}"
+}
+
+run_optimized_native_stdout_test() {
+  local source="$1"
+  local expected_file="$2"
+  local name
+  name="$(basename "${source}" .noria)"
+  local executable="${TEST_OUT_DIR}/${name}_optimized_stdout"
+  local actual_file="${TEST_OUT_DIR}/${name}.optimized.stdout"
+
+  set_case "optimized native stdout ${source#${ROOT_DIR}/}"
+  echo "[noria-tests] optimized native stdout ${source#${ROOT_DIR}/}"
+  run_noria build -O2 "${source}" -o "${executable}"
+  "${executable}" >"${actual_file}"
+
+  if ! diff -u "${expected_file}" "${actual_file}"; then
+    fail "optimized stdout mismatch for ${source}"
+  fi
+}
+
 run_native_stdout_test() {
   local source="$1"
   local expected_file="$2"
@@ -257,6 +302,49 @@ expect_compile_failure_contains() {
   grep -q "${expected}" "${stderr_file}"
 }
 
+expect_entry_point_failure() {
+  local source="$1"
+  local expected="$2"
+  local name
+  name="$(basename "${source}" .noria)"
+  local ir_path="${TEST_OUT_DIR}/entry-${name}.ll"
+  local executable_path="${TEST_OUT_DIR}/entry-${name}"
+  local ir_stderr="${TEST_OUT_DIR}/entry-${name}.ir.stderr"
+  local native_stderr="${TEST_OUT_DIR}/entry-${name}.native.stderr"
+
+  rm -f "${ir_path}" "${executable_path}" "${executable_path}.ll"
+
+  set_case "entry-point IR failure ${source#${ROOT_DIR}/}"
+  echo "[noria-tests] expect entry-point IR failure ${source#${ROOT_DIR}/}"
+  local status
+  if run_noria "${source}" -o "${ir_path}" >/dev/null 2>"${ir_stderr}"; then
+    status=0
+  else
+    status="$?"
+  fi
+  if [[ "${status}" == "0" ]]; then
+    fail "expected entry-point compilation failure for ${source}"
+  fi
+  [[ ! -e "${ir_path}" ]] || fail "compiler wrote IR for invalid entry point ${source}"
+  grep -Fq "${source}:" "${ir_stderr}"
+  grep -Fq "typecheck: ${expected}" "${ir_stderr}"
+
+  set_case "entry-point native failure ${source#${ROOT_DIR}/}"
+  echo "[noria-tests] expect entry-point native failure ${source#${ROOT_DIR}/}"
+  if run_noria build "${source}" -o "${executable_path}" >/dev/null 2>"${native_stderr}"; then
+    status=0
+  else
+    status="$?"
+  fi
+  if [[ "${status}" == "0" ]]; then
+    fail "expected entry-point native build failure for ${source}"
+  fi
+  [[ ! -e "${executable_path}" ]] || fail "compiler linked invalid entry point ${source}"
+  [[ ! -e "${executable_path}.ll" ]] || fail "compiler wrote native LLVM IR for ${source}"
+  grep -Fq "${source}:" "${native_stderr}"
+  grep -Fq "typecheck: ${expected}" "${native_stderr}"
+}
+
 phase "compile basic examples"
 for source in "${ROOT_DIR}"/examples/basic/*.noria; do
   compile_example "${source}"
@@ -307,6 +395,34 @@ grep -q "typecheck: array element type cannot be a struct" \
   "${TEST_OUT_DIR}/array_struct_element.stderr"
 grep -q "typecheck: unknown function 'missing'" \
   "${TEST_OUT_DIR}/unreachable_after_exhaustive_if.stderr"
+grep -q "typecheck: not all control-flow paths in function 'status' return" \
+  "${TEST_OUT_DIR}/missing_return_non_void.stderr"
+grep -q "typecheck: not all control-flow paths in function 'announce' return" \
+  "${TEST_OUT_DIR}/missing_return_void.stderr"
+grep -q "typecheck: non-void function must return a value" \
+  "${TEST_OUT_DIR}/bare_return_non_void.stderr"
+grep -q "typecheck: void function cannot return a value" \
+  "${TEST_OUT_DIR}/value_return_void.stderr"
+grep -q "typecheck: not all control-flow paths in function 'spin' return" \
+  "${TEST_OUT_DIR}/missing_return_while_true.stderr"
+grep -q "typecheck: not all control-flow paths in function 'pending' return" \
+  "${TEST_OUT_DIR}/missing_return_generic.stderr"
+grep -q "typecheck: not all control-flow paths in function 'zero' return" \
+  "${TEST_OUT_DIR}/struct_default_return.stderr"
+for name in void_parameter void_local void_struct_field void_array void_generic_argument void_cast; do
+  grep -q "typecheck: void is only valid as a function return type" \
+    "${TEST_OUT_DIR}/${name}.stderr"
+done
+
+phase "entry-point diagnostics"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_signature.noria" \
+  "entry point 'main' must accept no parameters; expected 'fn main() -> i32'"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_return_type.noria" \
+  "entry point 'main' must return i32, got bool"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/generic_main.noria" \
+  "entry point 'main' must not be generic; expected 'fn main() -> i32'"
+expect_entry_point_failure "${ROOT_DIR}/qa_programs/missing_main.noria" \
+  "missing entry point; expected 'fn main() -> i32'"
 
 phase "future type name() diagnostics"
 grep -q "typecheck: cannot initialize 'x' of type f64 with bool" \
@@ -348,6 +464,22 @@ grep -q "typecheck: integer operator requires i32 operands, got bool and bool" \
   "${TEST_OUT_DIR}/bitwise_non_integer.stderr"
 grep -q "typecheck: cannot cast bool to f64" \
   "${TEST_OUT_DIR}/cast_bad_type.stderr"
+grep -q "typecheck: integer division by zero" \
+  "${TEST_OUT_DIR}/integer_divide_zero_literal.stderr"
+grep -q "typecheck: integer remainder by zero" \
+  "${TEST_OUT_DIR}/integer_remainder_zero_literal.stderr"
+grep -q "typecheck: integer division overflow" \
+  "${TEST_OUT_DIR}/integer_divide_overflow_literal.stderr"
+grep -q "typecheck: integer remainder overflow" \
+  "${TEST_OUT_DIR}/integer_remainder_overflow_literal.stderr"
+grep -q "typecheck: integer shift count out of range (expected 0..31)" \
+  "${TEST_OUT_DIR}/integer_shift_left_negative_literal.stderr"
+grep -q "typecheck: integer shift count out of range (expected 0..31)" \
+  "${TEST_OUT_DIR}/integer_shift_left_too_large_literal.stderr"
+grep -q "typecheck: integer shift count out of range (expected 0..31)" \
+  "${TEST_OUT_DIR}/integer_shift_right_negative_literal.stderr"
+grep -q "typecheck: integer shift count out of range (expected 0..31)" \
+  "${TEST_OUT_DIR}/integer_shift_right_too_large_literal.stderr"
 
 phase "phase 2 io and cast diagnostics"
 grep -q "typecheck: print_int expects i32, got str" \
@@ -559,6 +691,34 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/modulo.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/bitwise.noria" 37
 run_native_exit_test "${ROOT_DIR}/examples/basic/i32_min_max.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/i32_wrapping.noria" 0
+
+phase "void procedure acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/void_procedure.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/generic_void_procedure.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/conditional_return_followup.noria" 0
+grep -q "define void @announce" "${TEST_OUT_DIR}/void_procedure.ll"
+grep -q "call void @announce" "${TEST_OUT_DIR}/void_procedure.ll"
+grep -q "ret void" "${TEST_OUT_DIR}/void_procedure.ll"
+grep -Fq 'define void @consume$s.i32' "${TEST_OUT_DIR}/generic_void_procedure.ll"
+phase "integer safety acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/integer_checked_boundaries.noria" \
+  "${ROOT_DIR}/examples/basic/integer_checked_boundaries.expected"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_divide_zero_runtime.noria" 70 \
+  "integer division by zero"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_remainder_zero_runtime.noria" 70 \
+  "integer remainder by zero"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_divide_overflow_runtime.noria" 70 \
+  "integer division overflow"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_remainder_overflow_runtime.noria" 70 \
+  "integer remainder overflow"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_shift_left_negative_runtime.noria" 70 \
+  "integer shift count out of range"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_shift_left_too_large_runtime.noria" 70 \
+  "integer shift count out of range"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_shift_right_negative_runtime.noria" 70 \
+  "integer shift count out of range"
+run_native_failure_test "${ROOT_DIR}/examples/basic/integer_shift_right_too_large_runtime.noria" 70 \
+  "integer shift count out of range"
 run_native_exit_test "${ROOT_DIR}/examples/basic/bool_equality.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_and.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/short_circuit_or.noria" 7
@@ -572,7 +732,31 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/cast_roundtrip.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/cast_precision_loss.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/math_builtins.noria" 1
 
+phase "checked f64 to i32 casts"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.noria" \
+  "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.expected"
+run_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_too_large.noria" 70 \
+  "invalid f64 to i32 cast"
+run_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_too_small.noria" 70 \
+  "invalid f64 to i32 cast"
+run_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_nan.noria" 70 \
+  "invalid f64 to i32 cast"
+run_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_positive_infinity.noria" 70 \
+  "invalid f64 to i32 cast"
+run_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_negative_infinity.noria" 70 \
+  "invalid f64 to i32 cast"
+grep -q "fcmp ogt double" "${TEST_OUT_DIR}/cast_f64_to_i32_too_large.ll"
+grep -q "fcmp olt double" "${TEST_OUT_DIR}/cast_f64_to_i32_too_large.ll"
+grep -q "cast.fail" "${TEST_OUT_DIR}/cast_f64_to_i32_too_large.ll"
+
 phase "phase 2 stdout acceptance programs"
+run_native_stdout_test "${ROOT_DIR}/examples/basic/print_adjacent.noria" \
+  "${ROOT_DIR}/examples/basic/print_adjacent.expected"
+grep -Fq "@.fmt.str = private unnamed_addr constant [3 x i8] c\"%s\\00\"" \
+  "${TEST_OUT_DIR}/print_adjacent.ll"
+if grep -Fq "@puts" "${TEST_OUT_DIR}/print_adjacent.ll"; then
+  fail "print IR must not call puts"
+fi
 run_native_stdout_test "${ROOT_DIR}/examples/basic/hello_world.noria" \
   "${ROOT_DIR}/examples/basic/hello_world.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/fizzbuzz.noria" \
@@ -623,6 +807,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/array_reassign.noria" 3
 run_native_stdout_test "${ROOT_DIR}/examples/basic/array_indexed_assignment.noria" \
   "${ROOT_DIR}/examples/basic/array_indexed_assignment.expected"
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_bool_roundtrip.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_empty_contexts.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_oob.noria" 70 \
   "array index out of bounds"
 run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_negative.noria" 70 \
@@ -630,6 +815,8 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/array_index_negative.noria" 
 grep -q "call ptr @malloc" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "store i64 4" "${TEST_OUT_DIR}/arrays_sum.ll"
 grep -q "getelementptr inbounds i8, ptr .*, i64 8" "${TEST_OUT_DIR}/arrays_sum.ll"
+grep -q "call ptr @malloc(i64 8)" "${TEST_OUT_DIR}/array_empty_contexts.ll"
+grep -q "store i64 0" "${TEST_OUT_DIR}/array_empty_contexts.ll"
 
 phase "phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
@@ -663,7 +850,6 @@ phase "phase 5 struct acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_point.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_by_value.noria" 106
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_param_aggregate_fields.noria" 23
-run_native_exit_test "${ROOT_DIR}/examples/basic/struct_default_return.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_literal_argument_in_condition.noria" 1
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_copy.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/struct_field_assign.noria" 34
@@ -682,7 +868,6 @@ grep -q "alloca %Point" "${TEST_OUT_DIR}/struct_point.ll"
 grep -q "define %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
 grep -q "call %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
 grep -q "store %Point %.*\.param" "${TEST_OUT_DIR}/struct_param_by_value.ll"
-grep -q "ret %Point zeroinitializer" "${TEST_OUT_DIR}/struct_default_return.ll"
 
 phase "emit ast examples/basic/struct_point.noria"
 set_case "examples/basic/struct_point.noria"
@@ -978,7 +1163,12 @@ grep -c 'define i32 @kind$s.i32$tag.list' "${TEST_OUT_DIR}/generic_impl_select_t
 if [[ -n "${CLANG}" ]]; then
   phase "direct build examples/basic/factorial.noria"
   set_case "examples/basic/factorial.noria"
-  run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct"
+  DIRECT_BUILD_STDOUT="${TEST_OUT_DIR}/factorial_direct.stdout"
+  DIRECT_BUILD_STDERR="${TEST_OUT_DIR}/factorial_direct.stderr"
+  run_noria build "${ROOT_DIR}/examples/basic/factorial.noria" -o "${TEST_OUT_DIR}/factorial_direct" \
+    >"${DIRECT_BUILD_STDOUT}" 2>"${DIRECT_BUILD_STDERR}"
+  [[ ! -s "${DIRECT_BUILD_STDOUT}" ]]
+  [[ ! -s "${DIRECT_BUILD_STDERR}" ]]
   if "${TEST_OUT_DIR}/factorial_direct"; then
     actual_exit=0
   else
@@ -996,8 +1186,13 @@ if [[ -n "${CLANG}" ]]; then
 
     phase "optimized direct build examples/basic/factorial.noria"
     set_case "examples/basic/factorial.noria"
+    OPTIMIZED_DIRECT_BUILD_STDOUT="${TEST_OUT_DIR}/factorial_optimized.stdout"
+    OPTIMIZED_DIRECT_BUILD_STDERR="${TEST_OUT_DIR}/factorial_optimized.stderr"
     run_noria build -O2 "${ROOT_DIR}/examples/basic/factorial.noria" \
-      -o "${TEST_OUT_DIR}/factorial_optimized"
+      -o "${TEST_OUT_DIR}/factorial_optimized" \
+      >"${OPTIMIZED_DIRECT_BUILD_STDOUT}" 2>"${OPTIMIZED_DIRECT_BUILD_STDERR}"
+    [[ ! -s "${OPTIMIZED_DIRECT_BUILD_STDOUT}" ]]
+    [[ ! -s "${OPTIMIZED_DIRECT_BUILD_STDERR}" ]]
     if "${TEST_OUT_DIR}/factorial_optimized"; then
       actual_exit=0
     else
@@ -1006,6 +1201,36 @@ if [[ -n "${CLANG}" ]]; then
     if [[ "${actual_exit}" != "120" ]]; then
       fail "expected exit 120, got ${actual_exit} for optimized direct build"
     fi
+
+    phase "optimized integer safety acceptance programs"
+    run_optimized_native_stdout_test "${ROOT_DIR}/examples/basic/integer_checked_boundaries.noria" \
+      "${ROOT_DIR}/examples/basic/integer_checked_boundaries.expected"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/integer_divide_zero_runtime.noria" \
+      70 "integer division by zero"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/integer_remainder_zero_runtime.noria" \
+      70 "integer remainder by zero"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/integer_divide_overflow_runtime.noria" \
+      70 "integer division overflow"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/integer_remainder_overflow_runtime.noria" \
+      70 "integer remainder overflow"
+    run_optimized_native_failure_test \
+      "${ROOT_DIR}/examples/basic/integer_shift_left_negative_runtime.noria" \
+      70 "integer shift count out of range"
+    run_optimized_native_failure_test \
+      "${ROOT_DIR}/examples/basic/integer_shift_left_too_large_runtime.noria" \
+      70 "integer shift count out of range"
+    run_optimized_native_failure_test \
+      "${ROOT_DIR}/examples/basic/integer_shift_right_negative_runtime.noria" \
+      70 "integer shift count out of range"
+    run_optimized_native_failure_test \
+      "${ROOT_DIR}/examples/basic/integer_shift_right_too_large_runtime.noria" \
+      70 "integer shift count out of range"
+
+    phase "optimized checked f64 to i32 casts"
+    run_optimized_native_failure_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_too_large.noria" \
+      70 "invalid f64 to i32 cast"
+    run_optimized_native_stdout_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.noria" \
+      "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.expected"
   else
     echo "[noria-tests] skip optimizer checks: opt not found; set LLVM_BIN or add opt to PATH" >&2
   fi

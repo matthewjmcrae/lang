@@ -21,7 +21,7 @@ namespace noria {
   using namespace typecheck_detail;
 
   TypeChecker::ExpressionVisitor::ExpressionVisitor(TypeChecker& checker,
-                                                          std::optional<Type> expectedType)
+                                                    std::optional<Type> expectedType)
       : ExpressionOnlyVisitor("typecheck"), checker_(checker),
         expectedType_(std::move(expectedType)) {}
 
@@ -56,8 +56,8 @@ namespace noria {
     result_ = checker_.checkBinaryExpression(binary, left, right);
   }
 
-  Type TypeChecker::checkBinaryExpression(const ast::BinaryExpression& binary,
-                                                const Type& left, const Type& right) const {
+  Type TypeChecker::checkBinaryExpression(const ast::BinaryExpression& binary, const Type& left,
+                                          const Type& right) const {
     if (left.kind == TypeKind::RawPtr || right.kind == TypeKind::RawPtr) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
                                           "invalid operation on __rt_ptr"));
@@ -85,11 +85,56 @@ namespace noria {
       throw CompileError("typecheck: internal error: unknown binary type-check rule");
     }
 
-    return (this->*check->second)(binary, left, right);
+    const Type result = (this->*check->second)(binary, left, right);
+    rejectStaticallyInvalidIntegerOperation(binary, result);
+    return result;
+  }
+
+  void TypeChecker::rejectStaticallyInvalidIntegerOperation(const ast::BinaryExpression& binary,
+                                                            const Type& result) const {
+    if (result != Type::i32()) {
+      return;
+    }
+
+    const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
+    if (info == nullptr) {
+      throw CompileError("typecheck: internal error: unknown binary operator");
+    }
+
+    const auto* right = dynamic_cast<const ast::IntegerLiteral*>(binary.right.get());
+    if (right == nullptr || info->integerSafetyRule == IntegerSafetyRule::None) {
+      return;
+    }
+
+    if (info->integerSafetyRule == IntegerSafetyRule::ShiftCount) {
+      if (right->value < 0 || right->value >= 32) {
+        throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
+                                            "integer shift count out of range (expected 0..31)"));
+      }
+      return;
+    }
+
+    if (right->value == 0) {
+      const std::string message = binary.op == ast::BinaryOperator::Divide
+                                      ? "integer division by zero"
+                                      : "integer remainder by zero";
+      throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck, message));
+    }
+
+    const auto* left = dynamic_cast<const ast::IntegerLiteral*>(binary.left.get());
+    if (left == nullptr || left->value != std::numeric_limits<std::int32_t>::min() ||
+        right->value != -1) {
+      return;
+    }
+
+    const std::string message = binary.op == ast::BinaryOperator::Divide
+                                    ? "integer division overflow"
+                                    : "integer remainder overflow";
+    throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck, message));
   }
 
   Type TypeChecker::checkLogicalBinaryExpression(const ast::BinaryExpression& binary,
-                                                       const Type& left, const Type& right) const {
+                                                 const Type& left, const Type& right) const {
     if (left != Type::boolean() || right != Type::boolean()) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
                                           "logical operator requires bool operands, got " +
@@ -99,7 +144,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkAdditiveBinaryExpression(const ast::BinaryExpression& binary,
-                                                        const Type& left, const Type& right) const {
+                                                  const Type& left, const Type& right) const {
     if (binary.op == ast::BinaryOperator::Add && left == Type::str() && right == Type::str()) {
       return Type::str();
     }
@@ -121,7 +166,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkIntegerBinaryExpression(const ast::BinaryExpression& binary,
-                                                       const Type& left, const Type& right) const {
+                                                 const Type& left, const Type& right) const {
     if (left != Type::i32() || right != Type::i32()) {
       throw CompileError(formatDiagnostic(binary.location, DiagnosticStage::TypeCheck,
                                           "integer operator requires i32 operands, got " +
@@ -131,8 +176,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkOrderedComparisonExpression(const ast::BinaryExpression& binary,
-                                                           const Type& left,
-                                                           const Type& right) const {
+                                                     const Type& left, const Type& right) const {
     if (left == right && (left == Type::i32() || left == Type::f64())) {
       return Type::boolean();
     }
@@ -142,8 +186,8 @@ namespace noria {
                                             left.name() + " and " + right.name()));
   }
 
-  Type TypeChecker::checkEqualityExpression(const ast::BinaryExpression& binary,
-                                                  const Type& left, const Type& right) const {
+  Type TypeChecker::checkEqualityExpression(const ast::BinaryExpression& binary, const Type& left,
+                                            const Type& right) const {
     if (left == right && (left == Type::i32() || left == Type::f64() || left == Type::boolean() ||
                           left == Type::str())) {
       return Type::boolean();
@@ -160,7 +204,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkUnaryExpression(const ast::UnaryExpression& unary,
-                                               const Type& operandType) const {
+                                         const Type& operandType) const {
     using UnaryCheck = Type (TypeChecker::*)(const ast::UnaryExpression&, const Type&) const;
     static const std::unordered_map<UnaryTypeCheckRule, UnaryCheck, EnumHash<UnaryTypeCheckRule>>
         checks = {
@@ -183,7 +227,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkNumericUnaryExpression(const ast::UnaryExpression& unary,
-                                                      const Type& operandType) const {
+                                                const Type& operandType) const {
     if (operandType == Type::i32() || operandType == Type::f64()) {
       return operandType;
     }
@@ -194,7 +238,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkBooleanUnaryExpression(const ast::UnaryExpression& unary,
-                                                      const Type& operandType) const {
+                                                const Type& operandType) const {
     if (operandType == Type::boolean()) {
       return Type::boolean();
     }
@@ -205,7 +249,7 @@ namespace noria {
   }
 
   Type TypeChecker::checkIntegerUnaryExpression(const ast::UnaryExpression& unary,
-                                                      const Type& operandType) const {
+                                                const Type& operandType) const {
     if (operandType == Type::i32()) {
       return Type::i32();
     }
@@ -256,6 +300,12 @@ namespace noria {
 
   void TypeChecker::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
     if (literal.elements.empty()) {
+      if (expectedType_ && expectedType_->kind == TypeKind::Array && expectedType_->element &&
+          !containsUnboundTypeParam(*expectedType_)) {
+        rejectStructArrayElement(*expectedType_->element, literal.location);
+        result_ = *expectedType_;
+        return;
+      }
       throw CompileError(formatDiagnostic(literal.location, DiagnosticStage::TypeCheck,
                                           "cannot infer element type of empty array literal"));
     }

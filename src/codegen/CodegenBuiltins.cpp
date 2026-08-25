@@ -86,7 +86,11 @@ namespace noria {
                                         FunctionCodegenContext& context,
                                         const std::vector<Scope>& scopes) const {
     const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    emitter.line("call i32 @puts(ptr " + argument.text + ")");
+    const std::string formatPointer = emitter.freshTemp();
+    emitter.line(formatPointer +
+                 " = getelementptr inbounds [3 x i8], ptr @.fmt.str, i32 0, i32 0");
+    emitter.line("call i32 (ptr, ...) @printf(ptr " + formatPointer + ", ptr " + argument.text +
+                 ")");
     return Value{"", Type::voidType()};
   }
 

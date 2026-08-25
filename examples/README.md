@@ -26,6 +26,7 @@ They cover:
 - `if` / `else`
 - `while` loops
 - Functions and function calls
+- Void procedures and explicit returns
 - Recursion and mutual recursion
 - Lexical scoping and shadowing
 - Direct native executable generation
@@ -78,6 +79,7 @@ They cover:
 - Duplicate functions, parameters, and locals
 - Assignment type mismatches
 - Return type mismatches
+- Missing return paths and invalid void returns
 - Non-boolean `if` / `while` conditions
 - Wrong function argument counts
 - Wrong function argument types

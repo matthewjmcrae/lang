@@ -46,6 +46,13 @@ namespace {
                                           loc));
     module.functions.push_back(std::move(function));
 
+    Function procedure;
+    procedure.name = "notify";
+    procedure.returnType = noria::Type::voidType();
+    procedure.location = loc;
+    procedure.body.push_back(std::make_unique<ReturnStatement>(nullptr, loc));
+    module.functions.push_back(std::move(procedure));
+
     return module;
   }
 
@@ -57,7 +64,7 @@ int main() {
 
   expect(cloned.imports.size() == 1, "clone preserves imports");
   expect(cloned.structs.size() == 1, "clone preserves structs");
-  expect(cloned.functions.size() == 1, "clone preserves functions");
+  expect(cloned.functions.size() == 2, "clone preserves functions");
   expect(cloned.functions[0].body.size() == 2, "clone preserves function body");
 
   cloned.imports[0].names[0].name = "renamed_id";
@@ -88,6 +95,10 @@ int main() {
          "struct clone is independently mutable");
   expect(original.functions[0].name == "wrap", "function clone is independently mutable");
   expect(originalIdentifier->name == "input", "expression clone is independently mutable");
+  const auto* clonedBareReturn =
+      dynamic_cast<const noria::ast::ReturnStatement*>(cloned.functions[1].body[0].get());
+  expect(clonedBareReturn != nullptr && !clonedBareReturn->expression,
+         "clone preserves bare return statements");
 
   if (failures != 0) {
     std::cerr << failures << " AST clone test failure(s)\n";

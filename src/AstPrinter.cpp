@@ -26,8 +26,10 @@ namespace noria {
       void visit(const ast::ReturnStatement& node) override {
         printIndent(out_, indent_);
         out_ << "Return\n";
-        AstPrintVisitor child(out_, indent_ + 1);
-        node.expression->accept(child);
+        if (node.expression) {
+          AstPrintVisitor child(out_, indent_ + 1);
+          node.expression->accept(child);
+        }
       }
 
       void visit(const ast::LetStatement& node) override {

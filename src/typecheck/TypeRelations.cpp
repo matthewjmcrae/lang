@@ -28,6 +28,11 @@ namespace noria {
         type == Type::str())
       return;
 
+    if (type == Type::voidType()) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "void is only valid as a function return type"));
+    }
+
     if (type.kind == TypeKind::RawPtr) {
       requireRawPtrUsable(type, location, allowInternalTypes);
       return;

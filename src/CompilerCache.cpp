@@ -113,8 +113,10 @@ namespace noria {
       }
 
       void visit(const ast::ReturnStatement& node) override {
-        result_ =
-            sizeof(node) + stringWeight(node.location.file) + expressionWeight(*node.expression);
+        result_ = sizeof(node) + stringWeight(node.location.file);
+        if (node.expression) {
+          result_ += expressionWeight(*node.expression);
+        }
       }
 
       void visit(const ast::LetStatement& node) override {

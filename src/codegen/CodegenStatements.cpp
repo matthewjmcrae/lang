@@ -21,18 +21,18 @@ namespace noria {
   using namespace codegen_detail;
 
   LLVMGenerator::StatementVisitor::StatementVisitor(const LLVMGenerator& generator,
-                                                          IREmitter& emitter,
-                                                          FunctionCodegenContext& context,
-                                                          Type expectedReturnType,
-                                                          std::vector<Scope>& scopes)
+                                                    IREmitter& emitter,
+                                                    FunctionCodegenContext& context,
+                                                    Type expectedReturnType,
+                                                    std::vector<Scope>& scopes)
       : StatementOnlyVisitor("codegen"), generator_(generator), emitter_(emitter),
         context_(context), expectedReturnType_(expectedReturnType), scopes_(scopes) {}
 
   void LLVMGenerator::StatementVisitor::visit(const ast::LetStatement& letStatement) {
     std::optional<Value> initializer;
     if (letStatement.initializer) {
-      initializer =
-          generator_.generateRvalue(*letStatement.initializer, emitter_, context_, scopes_);
+      initializer = generator_.generateRvalue(*letStatement.initializer, emitter_, context_,
+                                              scopes_, letStatement.declaredType);
     }
 
     const Type localType =
@@ -55,18 +55,31 @@ namespace noria {
   }
 
   void LLVMGenerator::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
-    Value returnValue =
-        generator_.generateRvalue(*returnStatement.expression, emitter_, context_, scopes_);
+    if (!returnStatement.expression) {
+      if (expectedReturnType_ != Type::voidType()) {
+        throw CompileError("codegen: non-void function returned without a value");
+      }
+      emitter_.line("ret void");
+      returned_ = true;
+      return;
+    }
+
+    if (expectedReturnType_ == Type::voidType()) {
+      throw CompileError("codegen: void function returned a value");
+    }
+
+    Value returnValue = generator_.generateRvalue(*returnStatement.expression, emitter_, context_,
+                                                  scopes_, expectedReturnType_);
     emitter_.line("ret " + LLVMType(expectedReturnType_) + " " + returnValue.text);
     returned_ = true;
   }
 
-  void LLVMGenerator::StatementVisitor::visit(
-      const ast::AssignmentStatement& assignmentStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
     const LocalBinding local =
         generator_.generatePlace(*assignmentStatement.lhs, emitter_, context_, scopes_);
 
-    Value rvalue = generator_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_);
+    Value rvalue = generator_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_,
+                                             local.type);
     if (local.byteBuffer) {
       generator_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
     } else {
@@ -136,16 +149,14 @@ namespace noria {
     returned_ = false;
   }
 
-  void LLVMGenerator::StatementVisitor::visit(
-      const ast::ExpressionStatement& expressionStatement) {
+  void LLVMGenerator::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
     generator_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
     returned_ = false;
   }
 
   bool LLVMGenerator::generateStatement(const ast::Statement& statement, IREmitter& emitter,
-                                              FunctionCodegenContext& context,
-                                              Type expectedReturnType,
-                                         std::vector<Scope>& scopes) const {
+                                        FunctionCodegenContext& context, Type expectedReturnType,
+                                        std::vector<Scope>& scopes) const {
     const auto strategy = activate(CodegenStrategyKind::Statements);
     StatementVisitor visitor(*this, emitter, context, expectedReturnType, scopes);
     statement.accept(visitor);
@@ -153,7 +164,7 @@ namespace noria {
   }
 
   bool LLVMGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
-                                         LocalBinding binding) const {
+                                   LocalBinding binding) const {
     if (scopes.empty())
       scopes.emplace_back();
 
@@ -165,9 +176,8 @@ namespace noria {
     return true;
   }
 
-  const LLVMGenerator::LocalBinding&
-  LLVMGenerator::lookupLocal(const std::vector<Scope>& scopes,
-                                   const std::string& name) const {
+  const LLVMGenerator::LocalBinding& LLVMGenerator::lookupLocal(const std::vector<Scope>& scopes,
+                                                                const std::string& name) const {
 
     for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
       const auto local = scope->find(name);

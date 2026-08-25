@@ -20,8 +20,7 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  TypeChecker::StatementVisitor::StatementVisitor(TypeChecker& checker,
-                                                        Type expectedReturnType)
+  TypeChecker::StatementVisitor::StatementVisitor(TypeChecker& checker, Type expectedReturnType)
       : StatementOnlyVisitor("typecheck"), checker_(checker),
         expectedReturnType_(expectedReturnType) {}
 
@@ -76,10 +75,9 @@ namespace noria {
     returned_ = false;
   }
 
-  void
-  TypeChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
+  void TypeChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
     const auto place = checker_.checkPlace(*assignmentStatement.lhs);
-    const Type valueType = checker_.checkRvalue(*assignmentStatement.rhs);
+    const Type valueType = checker_.checkRvalue(*assignmentStatement.rhs, place.type);
 
     if (!checker_.isAssignable(place.type, valueType)) {
       throw CompileError(formatDiagnostic(assignmentStatement.rhs->location,
@@ -92,6 +90,20 @@ namespace noria {
   }
 
   void TypeChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+    if (!returnStatement.expression) {
+      if (expectedReturnType_ != Type::voidType()) {
+        throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
+                                            "non-void function must return a value"));
+      }
+      returned_ = true;
+      return;
+    }
+
+    if (expectedReturnType_ == Type::voidType()) {
+      throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
+                                          "void function cannot return a value"));
+    }
+
     const Type returnType = checker_.checkRvalue(*returnStatement.expression, expectedReturnType_);
 
     if (!checker_.isAssignable(expectedReturnType_, returnType)) {
@@ -137,8 +149,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void
-  TypeChecker::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
+  void TypeChecker::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
     if (dynamic_cast<const ast::CallExpression*>(expressionStatement.expression.get()) == nullptr) {
       throw CompileError(formatDiagnostic(expressionStatement.location, DiagnosticStage::TypeCheck,
                                           "expression statement must be a function call"));
@@ -148,7 +159,7 @@ namespace noria {
     if (expressionType != Type::voidType()) {
       throw CompileError(formatDiagnostic(expressionStatement.expression->location,
                                           DiagnosticStage::TypeCheck,
-                                          "expression statement must call a void builtin"));
+                                          "expression statement must call a void function"));
     }
 
     returned_ = false;

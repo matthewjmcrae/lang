@@ -109,7 +109,8 @@ namespace noria {
         generateStatements(function.body, emitter, context, returnType, context.scopes);
 
     if (!emittedReturn) {
-      out << "  ret " << LLVMType(returnType) << " " << defaultIRValue(returnType) << "\n";
+      throw CompileError("codegen: function '" + function.name +
+                         "' reached code generation without an explicit return");
     }
 
     out << "}\n";
