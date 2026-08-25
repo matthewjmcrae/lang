@@ -91,6 +91,13 @@ resolve_host_clang() {
 CLANG="$(resolve_host_clang)"
 OPT="$(resolve_tool opt)"
 
+# Linux needs libm for llvm.sqrt.f64 / llvm.pow.f64; macOS provides them via libSystem.
+link_ir() {
+  local llvm_ir="$1"
+  local executable="$2"
+  "${CLANG}" "${llvm_ir}" -lm -o "${executable}"
+}
+
 if [[ ! -x "${NORIA}" ]]; then
   fail "compiler not found at ${NORIA}; configure and build before running this harness"
 fi
@@ -140,7 +147,7 @@ run_native_exit_test() {
   fi
 
   echo "[noria-tests] native ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  "${CLANG}" "${llvm_ir}" -o "${executable}"
+  link_ir "${llvm_ir}" "${executable}"
 
   local actual_exit
   if "${executable}"; then
@@ -171,7 +178,7 @@ run_native_failure_test() {
   fi
 
   echo "[noria-tests] native failure ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  "${CLANG}" "${llvm_ir}" -o "${executable}"
+  link_ir "${llvm_ir}" "${executable}"
 
   local actual_exit
   if [[ -n "${expected_stderr}" ]]; then
@@ -281,7 +288,7 @@ run_native_stdout_test() {
   fi
 
   echo "[noria-tests] stdout ${source#${ROOT_DIR}/}"
-  "${CLANG}" "${llvm_ir}" -o "${executable}"
+  link_ir "${llvm_ir}" "${executable}"
   "${executable}" >"${actual_file}"
 
   if ! diff -u "${expected_file}" "${actual_file}"; then

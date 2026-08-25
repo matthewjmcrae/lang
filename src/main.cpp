@@ -232,7 +232,8 @@ namespace {
     if (!targetTriple.empty()) {
       command += " " + shellQuote("--target=" + targetTriple);
     }
-    command += " " + shellQuote(llPath) + " -o " + shellQuote(executable);
+    // Linux needs libm for llvm.sqrt.f64 / llvm.pow.f64; macOS provides them via libSystem.
+    command += " " + shellQuote(llPath) + " -lm -o " + shellQuote(executable);
     runCommand(command);
   }
 
