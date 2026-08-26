@@ -65,12 +65,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Refactor.md",
+                "file": "Next Refactor.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Refactor"
+              "title": "Next Refactor"
             }
           },
           {
@@ -88,7 +88,7 @@
             }
           }
         ],
-        "currentTab": 5
+        "currentTab": 4
       }
     ],
     "direction": "vertical"
@@ -181,7 +181,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Other TODO.md",
+                "file": "Next Refactor.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -200,7 +200,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Other TODO.md",
+                "file": "Next Refactor.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -243,7 +243,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Other TODO.md",
+                "file": "Next Refactor.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -270,10 +270,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "794615908334c038",
+  "active": "1d90d43ce57f416c",
   "lastOpenFiles": [
     "Other TODO.md",
-    "Refactor.md",
+    "Next Refactor.md",
     "QA.md",
     "Refactor - Codegen and Typechecker to use strategy pattern.md",
     "Codegen.md",

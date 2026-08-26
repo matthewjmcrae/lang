@@ -1,7 +1,7 @@
 import std::set::{Set, set_contains, set_insert, set_len, set_new, set_remove};
 
 fn main() -> i32 {
-  let s: Set<i32, hashmap> = set_new(0);
+  let s: Set<i32, hashset> = set_new(0);
   s = set_insert(s, 30);
   s = set_insert(s, 10);
   s = set_insert(s, 20);

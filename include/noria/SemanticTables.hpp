@@ -253,6 +253,7 @@ namespace noria {
         {"list", ImplementationTag::List},
         {"bst", ImplementationTag::Bst},
         {"hashmap", ImplementationTag::Hashmap},
+        {"hashset", ImplementationTag::Hashmap}
     };
     return table;
   }

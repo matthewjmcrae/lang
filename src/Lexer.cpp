@@ -123,7 +123,8 @@ namespace noria {
 
   Token Lexer::lexIdentifierOrKeyword() {
     const auto start = location_;
-    const auto startIndex = index_;
+
+    std::string text{};
 
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
         {"fn", TokenKind::Fn},           {"import", TokenKind::Import},
@@ -135,10 +136,14 @@ namespace noria {
         {"true", TokenKind::True},       {"false", TokenKind::False},
     };
 
-    while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
+    while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_') {
+      char curr = peek();
+      //if (isupper(curr)){curr = tolower(curr);} //add once spec and tests are reworked, this makes the language not case sensitive
+      text.push_back(curr);
       advance();
+    }
 
-    std::string text(source_.substr(startIndex, index_ - startIndex));
+    //std::string text(source_.substr(startIndex, index_ - startIndex)); inefficient
 
     if (auto it = keywords.find(text); it != keywords.end())
       return makeToken(it->second, std::move(text), start);
