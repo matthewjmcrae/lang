@@ -1,4 +1,4 @@
-#include "CodegenInternal.hpp"
+#include "CodegenState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -19,10 +19,11 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  std::string LLVMGenerator::generateModule(const ast::Module& module) const {
-    ModuleCodegenContext context(functionSpecializationTypeArgs_);
-    context.functions = collectFunctionBindings(module);
-    context.structs = collectStructLayouts(module);
+  std::string LLVMGenerator::ModuleState::generateModule(const ast::Module& module) const {
+    ModuleCodegenContext context(generator().functionSpecializationTypeArgs_,
+                                 generator().structSpecializationTypeArgs_);
+    context.functions = generator().collectFunctionBindings(module);
+    context.structs = generator().collectStructLayouts(module);
 
     std::ostringstream functions;
     for (const auto& function : module.functions) {
@@ -32,11 +33,12 @@ namespace noria {
       functions << generateFunction(function, context) << "\n";
     }
 
-    return modulePreamble() + emitStructTypeDefinitions(module) + context.globals.str() +
+    return modulePreamble() + generator().emitStructTypeDefinitions(module) +
+           context.globals.str() +
            functions.str();
   }
 
-  std::string LLVMGenerator::modulePreamble() const {
+  std::string LLVMGenerator::ModuleState::modulePreamble() const {
     std::string preamble;
 
     const std::string triple = runtime::targetTriple();
@@ -59,7 +61,7 @@ namespace noria {
     return preamble;
   }
 
-  std::string LLVMGenerator::defaultIRValue(const Type& type) const {
+  std::string LLVMGenerator::ModuleState::defaultIRValue(const Type& type) const {
     if (type == Type::boolean())
       return "false";
     if (type == Type::f64())
@@ -71,8 +73,9 @@ namespace noria {
     throw CompileError("codegen: type '" + type.name() + "' has no constant default IR value");
   }
 
-  LLVMGenerator::Value LLVMGenerator::emitDefaultValue(const Type& type, IREmitter& emitter,
-                                                       FunctionCodegenContext& context) const {
+  LLVMGenerator::Value
+  LLVMGenerator::ModuleState::emitDefaultValue(const Type& type, IREmitter& emitter,
+                                                FunctionCodegenContext& context) const {
     if (type.kind == TypeKind::Str) {
       return Value{emitCStringPointer("", emitter, context), Type::str()};
     }
@@ -87,6 +90,26 @@ namespace noria {
     }
 
     if (type.kind == TypeKind::Struct) {
+      if (const std::optional<StandardContainer> container =
+              standardContainerKindFromStructName(type.structName)) {
+        const std::vector<Type> typeArgs = specializedStructTypeArgs(type, context);
+        std::vector<Value> samples;
+        if (*container == StandardContainer::Dictionary) {
+          if (typeArgs.size() < 2) {
+            throw CompileError("codegen: dictionary default is missing type arguments");
+          }
+          samples.push_back(emitDefaultValue(typeArgs[0], emitter, context));
+          samples.push_back(emitDefaultValue(typeArgs[1], emitter, context));
+        } else {
+          if (typeArgs.empty()) {
+            throw CompileError("codegen: container default is missing type arguments");
+          }
+          samples.push_back(emitDefaultValue(typeArgs[0], emitter, context));
+        }
+        return emitStandardContainerCall(*container, ContainerOperation::New, typeArgs, samples,
+                                         emitter, context);
+      }
+
       const std::string slot = emitter.freshTemp();
       emitter.emitAlloca(type, slot);
       emitDefaultStore(type, slot, emitter, context);
@@ -98,9 +121,16 @@ namespace noria {
     return Value{defaultIRValue(type), type};
   }
 
-  void LLVMGenerator::emitDefaultStore(const Type& type, const std::string& slot, IREmitter& emitter,
-                                       FunctionCodegenContext& context) const {
+  void LLVMGenerator::ModuleState::emitDefaultStore(const Type& type, const std::string& slot,
+                                                     IREmitter& emitter,
+                                                     FunctionCodegenContext& context) const {
     if (type.kind == TypeKind::Struct) {
+      if (standardContainerKindFromStructName(type.structName)) {
+        const Value value = emitDefaultValue(type, emitter, context);
+        emitter.emitStore(type, value.text, slot);
+        return;
+      }
+
       const StructLayout& layout = lookupStructLayout(context, type);
       for (std::size_t index{}; index < layout.fieldTypes.size(); ++index) {
         const std::string fieldPointer = emitStructFieldPointer(type, slot, index, emitter);
@@ -113,10 +143,14 @@ namespace noria {
     emitter.emitStore(type, value.text, slot);
   }
 
-  std::string LLVMGenerator::generateFunction(const ast::Function& function,
-                                                    ModuleCodegenContext& moduleContext) const {
+  std::string LLVMGenerator::ModuleState::generateFunction(
+      const ast::Function& function, ModuleCodegenContext& moduleContext) const {
     FunctionCodegenContext context(moduleContext, function.name);
-    const Type returnType = function.returnType;
+    if (!function.returnType) {
+      throw CompileError("codegen: function '" + function.name +
+                         "' has an unresolved return type");
+    }
+    const Type returnType = *function.returnType;
 
     std::ostringstream out;
     IREmitter emitter(out);
@@ -137,8 +171,8 @@ namespace noria {
 
     for (const auto& parameter : function.parameters) {
       const Type parameterType = parameter.type;
-      if (!declareLocal(context.scopes, parameter.name,
-                        LocalBinding{"%" + parameter.name, parameterType})) {
+      if (!generator().declareLocal(context.scopes, parameter.name,
+                                    LocalBinding{"%" + parameter.name, parameterType})) {
         throw CompileError("codegen: duplicate parameter '" + parameter.name + "'");
       }
 
@@ -148,7 +182,8 @@ namespace noria {
     }
 
     const bool emittedReturn =
-        generateStatements(function.body, emitter, context, returnType, context.scopes);
+        generator().generateStatements(function.body, emitter, context, returnType,
+                                       context.scopes);
 
     if (!emittedReturn) {
       throw CompileError("codegen: function '" + function.name +
@@ -157,18 +192,6 @@ namespace noria {
 
     out << "}\n";
     return out.str();
-  }
-
-  bool LLVMGenerator::generateStatements(
-      const std::vector<std::unique_ptr<ast::Statement>>& statements, IREmitter& emitter,
-      FunctionCodegenContext& context, Type expectedReturnType, std::vector<Scope>& scopes) const {
-
-    for (const auto& statement : statements) {
-      if (generateStatement(*statement, emitter, context, expectedReturnType, scopes))
-        return true;
-    }
-
-    return false;
   }
 
 } // namespace noria

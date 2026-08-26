@@ -1,11 +1,7 @@
-#include "CodegenInternal.hpp"
-
-#include "noria/Builtins.hpp"
-#include "noria/Diagnostic.hpp"
-#include "noria/Runtime.hpp"
-#include "noria/SemanticTables.hpp"
-
 #include "CodegenSupport.hpp"
+
+#include "noria/Diagnostic.hpp"
+#include "noria/SemanticTables.hpp"
 #include <array>
 #include <charconv>
 #include <limits>

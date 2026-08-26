@@ -253,10 +253,11 @@ namespace noria {
     expect(TokenKind::LeftParen, "expected '(' after function name");
     auto parameters = parseFunctionParameters();
     expect(TokenKind::RightParen, "expected ')' after function parameters");
-    expect(TokenKind::Arrow, "expected return type arrow");
 
     function.parameters = std::move(parameters);
-    function.returnType = parseTypeAnnotation("expected return type");
+    if (match(TokenKind::Arrow)) {
+      function.returnType = parseTypeAnnotation("expected return type");
+    }
 
     if (peek().kind == TokenKind::Impl) {
       if (function.typeParams.empty()) {
@@ -492,7 +493,13 @@ namespace noria {
       return true;
     }
 
-    return peek(1).kind == TokenKind::Colon && isClearSimpleTypeName(peek().text);
+    if (peek(1).kind != TokenKind::Colon || !isClearSimpleTypeName(peek().text)) {
+      return false;
+    }
+
+    // `let i: i32` inside `fn f<I>(...)` would otherwise parse as type-first because `I`
+    // lowercases to `i` and is a type parameter. Prefer name-first when both sides are types.
+    return peek(2).kind != TokenKind::Identifier || !isClearSimpleTypeName(peek(2).text);
   }
 
   Parser::TypedBinding Parser::parseTypedBinding(std::string_view nameMessage,

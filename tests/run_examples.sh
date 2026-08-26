@@ -394,6 +394,8 @@ set_case "examples/basic/lexer_smoke.noria"
 run_noria --emit-tokens "${ROOT_DIR}/examples/basic/lexer_smoke.noria" \
   -o "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q 'let "let"' "${TEST_OUT_DIR}/lexer_smoke.tokens"
+grep -q 'fn "fn"' "${TEST_OUT_DIR}/lexer_smoke.tokens"
+grep -q 'identifier "x"' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q '>= ">="' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 grep -q '!= "!="' "${TEST_OUT_DIR}/lexer_smoke.tokens"
 
@@ -448,6 +450,14 @@ grep -q "typecheck: not all control-flow paths in function 'pending' return" \
   "${TEST_OUT_DIR}/missing_return_generic.stderr"
 grep -q "typecheck: not all control-flow paths in function 'zero' return" \
   "${TEST_OUT_DIR}/struct_default_return.stderr"
+grep -q "typecheck: return type bool does not match expected i32" \
+  "${TEST_OUT_DIR}/inferred_return_type_conflict.stderr"
+grep -q "typecheck: void function cannot return a value" \
+  "${TEST_OUT_DIR}/inferred_return_mixed_forms.stderr"
+grep -q "typecheck: cannot infer element type of empty array literal" \
+  "${TEST_OUT_DIR}/inferred_return_empty_array.stderr"
+grep -q "typecheck: cannot infer return type for function 'loop'; add an explicit '-> Type'" \
+  "${TEST_OUT_DIR}/inferred_return_unanchored_recursion.stderr"
 for name in void_parameter void_local void_struct_field void_array void_generic_argument void_cast; do
   grep -q "typecheck: void is only valid as a function return type" \
     "${TEST_OUT_DIR}/${name}.stderr"
@@ -545,29 +555,29 @@ grep -q "typecheck: len expects str or array, got i32" \
 phase "phase 6 generic diagnostics"
 grep -q "typecheck: function 'id' expects 1 argument(s), got 2" \
   "${TEST_OUT_DIR}/generic_wrong_arity.stderr"
-grep -q "typecheck: cannot infer type parameter 'T'" \
+grep -q "typecheck: cannot infer type parameter 't'" \
   "${TEST_OUT_DIR}/generic_uninferable.stderr"
-grep -q "typecheck: unknown type 'T'" \
+grep -q "typecheck: unknown type 't'" \
   "${TEST_OUT_DIR}/generic_unresolved_type_param.stderr"
-grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
+grep -q "typecheck: conflicting types i32 and bool for type parameter 't'" \
   "${TEST_OUT_DIR}/generic_conflicting_inference.stderr"
 grep -q "typecheck: arithmetic operator requires matching numeric operands, got bool and i32" \
   "${TEST_OUT_DIR}/generic_instantiation_body_error.stderr"
 grep -q "typecheck: specialization expansion limit exceeded" \
   "${TEST_OUT_DIR}/generic_recursive_specialization.stderr"
-grep -q "typecheck: type 'Box<i32, bool>' expects 1 type argument(s), got 2" \
+grep -q "typecheck: type 'box<i32, bool>' expects 1 type argument(s), got 2" \
   "${TEST_OUT_DIR}/generic_struct_wrong_arity.stderr"
-grep -q "typecheck: unknown type 'Missing<i32>'" \
+grep -q "typecheck: unknown type 'missing<i32>'" \
   "${TEST_OUT_DIR}/generic_struct_unknown.stderr"
-grep -q "typecheck: cannot infer type parameter 'B'" \
+grep -q "typecheck: cannot infer type parameter 'b'" \
   "${TEST_OUT_DIR}/generic_struct_uninferred.stderr"
-grep -q "typecheck: type 'Point<i32>' is not generic and cannot take type arguments" \
+grep -q "typecheck: type 'point<i32>' is not generic and cannot take type arguments" \
   "${TEST_OUT_DIR}/generic_struct_non_generic_args.stderr"
-grep -q "typecheck: field 'value' of 'Box' expects i32, got bool" \
+grep -q "typecheck: field 'value' of 'box' expects i32, got bool" \
   "${TEST_OUT_DIR}/generic_struct_field_mismatch.stderr"
 grep -q "typecheck: implementation tag 'arr' cannot be used as a type" \
   "${TEST_OUT_DIR}/impl_tag_as_type.stderr"
-grep -q "typecheck: type 'Box<i32>' expects 2 type argument(s), got 1" \
+grep -q "typecheck: type 'box<i32>' expects 2 type argument(s), got 1" \
   "${TEST_OUT_DIR}/impl_tag_wrong_arity.stderr"
 grep -q "typecheck: implementation tag 'bst' requires '<' for key type str" \
   "${TEST_OUT_DIR}/generic_bst_key_unordered.stderr"
@@ -583,7 +593,7 @@ grep -q "typecheck: cannot select implementation of 'kind' without an implementa
   "${TEST_OUT_DIR}/generic_impl_untagged_call.stderr"
 
 phase "phase 3 string index diagnostics"
-grep -q "typecheck: index requires str or array base, got i32" \
+grep -q "typecheck: index requires str, array, Sequence, Dictionary, or Set base, got i32" \
   "${TEST_OUT_DIR}/index_non_str_base.stderr"
 grep -q "typecheck: index requires i32 index, got bool" \
   "${TEST_OUT_DIR}/index_non_i32.stderr"
@@ -641,7 +651,7 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       ;;
     generic_duplicate_type_param.noria)
       expect_compile_failure_contains "${source}" \
-        "duplicate type parameter 'T'"
+        "duplicate type parameter 't'"
       ;;
     generic_unclosed_type_params.noria)
       expect_compile_failure_contains "${source}" \
@@ -653,7 +663,7 @@ for source in "${ROOT_DIR}"/examples/invalid_syntax/*.noria; do
       ;;
     generic_struct_duplicate_type_param.noria)
       expect_compile_failure_contains "${source}" \
-        "duplicate type parameter 'T'"
+        "duplicate type parameter 't'"
       ;;
     generic_struct_unclosed_type_params.noria)
       expect_compile_failure_contains "${source}" \
@@ -704,7 +714,9 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/comparison_arithmetic_operands.
 run_native_exit_test "${ROOT_DIR}/examples/basic/function_call.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/function_call_expression.noria" 14
 run_native_exit_test "${ROOT_DIR}/examples/basic/function_with_locals.noria" 13
+run_native_exit_test "${ROOT_DIR}/examples/basic/function_keywords.noria" 18
 run_native_exit_test "${ROOT_DIR}/examples/basic/factorial.noria" 120
+run_native_exit_test "${ROOT_DIR}/examples/basic/inferred_return_types.noria" 8
 run_native_exit_test "${ROOT_DIR}/examples/basic/function_call_in_loop.noria" 30
 run_native_exit_test "${ROOT_DIR}/examples/basic/if_assignment_true.noria" 7
 run_native_exit_test "${ROOT_DIR}/examples/basic/if_assignment_false.noria" 9
@@ -914,7 +926,7 @@ grep -q "typecheck: cannot infer element type of empty array literal" \
   "${TEST_OUT_DIR}/array_literal_nested_empty.stderr"
 grep -Fq "typecheck: cannot initialize 'a' of type [i32] with [f64]" \
   "${TEST_OUT_DIR}/array_element_type_mismatch.stderr"
-grep -q "typecheck: index requires str or array base, got i32" \
+grep -q "typecheck: index requires str, array, Sequence, Dictionary, or Set base, got i32" \
   "${TEST_OUT_DIR}/array_index_non_array_base.stderr"
 grep -q "typecheck: cannot assign f64 to variable 'a' of type i32" \
   "${TEST_OUT_DIR}/array_indexed_store_type_mismatch.stderr"
@@ -942,35 +954,35 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_assign_str.noria
   "${ROOT_DIR}/examples/basic/struct_field_assign_str.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_order.noria" \
   "${ROOT_DIR}/examples/basic/struct_field_order.expected"
-grep -q "%Point = type { i32, i32 }" "${TEST_OUT_DIR}/struct_point.ll"
-grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
+grep -q "%point = type { i32, i32 }" "${TEST_OUT_DIR}/struct_point.ll"
+grep -q "getelementptr inbounds %point, ptr %t[0-9]*, i32 0, i32 1" \
   "${TEST_OUT_DIR}/struct_field_order.ll"
-grep -q "getelementptr inbounds %Point, ptr %t[0-9]*, i32 0, i32 1" \
+grep -q "getelementptr inbounds %point, ptr %t[0-9]*, i32 0, i32 1" \
   "${TEST_OUT_DIR}/struct_field_assign.ll"
 grep -q "store i32 [^,]*, ptr %t[0-9]*" "${TEST_OUT_DIR}/struct_field_assign.ll"
-grep -q "alloca %Point" "${TEST_OUT_DIR}/struct_point.ll"
-grep -q "define %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
-grep -q "call %Point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
-grep -q "store %Point %.*\.param" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "alloca %point" "${TEST_OUT_DIR}/struct_point.ll"
+grep -q "define %point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "call %point @" "${TEST_OUT_DIR}/struct_param_by_value.ll"
+grep -q "store %point %.*\.param" "${TEST_OUT_DIR}/struct_param_by_value.ll"
 
 phase "emit ast examples/basic/struct_point.noria"
 set_case "examples/basic/struct_point.noria"
 run_noria --emit-ast "${ROOT_DIR}/examples/basic/struct_point.noria" \
   -o "${TEST_OUT_DIR}/struct_point.ast"
-grep -q "Struct Point" "${TEST_OUT_DIR}/struct_point.ast"
+grep -q "Struct point" "${TEST_OUT_DIR}/struct_point.ast"
 
 phase "phase 5 struct diagnostics"
-grep -q "typecheck: struct 'Point' has no field 'z'" \
+grep -q "typecheck: struct 'point' has no field 'z'" \
   "${TEST_OUT_DIR}/struct_unknown_field.stderr"
-grep -q "typecheck: struct literal for 'Point' is missing field 'y'" \
+grep -q "typecheck: struct literal for 'point' is missing field 'y'" \
   "${TEST_OUT_DIR}/struct_missing_field.stderr"
-grep -q "typecheck: duplicate field 'x' in struct literal for 'Point'" \
+grep -q "typecheck: duplicate field 'x' in struct literal for 'point'" \
   "${TEST_OUT_DIR}/struct_duplicate_field.stderr"
-grep -q "typecheck: field 'x' of 'Point' expects i32, got bool" \
+grep -q "typecheck: field 'x' of 'point' expects i32, got bool" \
   "${TEST_OUT_DIR}/struct_field_type_mismatch.stderr"
 grep -q "typecheck: field access requires struct base, got i32" \
   "${TEST_OUT_DIR}/struct_field_on_non_struct.stderr"
-grep -q "typecheck: struct 'Point' has no field 'z'" \
+grep -q "typecheck: struct 'point' has no field 'z'" \
   "${TEST_OUT_DIR}/struct_field_assign_unknown_field.stderr"
 grep -q "typecheck: __rt_ptr cannot be used outside the standard library" \
   "${TEST_OUT_DIR}/struct_import_name_collision.stderr"
@@ -990,15 +1002,15 @@ grep -q "typecheck: invalid assignment target" \
   "${TEST_OUT_DIR}/struct_array_field_assign_temporary.stderr"
 grep -q "typecheck: cannot assign bool to variable 'h' of type i32" \
   "${TEST_OUT_DIR}/struct_array_field_assign_type_mismatch.stderr"
-grep -q "typecheck: unknown type 'Nope'" \
+grep -q "typecheck: unknown type 'nope'" \
   "${TEST_OUT_DIR}/struct_unknown_type.stderr"
-grep -q "typecheck: duplicate struct 'Point'" \
+grep -q "typecheck: duplicate struct 'point'" \
   "${TEST_OUT_DIR}/struct_duplicate_decl.stderr"
-grep -q "typecheck: argument 1 of 'm' expects Point, got Other" \
+grep -q "typecheck: argument 1 of 'm' expects point, got other" \
   "${TEST_OUT_DIR}/struct_argument_type_mismatch.stderr"
-grep -q "typecheck: argument 1 of 'm' expects Point, got i32" \
+grep -q "typecheck: argument 1 of 'm' expects point, got i32" \
   "${TEST_OUT_DIR}/struct_argument_non_struct.stderr"
-grep -q "typecheck: return type i32 does not match expected Point" \
+grep -q "typecheck: return type i32 does not match expected point" \
   "${TEST_OUT_DIR}/struct_return_type_mismatch.stderr"
 
 phase "phase 6 import acceptance programs"
@@ -1019,6 +1031,11 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_memory_probe.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/stdlib_generic_alloc.noria" 1
 
 phase "phase 7 sequence acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/adt_default_impls.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/adt_default_init.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_add.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/array_add_length_mismatch.noria" 70 \
+  "array addition requires equal lengths"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
 run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_container_type_first.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
@@ -1034,8 +1051,11 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_insert_oob.noria" 7
   "sequence_insert: index out of bounds"
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_remove_oob.noria" 70 \
   "sequence_remove: index out of bounds"
-grep -c '%Sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
-grep -c 'define %Sequence$s.i32$tag.arr @sequence_new$s.i32$tag.arr' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+grep -c '%sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+grep -c 'define %sequence$s.i32$tag.arr @sequence_new$s.i32$tag.arr' "${TEST_OUT_DIR}/sequence_push_get.ll" | grep -q "^1$"
+grep -c '%sequence$s.i32$tag.arr = type' "${TEST_OUT_DIR}/adt_default_impls.ll" | grep -q "^1$"
+grep -c '%set$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/adt_default_impls.ll" | grep -q "^1$"
+grep -c '%dictionary$s.i32$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/adt_default_impls.ll" | grep -q "^1$"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_push_get.noria" 40
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_pop_set.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_insert_remove.noria" 55
@@ -1051,11 +1071,19 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_bool_arr.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_bool_list.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_set_oob.noria" 70 \
   "sequence_set: index out of bounds"
-grep -c '%Sequence$s.i32$tag.list = type' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
-grep -c 'define %Sequence$s.i32$tag.list @sequence_new$s.i32$tag.list' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
+grep -c '%sequence$s.i32$tag.list = type' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
+grep -c 'define %sequence$s.i32$tag.list @sequence_new$s.i32$tag.list' "${TEST_OUT_DIR}/sequence_list_push_get.ll" | grep -q "^1$"
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_pop_empty.noria" 70 \
   "sequence_pop: empty sequence"
 run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_list_get_oob.noria" 70 \
+  "sequence_get: index out of bounds"
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_add.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_add.noria" 0
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_add_length_mismatch.noria" 70 \
+  "sequence addition requires equal lengths"
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_index.noria" 40
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_list_index.noria" 51
+run_native_failure_test "${ROOT_DIR}/examples/basic/sequence_index_oob.noria" 70 \
   "sequence_get: index out of bounds"
 
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_insert_get.noria" 0
@@ -1071,6 +1099,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_i32_str.nori
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_str_i32.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_bool_i32.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashmap_str_tombstone.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_hashset_alias.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_i32_str.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_f64.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_bst_sorted_delete.noria" 0
@@ -1078,26 +1107,36 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/dictionary_get_missing.noria
   "dictionary_get: key not found"
 run_native_failure_test "${ROOT_DIR}/examples/basic/dictionary_remove_missing.noria" 70 \
   "dictionary_remove: key not found"
-grep -c '%Dictionary$s.i32$s.i32$tag.bst = type' "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
-grep -c 'define %Dictionary$s.i32$s.i32$tag.bst @dictionary_new$s.i32$s.i32$tag.bst' \
+grep -c '%dictionary$s.i32$s.i32$tag.bst = type' "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
+grep -c 'define %dictionary$s.i32$s.i32$tag.bst @dictionary_new$s.i32$s.i32$tag.bst' \
   "${TEST_OUT_DIR}/dictionary_bst_insert_get.ll" | grep -q "^1$"
-grep -c '%Dictionary$s.i32$s.i32$tag.hashmap = type' \
+grep -c '%dictionary$s.i32$s.i32$tag.hashmap = type' \
   "${TEST_OUT_DIR}/dictionary_hashmap_insert_get.ll" | grep -q "^1$"
-grep -c 'define %Dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$tag.hashmap' \
+grep -c 'define %dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$tag.hashmap' \
   "${TEST_OUT_DIR}/dictionary_hashmap_insert_get.ll" | grep -q "^1$"
+grep -c '%dictionary$s.i32$s.i32$tag.hashmap = type' \
+  "${TEST_OUT_DIR}/dictionary_hashset_alias.ll" | grep -q "^1$"
+grep -c 'define %dictionary$s.i32$s.i32$tag.hashmap @dictionary_new$s.i32$s.i32$tag.hashmap' \
+  "${TEST_OUT_DIR}/dictionary_hashset_alias.ll" | grep -q "^1$"
 
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_bst_ops.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_ops.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_str.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_bool.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_hashmap_alias.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_index.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_index.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/set_remove_missing.noria" 70 \
   "set_remove: key not found"
-grep -c '%Set$s.i32$tag.bst = type' "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
-grep -c 'define %Set$s.i32$tag.bst @set_new$s.i32$tag.bst' \
+grep -c '%set$s.i32$tag.bst = type' "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
+grep -c 'define %set$s.i32$tag.bst @set_new$s.i32$tag.bst' \
   "${TEST_OUT_DIR}/set_bst_ops.ll" | grep -q "^1$"
-grep -c '%Set$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/set_hashmap_ops.ll" | grep -q "^1$"
-grep -c 'define %Set$s.i32$tag.hashmap @set_new$s.i32$tag.hashmap' \
+grep -c '%set$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/set_hashmap_ops.ll" | grep -q "^1$"
+grep -c 'define %set$s.i32$tag.hashmap @set_new$s.i32$tag.hashmap' \
   "${TEST_OUT_DIR}/set_hashmap_ops.ll" | grep -q "^1$"
+grep -c '%set$s.i32$tag.hashmap = type' "${TEST_OUT_DIR}/set_hashmap_alias.ll" | grep -q "^1$"
+grep -c 'define %set$s.i32$tag.hashmap @set_new$s.i32$tag.hashmap' \
+  "${TEST_OUT_DIR}/set_hashmap_alias.ll" | grep -q "^1$"
 
 run_native_exit_test "${ROOT_DIR}/examples/basic/heap_arr_ops.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/heap_list_ops.noria" 0
@@ -1121,10 +1160,18 @@ grep -q "typecheck: internal runtime builtin '__rt_load' is unavailable outside 
   "${TEST_OUT_DIR}/use_private_rt_load.stderr"
 grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside the standard library" \
   "${TEST_OUT_DIR}/use_private_rt_trap.stderr"
-grep -q "typecheck: conflicting types i32 and bool for type parameter 'T'" \
+grep -q "typecheck: conflicting types i32 and bool for type parameter 't'" \
   "${TEST_OUT_DIR}/sequence_set_type_mismatch.stderr"
-grep -q "typecheck: __rt_sizeof requires a scalar element type, got Point" \
+grep -q "typecheck: __rt_sizeof requires a scalar element type, got point" \
   "${TEST_OUT_DIR}/sequence_struct_element.stderr"
+grep -Fq "typecheck: collection addition requires matching array types, got [i32] and [bool]" \
+  "${TEST_OUT_DIR}/array_add_type_mismatch.stderr"
+grep -q "typecheck: collection addition requires matching Sequence operands, got sequence<i32, arr> and sequence<bool, arr>" \
+  "${TEST_OUT_DIR}/sequence_add_type_mismatch.stderr"
+grep -q "typecheck: set index is not assignable" \
+  "${TEST_OUT_DIR}/set_index_assign.stderr"
+grep -q "typecheck: type 'sequence<i32>' expects 2 type argument(s), got 1" \
+  "${TEST_OUT_DIR}/user_sequence_default_not_applied.stderr"
 
 phase "phase 7.0 private struct field diagnostics"
 grep -q "typecheck: field 'handle' is private to module 'std::sequence'" \
@@ -1225,7 +1272,7 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_nested.noria" 15
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_reuse.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_array_field.noria" 6
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_struct_infer.noria" 42
-grep -c '%Box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
+grep -c '%box$s.i32 = type' "${TEST_OUT_DIR}/generic_struct_reuse.ll" | grep -q "^1$"
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_tag_distinct.noria" 3
 run_native_exit_test "${ROOT_DIR}/examples/basic/generic_impl_select_tag.noria" 3
@@ -1245,8 +1292,8 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_binary_search.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_single_number.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/leetcode_kth_largest.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/complex_sequence_set_pair.noria" 0
-grep -c '%Box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
-grep -c '%Box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
+grep -c '%box$s.i32$tag.arr = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
+grep -c '%box$s.i32$tag.list = type' "${TEST_OUT_DIR}/generic_impl_tag_distinct.ll" | grep -q "^1$"
 grep -c 'define i32 @kind$s.i32$tag.arr' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
 grep -c 'define i32 @kind$s.i32$tag.list' "${TEST_OUT_DIR}/generic_impl_select_tag.ll" | grep -q "^1$"
 

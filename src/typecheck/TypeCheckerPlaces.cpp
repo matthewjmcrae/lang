@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -45,46 +45,46 @@ namespace noria {
 
   } // namespace
 
-  TypeChecker::PlaceVisitor::PlaceVisitor(TypeChecker& checker) : checker_(checker) {}
+  TypeChecker::PlacesState::PlaceVisitor::PlaceVisitor(PlacesState& state) : state_(state) {}
 
-  void TypeChecker::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::IdentifierExpression& identifier) {
     name_ = identifier.name;
-    type_ = checker_.lookupLocal(identifier.name, identifier.location);
+    type_ = state_.lookupLocal(identifier.name, identifier.location);
   }
 
-  void TypeChecker::PlaceVisitor::visit(const ast::IntegerLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::IntegerLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::FloatLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::FloatLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::StringLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::StringLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::BoolLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::BoolLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::UnaryExpression& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::UnaryExpression& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::CastExpression& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::CastExpression& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::BinaryExpression& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::BinaryExpression& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::CallExpression& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::CallExpression& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::ArrayLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::ArrayLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::StructLiteral& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::StructLiteral& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::IndexExpression& index) {
-    const Type baseType = checker_.checkRvalue(*index.base);
-    const Type indexType = checker_.checkRvalue(*index.index);
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::IndexExpression& index) {
+    const Type baseType = state_.checkRvalue(*index.base);
+    const Type indexType = state_.checkRvalue(*index.index);
 
     if (baseType == Type::str()) {
       throw CompileError(formatDiagnostic(index.location, DiagnosticStage::TypeCheck,
@@ -110,20 +110,57 @@ namespace noria {
       invalidAssignmentTarget(index.location);
     }
 
+    const Type canonical = state_.canonicalStructType(baseType);
+    if (const std::optional<StandardContainer> container =
+            state_.standardContainerFor(canonical)) {
+      const auto requireIndexType = [&](const Type& expected, std::string_view name) {
+        if (!state_.isAssignable(expected, indexType)) {
+          throw CompileError(formatDiagnostic(index.index->location, DiagnosticStage::TypeCheck,
+                                              std::string(name) + " index expects " +
+                                                  expected.name() + ", got " + indexType.name()));
+        }
+      };
+
+      if (*container == StandardContainer::Set) {
+        throw CompileError(formatDiagnostic(index.location, DiagnosticStage::TypeCheck,
+                                            "set index is not assignable"));
+      }
+
+      if (*container == StandardContainer::Sequence) {
+        requireIndexType(Type::i32(), "sequence");
+        state_.recordImplicitContainerOperation(*container, ContainerOperation::Set,
+                                                  canonical.typeArgs, index.location);
+        type_ = canonical.typeArgs[0];
+      } else {
+        requireIndexType(canonical.typeArgs[0], "dictionary");
+        state_.recordImplicitContainerOperation(*container, ContainerOperation::Insert,
+                                                  canonical.typeArgs, index.location);
+        type_ = canonical.typeArgs[1];
+      }
+
+      index.standardContainer = std::make_pair(*container, canonical);
+      if (const auto* identifier = assignmentPlaceRoot(index)) {
+        name_ = identifier->name;
+        return;
+      }
+      invalidAssignmentTarget(index.location);
+    }
+
     throw CompileError(
         formatDiagnostic(index.base->location, DiagnosticStage::TypeCheck,
-                         "index requires str or array base, got " + baseType.name()));
+                         "index requires str, array, Sequence, Dictionary, or Set base, got " +
+                             baseType.name()));
   }
 
-  void TypeChecker::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
-    const Type baseType = checker_.checkRvalue(*access.base);
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
+    const Type baseType = state_.checkRvalue(*access.base);
     if (baseType.kind != TypeKind::Struct) {
       throw CompileError(
           formatDiagnostic(access.base->location, DiagnosticStage::TypeCheck,
                            "field access requires struct base, got " + baseType.name()));
     }
 
-    const StructInfo structInfo = checker_.resolveStructInfo(baseType, access.location);
+    const StructInfo structInfo = state_.resolveStructInfo(baseType, access.location);
     const auto fieldIndex = structInfo.fieldIndex.find(access.fieldName);
     if (fieldIndex == structInfo.fieldIndex.end()) {
       throw CompileError(formatDiagnostic(access.location, DiagnosticStage::TypeCheck,
@@ -132,7 +169,7 @@ namespace noria {
     }
 
     const StructFieldInfo& fieldInfo = structInfo.fields[fieldIndex->second];
-    checker_.requireFieldVisible(baseType.structName, fieldInfo, access.location);
+    state_.requireFieldVisible(baseType.structName, fieldInfo, access.location);
 
     if (const auto* identifier = assignmentPlaceRoot(*access.base)) {
       name_ = identifier->name + "." + access.fieldName;
@@ -142,27 +179,26 @@ namespace noria {
     invalidAssignmentTarget(access.location);
   }
 
-  void TypeChecker::PlaceVisitor::visit(const ast::ReturnStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::ReturnStatement& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::LetStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::LetStatement& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::IfStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::IfStatement& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::WhileStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::WhileStatement& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::AssignmentStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::AssignmentStatement& node) {
     invalidAssignmentTarget(node.location);
   }
-  void TypeChecker::PlaceVisitor::visit(const ast::ExpressionStatement& node) {
+  void TypeChecker::PlacesState::PlaceVisitor::visit(const ast::ExpressionStatement& node) {
     invalidAssignmentTarget(node.location);
   }
 
-  TypeChecker::PlaceInfo TypeChecker::checkPlace(const ast::Expression& place) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Places);
+  TypeChecker::PlaceInfo TypeChecker::PlacesState::checkPlace(const ast::Expression& place) {
     PlaceVisitor visitor(*this);
     place.accept(visitor);
     return PlaceInfo{visitor.name(), visitor.type()};

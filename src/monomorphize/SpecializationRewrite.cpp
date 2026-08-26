@@ -101,7 +101,11 @@ namespace noria::monomorphize_detail {
           continue;
         }
 
-        function.returnType = rewriteAppliedStructType(function.returnType);
+        if (!function.returnType) {
+          throw CompileError("monomorphize: function '" + function.name +
+                             "' has an unresolved return type");
+        }
+        function.returnType = rewriteAppliedStructType(*function.returnType);
         for (auto& parameter : function.parameters) {
           parameter.type = rewriteAppliedStructType(parameter.type);
         }
@@ -176,6 +180,9 @@ namespace noria::monomorphize_detail {
     std::unordered_set<std::string> seen;
     unique.reserve(requests.size());
     for (const SpecializationRequest& request : requests) {
+      if (!request.rewriteCallSite) {
+        continue;
+      }
       const std::string key = request.enclosingFunction + "|" + request.templateName + "|" +
                               mangleSpecialization(request.templateName, request.typeArgs) + "|" +
                               locationKey(request.callSiteLocation);
@@ -204,6 +211,9 @@ namespace noria::monomorphize_detail {
   groupFunctionRequestsByEnclosingFunction(const std::vector<SpecializationRequest>& requests) {
     std::unordered_map<std::string, std::vector<SpecializationRequest>> grouped;
     for (const SpecializationRequest& request : requests) {
+      if (!request.rewriteCallSite) {
+        continue;
+      }
       if (request.enclosingFunction.empty()) {
         throw CompileError(
             "monomorphize: internal error: generic function request has no enclosing function");

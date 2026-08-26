@@ -4,6 +4,7 @@
 #include "noria/Builtins.hpp"
 #include "noria/HashTable.hpp"
 #include "noria/ModuleResolver.hpp"
+#include "noria/SemanticTables.hpp"
 #include "noria/Monomorphize.hpp"
 #include "noria/Types.hpp"
 
@@ -17,17 +18,6 @@
 #include <vector>
 
 namespace noria {
-
-  class TypeCheckerStrategy;
-  enum class TypeCheckerStrategyKind;
-  class TypeCheckerDriver;
-  class TypeCheckerCalls;
-  class TypeCheckerDeclarations;
-  class TypeCheckerExpressions;
-  class TypeCheckerPlaces;
-  class TypeCheckerStatements;
-  class TypeCheckerStructs;
-  class TypeRelationsStrategy;
 
   struct FunctionSignature {
     Type returnType;
@@ -43,7 +33,7 @@ namespace noria {
     TypeChecker(TypeChecker&& other) noexcept;
     TypeChecker& operator=(TypeChecker&& other) noexcept;
 
-    void check(const ast::Module& module, const SymbolOrigins& symbolOrigins = {});
+    void check(ast::Module& module, const SymbolOrigins& symbolOrigins = {});
     void checkSpecializationFrontier(const ast::Module& module, std::size_t firstNewStruct,
                                      std::size_t firstNewFunction,
                                      const SymbolOrigins& symbolOrigins = {});
@@ -88,10 +78,12 @@ namespace noria {
       std::unordered_map<std::string, std::vector<Type>> structSpecializationTypeArgs;
       std::vector<Scope> scopes;
     };
+    struct ReturnInferenceResult {
+      std::optional<Type> type;
+      bool sawPendingCall = false;
+    };
+    struct ReturnInferencePending {};
 
-    class StatementVisitor;
-    class ExpressionVisitor;
-    class PlaceVisitor;
     class TypeRelations {
     public:
       explicit TypeRelations(TypeChecker& checker) : checker_(checker) {}
@@ -119,28 +111,27 @@ namespace noria {
       void recordStructSpecialization(const std::string&, const std::vector<Type>&,
                                       SourceLocation) const;
       bool isAssignable(Type, Type) const;
-
-    private:
       Type canonicalStructType(const Type&) const;
-      TypeChecker& checker_;
-    };
-    class StrategyScope {
-    public:
-      StrategyScope(TypeChecker&, TypeCheckerStrategyKind);
-      ~StrategyScope();
-      StrategyScope(const StrategyScope&) = delete;
-      StrategyScope& operator=(const StrategyScope&) = delete;
 
     private:
       TypeChecker& checker_;
-      std::unique_ptr<TypeCheckerStrategy> previous_;
     };
-    StrategyScope activate(TypeCheckerStrategyKind);
+    class TypeCheckerState;
+    class DriverState;
+    class CallsState;
+    class DeclarationsState;
+    class ExpressionsState;
+    class PlacesState;
+    class StatementsState;
+    class StructsState;
 
-    void checkImpl(const ast::Module&, const SymbolOrigins&);
-    void checkSpecializationFrontierImpl(const ast::Module&, std::size_t, std::size_t,
-                                         const SymbolOrigins&);
+    void rebindStates() noexcept;
     void checkFunction(const ast::Function&);
+    void inferFunctionReturnTypes(ast::Module&);
+    std::optional<Type> inferFunctionReturnType(const ast::Function&);
+    void inferReturnTypesInStatements(const std::vector<std::unique_ptr<ast::Statement>>&,
+                                      ReturnInferenceResult&);
+    void mergeInferredReturnType(ReturnInferenceResult&, Type, SourceLocation);
     bool checkStatements(const std::vector<std::unique_ptr<ast::Statement>>&, Type);
     bool checkStatement(const ast::Statement&, Type);
     PlaceInfo checkPlace(const ast::Expression&);
@@ -200,6 +191,8 @@ namespace noria {
     Type checkLogicalBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     Type checkAdditiveBinaryExpression(const ast::BinaryExpression&, const Type&,
                                        const Type&) const;
+    std::optional<Type> sequenceElementType(const Type&) const;
+    bool supportsCollectionAddition(const Type&) const;
     Type checkIntegerBinaryExpression(const ast::BinaryExpression&, const Type&, const Type&) const;
     Type checkOrderedComparisonExpression(const ast::BinaryExpression&, const Type&,
                                           const Type&) const;
@@ -219,6 +212,11 @@ namespace noria {
                                         SourceLocation) const;
     void recordStructSpecialization(const std::string&, const std::vector<Type>&,
                                     SourceLocation) const;
+    std::optional<StandardContainer> standardContainerFor(const Type&) const;
+    Type canonicalStructType(const Type&) const;
+    void recordImplicitContainerOperation(StandardContainer, ContainerOperation,
+                                          const std::vector<Type>&, SourceLocation);
+    void requireDefaultInitializable(const Type&, SourceLocation);
 
     void pushScope();
     void popScope();
@@ -236,17 +234,16 @@ namespace noria {
 
     TypeEnvironment environment_;
     TypeCheckSession session_;
+    std::unordered_set<std::string> pendingReturnTypeFunctions_;
+    bool inferringReturnTypes_ = false;
     TypeRelations relations_;
-    std::unique_ptr<TypeCheckerStrategy> activeStrategy_;
-    friend class TypeCheckerStrategy;
-    friend class TypeCheckerDriver;
-    friend class TypeCheckerCalls;
-    friend class TypeCheckerDeclarations;
-    friend class TypeCheckerExpressions;
-    friend class TypeCheckerPlaces;
-    friend class TypeCheckerStatements;
-    friend class TypeCheckerStructs;
-    friend class TypeRelationsStrategy;
+    std::unique_ptr<DriverState> driverState_;
+    std::unique_ptr<CallsState> callsState_;
+    std::unique_ptr<DeclarationsState> declarationsState_;
+    std::unique_ptr<ExpressionsState> expressionsState_;
+    std::unique_ptr<PlacesState> placesState_;
+    std::unique_ptr<StatementsState> statementsState_;
+    std::unique_ptr<StructsState> structsState_;
   };
 
 } // namespace noria

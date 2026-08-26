@@ -1,0 +1,52 @@
+struct Point {
+  value: i32;
+}
+
+fn forward(value: i32) {
+  return increment(value);
+}
+
+fn increment(value: i32) {
+  return value + 1;
+}
+
+fn identity<T>(value: T) {
+  return value;
+}
+
+fn even(value: i32) {
+  if value == 0 {
+    return true;
+  }
+  return odd(value - 1);
+}
+
+fn odd(value: i32) {
+  if value == 0 {
+    return false;
+  }
+  return even(value - 1);
+}
+
+fn point(value: i32) {
+  return Point { value: value };
+}
+
+fn values() {
+  return [1, 2, 3];
+}
+
+fn announce() {
+  println();
+  return;
+}
+
+fn main() {
+  announce();
+  let p = point(4);
+  let numbers = values();
+  if even(6) {
+    return forward(identity(p.value)) + len(numbers);
+  }
+  return 0;
+}

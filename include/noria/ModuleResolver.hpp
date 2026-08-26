@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace noria {
@@ -34,6 +35,7 @@ namespace noria {
   struct SymbolOrigins {
     std::unordered_map<std::string, std::string> functions;
     std::unordered_map<std::string, std::string> structs;
+    std::unordered_set<std::string> hiddenFunctions;
   };
 
   struct ResolvedProgram {
@@ -45,6 +47,10 @@ namespace noria {
   ResolvedProgram resolveImports(ast::Module rootModule, const CompileOptions& options,
                                  ModuleSourceProvider& provider,
                                  CompilerCache* compilerCache = nullptr);
+
+  // Expands omitted implementation arguments on the standard-library ADTs after imports have
+  // been flattened, while leaving same-named user-defined types unchanged.
+  void applyDefaultAdtImplementations(ast::Module& module, const SymbolOrigins& symbolOrigins);
 
   std::string formatModulePath(const std::vector<std::string>& path);
 

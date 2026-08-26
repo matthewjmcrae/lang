@@ -171,6 +171,7 @@ namespace noria::ast {
 
     std::unique_ptr<Expression> base;
     std::unique_ptr<Expression> index;
+    mutable std::optional<std::pair<StandardContainer, Type>> standardContainer;
   };
 
   struct StructLiteralField {
@@ -320,7 +321,8 @@ namespace noria::ast {
 
   struct Function {
     std::string name;
-    Type returnType;
+    // Empty after parsing means the function's return type must be inferred during type checking.
+    std::optional<Type> returnType;
     SourceLocation location;
     std::vector<TypeParameter> typeParams;
     std::vector<Parameter> parameters;

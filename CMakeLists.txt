@@ -177,6 +177,7 @@ noria_configure_executable(constraints_test)
 
 add_executable(semantic_tables_test
   tests/semantic_tables_test.cpp
+  src/Types.cpp
 )
 
 target_include_directories(semantic_tables_test PRIVATE include)

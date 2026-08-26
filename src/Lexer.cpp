@@ -127,8 +127,10 @@ namespace noria {
     std::string text{};
 
     static const std::unordered_map<std::string_view, TokenKind> keywords = {
-        {"fn", TokenKind::Fn},           {"import", TokenKind::Import},
-        {"struct", TokenKind::Struct},   {"return", TokenKind::Return},
+        {"fn", TokenKind::Fn},           {"util", TokenKind::Fn},
+        {"helper", TokenKind::Fn},       {"recfn", TokenKind::Fn},
+        {"import", TokenKind::Import},   {"struct", TokenKind::Struct},
+        {"return", TokenKind::Return},
         {"let", TokenKind::Let},         {"if", TokenKind::If},
         {"else", TokenKind::Else},       {"while", TokenKind::While},
         {"as", TokenKind::As},           {"impl", TokenKind::Impl},
@@ -138,7 +140,9 @@ namespace noria {
 
     while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_') {
       char curr = peek();
-      //if (isupper(curr)){curr = tolower(curr);} //add once spec and tests are reworked, this makes the language not case sensitive
+      if (std::isupper(static_cast<unsigned char>(curr))) {
+        curr = static_cast<char>(std::tolower(static_cast<unsigned char>(curr)));
+      }
       text.push_back(curr);
       advance();
     }

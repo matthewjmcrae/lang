@@ -1,0 +1,6 @@
+fn main() -> i32 {
+  let left: [i32] = [1, 2];
+  let right: [i32] = [3, 4, 5];
+  let sum: [i32] = left + right;
+  return sum[0];
+}

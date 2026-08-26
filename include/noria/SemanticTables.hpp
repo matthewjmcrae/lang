@@ -83,6 +83,96 @@ namespace noria {
     std::vector<TypeKind> supportedTypeKinds;
   };
 
+  enum class ContainerOperation {
+    New,
+    Get,
+    Set,
+    Contains,
+    Insert,
+  };
+
+  struct StandardContainerInfo {
+    StandardContainer kind;
+    std::string_view structName;
+    std::string_view modulePath;
+    std::size_t typeArgumentCount;
+  };
+
+  inline const std::vector<StandardContainerInfo>& standardContainerTable() {
+    static const std::vector<StandardContainerInfo> table = {
+        {StandardContainer::Sequence, "sequence", "std::sequence", 2},
+        {StandardContainer::Dictionary, "dictionary", "std::dictionary", 3},
+        {StandardContainer::Set, "set", "std::set", 2},
+    };
+    return table;
+  }
+
+  inline const StandardContainerInfo* standardContainerInfo(std::string_view modulePath,
+                                                             std::string_view structName) {
+    for (const StandardContainerInfo& info : standardContainerTable()) {
+      if (info.modulePath == modulePath && info.structName == structName) {
+        return &info;
+      }
+    }
+    return nullptr;
+  }
+
+  inline std::string_view containerOperationSourceName(StandardContainer container,
+                                                       ContainerOperation operation) {
+    switch (container) {
+    case StandardContainer::Sequence:
+      switch (operation) {
+      case ContainerOperation::New: return "sequence_new";
+      case ContainerOperation::Get: return "sequence_get";
+      case ContainerOperation::Set: return "sequence_set";
+      default: return "";
+      }
+    case StandardContainer::Dictionary:
+      switch (operation) {
+      case ContainerOperation::New: return "dictionary_new";
+      case ContainerOperation::Get: return "dictionary_get";
+      case ContainerOperation::Contains: return "dictionary_contains";
+      case ContainerOperation::Insert: return "dictionary_insert";
+      default: return "";
+      }
+    case StandardContainer::Set:
+      switch (operation) {
+      case ContainerOperation::New: return "set_new";
+      case ContainerOperation::Contains: return "set_contains";
+      default: return "";
+      }
+    }
+    return "";
+  }
+
+  inline std::string_view containerOperationHiddenName(StandardContainer container,
+                                                       ContainerOperation operation) {
+    switch (container) {
+    case StandardContainer::Sequence:
+      switch (operation) {
+      case ContainerOperation::New: return "__noria_sequence_new";
+      case ContainerOperation::Get: return "__noria_sequence_get";
+      case ContainerOperation::Set: return "__noria_sequence_set";
+      default: return "";
+      }
+    case StandardContainer::Dictionary:
+      switch (operation) {
+      case ContainerOperation::New: return "__noria_dictionary_new";
+      case ContainerOperation::Get: return "__noria_dictionary_get";
+      case ContainerOperation::Contains: return "__noria_dictionary_contains";
+      case ContainerOperation::Insert: return "__noria_dictionary_insert";
+      default: return "";
+      }
+    case StandardContainer::Set:
+      switch (operation) {
+      case ContainerOperation::New: return "__noria_set_new";
+      case ContainerOperation::Contains: return "__noria_set_contains";
+      default: return "";
+      }
+    }
+    return "";
+  }
+
   inline const std::unordered_map<ast::BinaryOperator, BinaryOperatorInfo,
                                   EnumHash<ast::BinaryOperator>>&
   binaryOperatorTable() {
@@ -256,6 +346,22 @@ namespace noria {
         {"hashset", ImplementationTag::Hashmap}
     };
     return table;
+  }
+
+  inline std::optional<StandardContainer>
+  standardContainerKindFromStructName(std::string_view name) {
+    const std::size_t dollar = name.find('$');
+    const std::string_view base = dollar == std::string_view::npos ? name : name.substr(0, dollar);
+    if (base == "sequence" || base == "Sequence") {
+      return StandardContainer::Sequence;
+    }
+    if (base == "dictionary" || base == "Dictionary") {
+      return StandardContainer::Dictionary;
+    }
+    if (base == "set" || base == "Set") {
+      return StandardContainer::Set;
+    }
+    return std::nullopt;
   }
 
   inline const std::unordered_map<RequiredOperation, RequiredOperationInfo,

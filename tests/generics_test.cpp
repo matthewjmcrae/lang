@@ -186,7 +186,7 @@ fn main() -> i32 {
 
   const noria::PipelineOutput structBoxOutput =
       noria::compileSource(structBoxSource, noria::StopAfter::Ir);
-  expect(structBoxOutput.LLVM.find("%Box$s.i32 = type") != std::string::npos,
+  expect(structBoxOutput.LLVM.find("%box$s.i32 = type") != std::string::npos,
          "generic struct specialization emits concrete struct type");
   expect(structBoxOutput.LLVM.find("struct Box<T>") == std::string::npos,
          "template struct is not emitted in IR");
@@ -203,7 +203,7 @@ fn main() -> i32 {
 
   const noria::PipelineOutput unusedStructOutput =
       noria::compileSource(unusedStructTemplateSource, noria::StopAfter::Ir);
-  expect(unusedStructOutput.LLVM.find("%Box = type") == std::string::npos,
+  expect(unusedStructOutput.LLVM.find("%box = type") == std::string::npos,
          "uncalled generic struct template is not emitted in IR");
 
   expectEqual(noria::mangleType(Type::structType("Box", {Type::i32()})), "st.Box$s.i32",
@@ -242,9 +242,9 @@ fn main() -> i32 {
 
   const noria::PipelineOutput implTagDistinctOutput =
       noria::compileSource(implTagDistinctSource, noria::StopAfter::Ir);
-  expect(implTagDistinctOutput.LLVM.find("%Box$s.i32$tag.arr = type") != std::string::npos,
+  expect(implTagDistinctOutput.LLVM.find("%box$s.i32$tag.arr = type") != std::string::npos,
          "arr-tagged specialization is emitted");
-  expect(implTagDistinctOutput.LLVM.find("%Box$s.i32$tag.list = type") != std::string::npos,
+  expect(implTagDistinctOutput.LLVM.find("%box$s.i32$tag.list = type") != std::string::npos,
          "list-tagged specialization is emitted");
 
   constexpr std::string_view implSelectSource = R"(
@@ -317,9 +317,9 @@ fn main() -> i32 {
 
   const noria::PipelineOutput letHintIdentityOutput =
       noria::compileSource(letHintIdentitySource, noria::StopAfter::Ir);
-  expect(countDefines(letHintIdentityOutput.LLVM, "id$st.Box$s.i32$tag.list") == 1,
+  expect(countDefines(letHintIdentityOutput.LLVM, "id$st.box$s.i32$tag.list") == 1,
          "let-declared type does not append impl tag to untagged generic identity");
-  expect(letHintIdentityOutput.LLVM.find("id$st.Box$s.i32$tag.list$tag.") == std::string::npos,
+  expect(letHintIdentityOutput.LLVM.find("id$st.box$s.i32$tag.list$tag.") == std::string::npos,
          "let-declared type does not double-append impl tags");
 
   constexpr std::string_view letHintNestedCallSource = R"(
@@ -347,7 +347,7 @@ fn main() -> i32 {
          "let-declared type seeds outer constructor through nested call");
   expect(countDefines(letHintNestedCallOutput.LLVM, "id$s.i32") == 1,
          "nested generic call is not unified with let-declared outer type");
-  expect(letHintNestedCallOutput.LLVM.find("id$st.Box$s.i32$tag.list") == std::string::npos,
+  expect(letHintNestedCallOutput.LLVM.find("id$st.box$s.i32$tag.list") == std::string::npos,
          "nested id is not specialized to let-declared outer type");
 
   constexpr std::string_view letHintCastSource = R"(
@@ -387,7 +387,7 @@ fn main() -> i32 {
       noria::compileSource(letHintStructFieldSource, noria::StopAfter::Ir);
   expect(countDefines(letHintStructFieldOutput.LLVM, "id$s.i32") == 1,
          "generic call in struct field infers from argument, not let-declared type");
-  expect(letHintStructFieldOutput.LLVM.find("id$st.Box$s.i32") == std::string::npos,
+  expect(letHintStructFieldOutput.LLVM.find("id$st.box$s.i32") == std::string::npos,
          "generic call in struct field is not specialized to let-declared Box");
 
   constexpr std::string_view letHintArrayElemSource = R"(
@@ -487,14 +487,14 @@ fn main() -> i32 {
       noria::compileSource(privateFieldSource, noria::StopAfter::Ast);
   std::ostringstream astOut;
   noria::printAst(privateFieldAstOutput.module, astOut);
-  expect(astOut.str().find("Field secret: T (private)") != std::string::npos,
+  expect(astOut.str().find("Field secret: t (private)") != std::string::npos,
          "private field visibility is printed in AST");
-  expect(astOut.str().find("Field value: T\n") != std::string::npos,
+  expect(astOut.str().find("Field value: t\n") != std::string::npos,
          "public field visibility has no suffix in AST");
 
   const noria::PipelineOutput privateFieldIrOutput =
       noria::compileSource(privateFieldSource, noria::StopAfter::Ir);
-  expect(privateFieldIrOutput.LLVM.find("%Box$s.i32 = type") != std::string::npos,
+  expect(privateFieldIrOutput.LLVM.find("%box$s.i32 = type") != std::string::npos,
          "private generic struct field survives specialization");
 
   constexpr std::string_view sameLocationNestedCallsSource = R"(
@@ -554,7 +554,7 @@ fn main() -> i32 {
          "tagged wrapper specialization is emitted");
   expect(countDefines(specializedStructNestedCallOutput.LLVM, "id$s.i32$tag.arr") == 1,
          "nested tagged call unifies specialized struct with generic application");
-  expect(specializedStructNestedCallOutput.LLVM.find("%Box$s.i32$tag.arr = type") !=
+  expect(specializedStructNestedCallOutput.LLVM.find("%box$s.i32$tag.arr = type") !=
              std::string::npos,
          "tagged struct specialization is emitted for nested generic call");
 
@@ -575,7 +575,7 @@ fn main() -> i32 {
 
   const noria::PipelineOutput inferredStructLiteralFrontierOutput =
       noria::compileSource(inferredStructLiteralFrontierSource, noria::StopAfter::Ir);
-  expect(inferredStructLiteralFrontierOutput.LLVM.find("%Box$s.i32 = type") !=
+  expect(inferredStructLiteralFrontierOutput.LLVM.find("%box$s.i32 = type") !=
              std::string::npos,
          "inferred generic struct literal in specialization is normalized");
   expect(countDefines(inferredStructLiteralFrontierOutput.LLVM, "make$s.i32") == 1,
@@ -603,10 +603,10 @@ fn main() -> i32 {
 
   const noria::PipelineOutput nestedGenericStructFrontierOutput =
       noria::compileSource(nestedGenericStructFrontierSource, noria::StopAfter::Ir);
-  expect(nestedGenericStructFrontierOutput.LLVM.find("%Holder$s.i32 = type") !=
+  expect(nestedGenericStructFrontierOutput.LLVM.find("%holder$s.i32 = type") !=
              std::string::npos,
          "outer generic struct specialization is emitted");
-  expect(nestedGenericStructFrontierOutput.LLVM.find("%Pair$s.i32 = type") != std::string::npos,
+  expect(nestedGenericStructFrontierOutput.LLVM.find("%pair$s.i32 = type") != std::string::npos,
          "nested generic struct specialization discovered from frontier is emitted");
 
   std::ostringstream hashTableStressSource;
@@ -645,7 +645,7 @@ fn main() -> i32 {
 
   const noria::PipelineOutput hashTableStressOutput =
       noria::compileSource(hashTableStressSource.str(), noria::StopAfter::Ir);
-  expect(hashTableStressOutput.LLVM.find("%Record15 = type") != std::string::npos,
+  expect(hashTableStressOutput.LLVM.find("%record15 = type") != std::string::npos,
          "many concrete structs preserve field layouts through type checking and codegen");
   expect(countDefines(hashTableStressOutput.LLVM, "id$s.i32") == 1,
          "many concrete callers rewrite through the function index correctly");

@@ -1,0 +1,7 @@
+import std::set::{Set, set_new};
+
+fn main() -> i32 {
+  let seen: Set<i32> = set_new(0);
+  seen[1] = true;
+  return 0;
+}

@@ -20,6 +20,7 @@ namespace noria {
       std::unordered_set<std::string> emittedFunctions;
       std::unordered_set<std::string> emittedStructs;
       std::unordered_map<std::string, std::vector<Type>> functionTypeArgs;
+      std::unordered_map<std::string, std::vector<Type>> structTypeArgs;
     };
 
     struct SpecializationGraph {

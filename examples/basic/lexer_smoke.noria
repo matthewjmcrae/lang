@@ -1,13 +1,13 @@
 // lexer smoke test
-fn main() -> i32 {
-  let x: i32 = 1 + 2 * 3;
-  if x >= 3 {
-    return x;
+FN MAIN() -> I32 {
+  LET X: I32 = 1 + 2 * 3;
+  IF X >= 3 {
+    RETURN X;
   } else {
-    return 0;
+    RETURN 0;
   }
 
-  while x != 0 {
-    x = x - 1;
+  WHILE X != 0 {
+    X = X - 1;
   }
 }

@@ -1,8 +1,8 @@
-#include "CodegenInternal.hpp"
-#include "CodegenStrategy.hpp"
+#include "CodegenState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
+#include "noria/Monomorphize.hpp"
 #include "noria/Runtime.hpp"
 #include "noria/SemanticTables.hpp"
 
@@ -21,32 +21,32 @@ namespace noria {
 
   using namespace codegen_detail;
 
-  LLVMGenerator::ExpressionVisitor::ExpressionVisitor(const LLVMGenerator& generator,
+  LLVMGenerator::ExpressionsState::ExpressionVisitor::ExpressionVisitor(const ExpressionsState& state,
                                                       IREmitter& emitter,
                                                       FunctionCodegenContext& context,
                                                       const std::vector<Scope>& scopes,
                                                       std::optional<Type> expectedType)
-      : ExpressionOnlyVisitor("codegen"), generator_(generator), emitter_(emitter),
+      : ExpressionOnlyVisitor("codegen"), state_(state), emitter_(emitter),
         context_(context), scopes_(scopes), expectedType_(std::move(expectedType)) {}
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
     result_ = Value{formatLLVMFloatLiteral(floating.value), Type::f64()};
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
-    result_ = generator_.generateStringLiteral(stringLiteral, emitter_, context_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
+    result_ = state_.generateStringLiteral(stringLiteral, emitter_, context_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
     result_ = Value{boolean.value ? "true" : "false", Type::boolean()};
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
-    const Value operand = generator_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+    const Value operand = state_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
     const std::string result = emitter_.freshTemp();
     const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
     if (info == nullptr) {
@@ -79,24 +79,24 @@ namespace noria {
     throw CompileError("codegen: internal error: unknown unary codegen rule");
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
-    result_ = generator_.generateCastExpression(castExpression, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+    result_ = state_.generateCastExpression(castExpression, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
-    result_ = generator_.generateBinaryExpression(binary, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+    result_ = state_.generateBinaryExpression(binary, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
-    const LocalBinding& local = generator_.lookupLocal(scopes_, identifier.name);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+    const LocalBinding& local = state_.generator().lookupLocal(scopes_, identifier.name);
 
     const std::string result = emitter_.freshTemp();
     emitter_.emitLoad(local.type, local.slot, result);
     result_ = Value{result, local.type};
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::CallExpression& call) {
-    if (auto builtin = generator_.tryGenerateBuiltinCall(call, emitter_, context_, scopes_)) {
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::CallExpression& call) {
+    if (auto builtin = state_.generator().tryGenerateBuiltinCall(call, emitter_, context_, scopes_)) {
       result_ = *builtin;
       return;
     }
@@ -110,7 +110,7 @@ namespace noria {
 
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type expectedType = function->second.parameterTypes[index];
-      arguments.push_back(generator_.generateRvalue(*call.arguments[index], emitter_, context_,
+      arguments.push_back(state_.generateRvalue(*call.arguments[index], emitter_, context_,
                                                     scopes_, expectedType));
     }
 
@@ -131,29 +131,29 @@ namespace noria {
     result_ = Value{result, function->second.returnType};
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
-    result_ = generator_.generateArrayLiteral(literal, emitter_, context_, scopes_, expectedType_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+    result_ = state_.generateArrayLiteral(literal, emitter_, context_, scopes_, expectedType_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::IndexExpression& index) {
-    result_ = generator_.generateIndexExpression(index, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+    result_ = state_.generateIndexExpression(index, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
-    result_ = generator_.generateStructLiteral(literal, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    result_ = state_.generator().generateStructLiteral(literal, emitter_, context_, scopes_);
   }
 
-  void LLVMGenerator::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
-    result_ = generator_.generateFieldAccess(access, emitter_, context_, scopes_);
+  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+    result_ = state_.generator().generateFieldAccess(access, emitter_, context_, scopes_);
   }
 
-  LLVMGenerator::Value LLVMGenerator::generateStringLiteral(const ast::StringLiteral& literal,
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateStringLiteral(const ast::StringLiteral& literal,
                                                             IREmitter& emitter,
                                                             FunctionCodegenContext& context) const {
-    return Value{emitCStringPointer(literal.value, emitter, context), Type::str()};
+    return Value{generator().emitCStringPointer(literal.value, emitter, context), Type::str()};
   }
 
-  LLVMGenerator::Value LLVMGenerator::generateArrayLiteral(
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayLiteral(
       const ast::ArrayLiteral& literal, IREmitter& emitter, FunctionCodegenContext& context,
       const std::vector<Scope>& scopes, const std::optional<Type>& expectedType) const {
     std::optional<Type> expectedElementType;
@@ -172,7 +172,7 @@ namespace noria {
       if (!expectedElementType) {
         throw CompileError("codegen: empty array literal missing expected array type");
       }
-      return emitDefaultValue(Type::array(*expectedElementType), emitter, context);
+      return generator().emitDefaultValue(Type::array(*expectedElementType), emitter, context);
     }
 
     const Type elementType = elements.front().type;
@@ -180,7 +180,7 @@ namespace noria {
     const std::size_t count = elements.size();
     const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);
 
-    const std::string base = emitCheckedMalloc(std::to_string(totalBytes), emitter, context);
+    const std::string base = generator().emitCheckedMalloc(std::to_string(totalBytes), emitter, context);
     emitter.line("store i64 " + std::to_string(count) + ", ptr " + base);
 
     const std::string elems = emitter.freshTemp();
@@ -188,20 +188,55 @@ namespace noria {
 
     for (std::size_t index{}; index < count; ++index) {
       const Value indexValue{std::to_string(index), Type::i32()};
-      const std::string slot = emitRawBufferElementPointer(Value{elems, Type::rawPtr()}, indexValue,
+      const std::string slot = generator().emitRawBufferElementPointer(Value{elems, Type::rawPtr()}, indexValue,
                                                            elementType, emitter);
-      emitBufferStore(elementType, elements[index].text, slot, emitter);
+      generator().emitBufferStore(elementType, elements[index].text, slot, emitter);
     }
 
     return Value{base, arrayType};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateIndexExpression(const ast::IndexExpression& index, IREmitter& emitter,
-                                         FunctionCodegenContext& context,
-                                         const std::vector<Scope>& scopes) const {
+  LLVMGenerator::ExpressionsState::generateIndexExpression(const ast::IndexExpression& index,
+                                                           IREmitter& emitter,
+                                                           FunctionCodegenContext& context,
+                                                           const std::vector<Scope>& scopes) const {
     const Value base = generateRvalue(*index.base, emitter, context, scopes);
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
+
+    if (index.standardContainer) {
+      const StandardContainer container = index.standardContainer->first;
+      const std::vector<Type>& typeArgs = index.standardContainer->second.typeArgs;
+      if (container == StandardContainer::Sequence) {
+        return emitStandardContainerCall(container, ContainerOperation::Get, typeArgs,
+                                         {base, indexValue}, emitter, context);
+      }
+      if (container == StandardContainer::Set) {
+        return emitStandardContainerCall(container, ContainerOperation::Contains, typeArgs,
+                                         {base, indexValue}, emitter, context);
+      }
+
+      const Value contains = emitStandardContainerCall(
+          container, ContainerOperation::Contains, typeArgs, {base, indexValue}, emitter, context);
+      const int labelId = emitter.freshLabelId();
+      const std::string present = "dictionary.index.present" + std::to_string(labelId);
+      const std::string missing = "dictionary.index.missing" + std::to_string(labelId);
+      const std::string ready = "dictionary.index.ready" + std::to_string(labelId);
+      emitter.emitCondBranch(contains.text, present, missing);
+
+      emitter.emitLabel(present);
+      emitter.emitBranch(ready);
+
+      emitter.emitLabel(missing);
+      const Value defaultValue = emitDefaultValue(typeArgs[1], emitter, context);
+      (void)emitStandardContainerCall(container, ContainerOperation::Insert, typeArgs,
+                                      {base, indexValue, defaultValue}, emitter, context);
+      emitter.emitBranch(ready);
+
+      emitter.emitLabel(ready);
+      return emitStandardContainerCall(container, ContainerOperation::Get, typeArgs,
+                                       {base, indexValue}, emitter, context);
+    }
 
     if (base.type.kind == TypeKind::Array) {
       if (!base.type.element)
@@ -229,7 +264,7 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitCheckedF64ToI32Cast(const Value& source, IREmitter& emitter,
+  LLVMGenerator::ExpressionsState::emitCheckedF64ToI32Cast(const Value& source, IREmitter& emitter,
                                          FunctionCodegenContext& context) const {
     constexpr double minimumInput =
         static_cast<double>(std::numeric_limits<std::int32_t>::min()) - 1.0;
@@ -244,7 +279,7 @@ namespace noria {
                  formatLLVMFloatLiteral(maximumInput));
     const std::string inRange = emitter.freshTemp();
     emitter.line(inRange + " = and i1 " + aboveMinimum + ", " + belowMaximum);
-    emitTrapUnless(inRange, "cast", emitter, context, "invalid f64 to i32 cast\n");
+    generator().emitTrapUnless(inRange, "cast", emitter, context, "invalid f64 to i32 cast\n");
 
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = fptosi double " + source.text + " to i32");
@@ -252,7 +287,7 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
+  LLVMGenerator::ExpressionsState::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
                                         FunctionCodegenContext& context,
                                         const std::vector<Scope>& scopes) const {
     const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
@@ -286,29 +321,27 @@ namespace noria {
     throw CompileError("codegen: unsupported cast");
   }
 
-  std::string LLVMGenerator::generateCondition(const ast::Expression& expression,
+  std::string LLVMGenerator::ExpressionsState::generateCondition(const ast::Expression& expression,
                                                IREmitter& emitter, FunctionCodegenContext& context,
                                                const std::vector<Scope>& scopes) const {
-    const auto strategy = activate(CodegenStrategyKind::Expressions);
     const Value value = generateRvalue(expression, emitter, context, scopes);
     if (value.type != Type::boolean())
       throw CompileError("codegen: condition must be bool");
     return value.text;
   }
 
-  LLVMGenerator::Value LLVMGenerator::generateRvalue(const ast::Expression& expression,
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateRvalue(const ast::Expression& expression,
                                                      IREmitter& emitter,
                                                      FunctionCodegenContext& context,
                                                      const std::vector<Scope>& scopes,
                                                      std::optional<Type> expectedType) const {
-    const auto strategy = activate(CodegenStrategyKind::Expressions);
     ExpressionVisitor visitor(*this, emitter, context, scopes, std::move(expectedType));
     expression.accept(visitor);
     return visitor.result();
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
+  LLVMGenerator::ExpressionsState::generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
                                           FunctionCodegenContext& context,
                                           const std::vector<Scope>& scopes) const {
 
@@ -329,6 +362,12 @@ namespace noria {
       return generateStringConcatExpression(left, right, emitter, context);
     }
 
+    if (binary.op == ast::BinaryOperator::Add &&
+        (left.type.kind == TypeKind::Array || right.type.kind == TypeKind::Array ||
+         left.type.kind == TypeKind::Struct || right.type.kind == TypeKind::Struct)) {
+      return generateCollectionAddExpression(left, right, emitter, context);
+    }
+
     if (info->comparison) {
       return generateComparisonExpression(binary, left, right, emitter);
     }
@@ -336,7 +375,7 @@ namespace noria {
     return generateNumericBinaryExpression(binary, left, right, emitter, context);
   }
 
-  LLVMGenerator::Value LLVMGenerator::generateShortCircuitBinaryExpression(
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateShortCircuitBinaryExpression(
       const ast::BinaryExpression& binary, IREmitter& emitter, FunctionCodegenContext& context,
       const std::vector<Scope>& scopes) const {
     const Value left = generateRvalue(*binary.left, emitter, context, scopes);
@@ -376,7 +415,7 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::generateStringConcatExpression(const Value& left, const Value& right,
+  LLVMGenerator::ExpressionsState::generateStringConcatExpression(const Value& left, const Value& right,
                                                 IREmitter& emitter,
                                                 FunctionCodegenContext& context) const {
     const std::string leftLength = emitter.freshTemp();
@@ -387,14 +426,311 @@ namespace noria {
     emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
     const std::string size = emitter.freshTemp();
     emitter.line(size + " = add i64 " + sumLength + ", 1");
-    const std::string buffer = emitCheckedMalloc(size, emitter, context);
+    const std::string buffer = generator().emitCheckedMalloc(size, emitter, context);
     emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
     emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
     return Value{buffer, Type::str()};
   }
 
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateCollectionAddExpression(
+      const Value& left, const Value& right, IREmitter& emitter,
+      FunctionCodegenContext& context) const {
+    if (left.type.kind == TypeKind::Array && right.type.kind == TypeKind::Array) {
+      return generateArrayAddExpression(left, right, emitter, context);
+    }
+    if (left.type.kind == TypeKind::Struct && right.type.kind == TypeKind::Struct) {
+      return generateSequenceAddExpression(left, right, emitter, context);
+    }
+    throw CompileError("codegen: internal error: invalid collection addition operands");
+  }
+
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayAddExpression(
+      const Value& left, const Value& right, IREmitter& emitter,
+      FunctionCodegenContext& context) const {
+    if (!left.type.element || !right.type.element || left.type != right.type) {
+      throw CompileError("codegen: internal error: invalid array addition operands");
+    }
+
+    const Type elementType = *left.type.element;
+    const std::string leftLength = emitter.freshTemp();
+    emitter.line(leftLength + " = load i64, ptr " + left.text);
+    const std::string rightLength = emitter.freshTemp();
+    emitter.line(rightLength + " = load i64, ptr " + right.text);
+    const std::string sameLength = emitter.freshTemp();
+    emitter.line(sameLength + " = icmp eq i64 " + leftLength + ", " + rightLength);
+    generator().emitTrapUnless(sameLength, "array.add.length", emitter, context,
+                   "array addition requires equal lengths\n");
+
+    const std::string payloadBytes = emitter.freshTemp();
+    emitter.line(payloadBytes + " = mul i64 " + leftLength + ", " +
+                 std::to_string(elementSizeInBytes(elementType)));
+    const std::string totalBytes = emitter.freshTemp();
+    emitter.line(totalBytes + " = add i64 " + payloadBytes + ", 8");
+    const std::string result = generator().emitCheckedMalloc(totalBytes, emitter, context);
+    emitter.line("store i64 " + leftLength + ", ptr " + result);
+
+    const std::string leftElements = emitter.freshTemp();
+    emitter.line(leftElements + " = getelementptr inbounds i8, ptr " + left.text + ", i64 8");
+    const std::string rightElements = emitter.freshTemp();
+    emitter.line(rightElements + " = getelementptr inbounds i8, ptr " + right.text + ", i64 8");
+    const std::string resultElements = emitter.freshTemp();
+    emitter.line(resultElements + " = getelementptr inbounds i8, ptr " + result + ", i64 8");
+
+    const int labelId = emitter.freshLabelId();
+    const std::string indexSlot = emitter.freshTemp();
+    emitter.line(indexSlot + " = alloca i64");
+    emitter.line("store i64 0, ptr " + indexSlot);
+    const std::string conditionLabel = "array.add.cond" + std::to_string(labelId);
+    const std::string bodyLabel = "array.add.body" + std::to_string(labelId);
+    const std::string endLabel = "array.add.end" + std::to_string(labelId);
+    emitter.emitBranch(conditionLabel);
+    emitter.emitLabel(conditionLabel);
+    const std::string index64 = emitter.freshTemp();
+    emitter.line(index64 + " = load i64, ptr " + indexSlot);
+    const std::string inRange = emitter.freshTemp();
+    emitter.line(inRange + " = icmp ult i64 " + index64 + ", " + leftLength);
+    emitter.emitCondBranch(inRange, bodyLabel, endLabel);
+
+    emitter.emitLabel(bodyLabel);
+    const std::string index = emitter.freshTemp();
+    emitter.line(index + " = trunc i64 " + index64 + " to i32");
+    const Value indexValue{index, Type::i32()};
+    const std::string leftPointer =
+        generator().emitRawBufferElementPointer(Value{leftElements, Type::rawPtr()}, indexValue, elementType,
+                                    emitter);
+    const std::string rightPointer =
+        generator().emitRawBufferElementPointer(Value{rightElements, Type::rawPtr()}, indexValue, elementType,
+                                    emitter);
+    const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
+    const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+    const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
+    const std::string resultPointer =
+        generator().emitRawBufferElementPointer(Value{resultElements, Type::rawPtr()}, indexValue, elementType,
+                                    emitter);
+    generator().emitBufferStore(elementType, sum.text, resultPointer, emitter);
+    const std::string nextIndex = emitter.freshTemp();
+    emitter.line(nextIndex + " = add i64 " + index64 + ", 1");
+    emitter.line("store i64 " + nextIndex + ", ptr " + indexSlot);
+    emitter.emitBranch(conditionLabel);
+    emitter.emitLabel(endLabel);
+    return Value{result, left.type};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateSequenceAddExpression(
+      const Value& left, const Value& right, IREmitter& emitter,
+      FunctionCodegenContext& context) const {
+    const auto specialization = context.module.structSpecializationTypeArgs.find(left.type.structName);
+    if (left.type != right.type || specialization == context.module.structSpecializationTypeArgs.end() ||
+        specialization->second.size() != 2 || specialization->second[1].kind != TypeKind::ImplTag) {
+      throw CompileError("codegen: internal error: invalid sequence addition operands");
+    }
+
+    const Type elementType = specialization->second[0];
+    const ImplementationTag tag = specialization->second[1].implTag;
+    if (tag != ImplementationTag::Arr && tag != ImplementationTag::List) {
+      throw CompileError("codegen: internal error: unsupported sequence implementation");
+    }
+
+    const std::string leftHandle = emitter.freshTemp();
+    emitter.line(leftHandle + " = extractvalue " + LLVMType(left.type) + " " + left.text + ", 0");
+    const std::string rightHandle = emitter.freshTemp();
+    emitter.line(rightHandle + " = extractvalue " + LLVMType(right.type) + " " + right.text + ", 0");
+
+    const std::string leftLengthPointer = emitter.freshTemp();
+    const std::string rightLengthPointer = emitter.freshTemp();
+    const int lengthOffset = tag == ImplementationTag::Arr ? 0 : 16;
+    emitter.line(leftLengthPointer + " = getelementptr i8, ptr " + leftHandle + ", i32 " +
+                 std::to_string(lengthOffset));
+    emitter.line(rightLengthPointer + " = getelementptr i8, ptr " + rightHandle + ", i32 " +
+                 std::to_string(lengthOffset));
+    const std::string leftLength = emitter.freshTemp();
+    emitter.line(leftLength + " = load i32, ptr " + leftLengthPointer);
+    const std::string rightLength = emitter.freshTemp();
+    emitter.line(rightLength + " = load i32, ptr " + rightLengthPointer);
+    const std::string sameLength = emitter.freshTemp();
+    emitter.line(sameLength + " = icmp eq i32 " + leftLength + ", " + rightLength);
+    generator().emitTrapUnless(sameLength, "sequence.add.length", emitter, context,
+                   "sequence addition requires equal lengths\n");
+
+    const int labelId = emitter.freshLabelId();
+    const std::string indexSlot = emitter.freshTemp();
+    emitter.line(indexSlot + " = alloca i32");
+    emitter.line("store i32 0, ptr " + indexSlot);
+    const std::string conditionLabel = "sequence.add.cond" + std::to_string(labelId);
+    const std::string bodyLabel = "sequence.add.body" + std::to_string(labelId);
+    const std::string endLabel = "sequence.add.end" + std::to_string(labelId);
+
+    std::string resultHandle;
+    std::string leftData;
+    std::string rightData;
+    std::string leftNodeSlot;
+    std::string rightNodeSlot;
+    if (tag == ImplementationTag::Arr) {
+      resultHandle = generator().emitCheckedMalloc("16", emitter, context);
+      const std::string needsMinimumCapacity = emitter.freshTemp();
+      emitter.line(needsMinimumCapacity + " = icmp slt i32 " + leftLength + ", 4");
+      const std::string capacity = emitter.freshTemp();
+      emitter.line(capacity + " = select i1 " + needsMinimumCapacity + ", i32 4, i32 " +
+                   leftLength);
+      const std::string dataBytes = emitter.freshTemp();
+      emitter.line(dataBytes + " = mul i32 " + capacity + ", " +
+                   std::to_string(elementSizeInBytes(elementType)));
+      const std::string dataBytes64 = emitter.freshTemp();
+      emitter.line(dataBytes64 + " = sext i32 " + dataBytes + " to i64");
+      const std::string resultData = generator().emitCheckedMalloc(dataBytes64, emitter, context);
+      emitter.line("store i32 " + leftLength + ", ptr " + resultHandle);
+      const std::string resultCapacityPointer = emitter.freshTemp();
+      emitter.line(resultCapacityPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 4");
+      emitter.line("store i32 " + capacity + ", ptr " + resultCapacityPointer);
+      const std::string resultDataPointer = emitter.freshTemp();
+      emitter.line(resultDataPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 8");
+      emitter.line("store ptr " + resultData + ", ptr " + resultDataPointer);
+
+      const std::string leftDataPointer = emitter.freshTemp();
+      emitter.line(leftDataPointer + " = getelementptr i8, ptr " + leftHandle + ", i32 8");
+      leftData = emitter.freshTemp();
+      emitter.line(leftData + " = load ptr, ptr " + leftDataPointer);
+      const std::string rightDataPointer = emitter.freshTemp();
+      emitter.line(rightDataPointer + " = getelementptr i8, ptr " + rightHandle + ", i32 8");
+      rightData = emitter.freshTemp();
+      emitter.line(rightData + " = load ptr, ptr " + rightDataPointer);
+      emitter.emitBranch(conditionLabel);
+
+      emitter.emitLabel(conditionLabel);
+      const std::string index = emitter.freshTemp();
+      emitter.line(index + " = load i32, ptr " + indexSlot);
+      const std::string inRange = emitter.freshTemp();
+      emitter.line(inRange + " = icmp slt i32 " + index + ", " + leftLength);
+      emitter.emitCondBranch(inRange, bodyLabel, endLabel);
+      emitter.emitLabel(bodyLabel);
+      const Value indexValue{index, Type::i32()};
+      const std::string leftPointer =
+          generator().emitRawBufferElementPointer(Value{leftData, Type::rawPtr()}, indexValue, elementType, emitter);
+      const std::string rightPointer = generator().emitRawBufferElementPointer(
+          Value{rightData, Type::rawPtr()}, indexValue, elementType, emitter);
+      const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
+      const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+      const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
+      const std::string resultPointer = generator().emitRawBufferElementPointer(
+          Value{resultData, Type::rawPtr()}, indexValue, elementType, emitter);
+      generator().emitBufferStore(elementType, sum.text, resultPointer, emitter);
+      const std::string nextIndex = emitter.freshTemp();
+      emitter.line(nextIndex + " = add i32 " + index + ", 1");
+      emitter.line("store i32 " + nextIndex + ", ptr " + indexSlot);
+      emitter.emitBranch(conditionLabel);
+      emitter.emitLabel(endLabel);
+    } else {
+      resultHandle = generator().emitCheckedMalloc("20", emitter, context);
+      emitter.line("store ptr " + resultHandle + ", ptr " + resultHandle);
+      const std::string resultNextPointer = emitter.freshTemp();
+      emitter.line(resultNextPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 8");
+      emitter.line("store ptr " + resultHandle + ", ptr " + resultNextPointer);
+      const std::string resultLengthPointer = emitter.freshTemp();
+      emitter.line(resultLengthPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 16");
+      emitter.line("store i32 0, ptr " + resultLengthPointer);
+
+      const std::string leftFirstPointer = emitter.freshTemp();
+      emitter.line(leftFirstPointer + " = getelementptr i8, ptr " + leftHandle + ", i32 8");
+      const std::string leftFirst = emitter.freshTemp();
+      emitter.line(leftFirst + " = load ptr, ptr " + leftFirstPointer);
+      const std::string rightFirstPointer = emitter.freshTemp();
+      emitter.line(rightFirstPointer + " = getelementptr i8, ptr " + rightHandle + ", i32 8");
+      const std::string rightFirst = emitter.freshTemp();
+      emitter.line(rightFirst + " = load ptr, ptr " + rightFirstPointer);
+      leftNodeSlot = emitter.freshTemp();
+      rightNodeSlot = emitter.freshTemp();
+      emitter.line(leftNodeSlot + " = alloca ptr");
+      emitter.line(rightNodeSlot + " = alloca ptr");
+      emitter.line("store ptr " + leftFirst + ", ptr " + leftNodeSlot);
+      emitter.line("store ptr " + rightFirst + ", ptr " + rightNodeSlot);
+      emitter.emitBranch(conditionLabel);
+
+      emitter.emitLabel(conditionLabel);
+      const std::string index = emitter.freshTemp();
+      emitter.line(index + " = load i32, ptr " + indexSlot);
+      const std::string inRange = emitter.freshTemp();
+      emitter.line(inRange + " = icmp slt i32 " + index + ", " + leftLength);
+      emitter.emitCondBranch(inRange, bodyLabel, endLabel);
+      emitter.emitLabel(bodyLabel);
+      const std::string leftNode = emitter.freshTemp();
+      emitter.line(leftNode + " = load ptr, ptr " + leftNodeSlot);
+      const std::string rightNode = emitter.freshTemp();
+      emitter.line(rightNode + " = load ptr, ptr " + rightNodeSlot);
+      const Value valueIndex{std::to_string(16 / elementSizeInBytes(elementType)), Type::i32()};
+      const std::string leftPointer =
+          generator().emitRawBufferElementPointer(Value{leftNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      const std::string rightPointer =
+          generator().emitRawBufferElementPointer(Value{rightNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
+      const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+      const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
+
+      const std::string newNode =
+          generator().emitCheckedMalloc(std::to_string(16 + elementSizeInBytes(elementType)), emitter, context);
+      const std::string newValuePointer =
+          generator().emitRawBufferElementPointer(Value{newNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      generator().emitBufferStore(elementType, sum.text, newValuePointer, emitter);
+      const std::string resultLast = emitter.freshTemp();
+      emitter.line(resultLast + " = load ptr, ptr " + resultHandle);
+      emitter.line("store ptr " + resultLast + ", ptr " + newNode);
+      const std::string newNextPointer = emitter.freshTemp();
+      emitter.line(newNextPointer + " = getelementptr i8, ptr " + newNode + ", i32 8");
+      emitter.line("store ptr " + resultHandle + ", ptr " + newNextPointer);
+      const std::string resultLastNextPointer = emitter.freshTemp();
+      emitter.line(resultLastNextPointer + " = getelementptr i8, ptr " + resultLast + ", i32 8");
+      emitter.line("store ptr " + newNode + ", ptr " + resultLastNextPointer);
+      emitter.line("store ptr " + newNode + ", ptr " + resultHandle);
+
+      const std::string leftNextPointer = emitter.freshTemp();
+      emitter.line(leftNextPointer + " = getelementptr i8, ptr " + leftNode + ", i32 8");
+      const std::string leftNext = emitter.freshTemp();
+      emitter.line(leftNext + " = load ptr, ptr " + leftNextPointer);
+      emitter.line("store ptr " + leftNext + ", ptr " + leftNodeSlot);
+      const std::string rightNextPointer = emitter.freshTemp();
+      emitter.line(rightNextPointer + " = getelementptr i8, ptr " + rightNode + ", i32 8");
+      const std::string rightNext = emitter.freshTemp();
+      emitter.line(rightNext + " = load ptr, ptr " + rightNextPointer);
+      emitter.line("store ptr " + rightNext + ", ptr " + rightNodeSlot);
+      const std::string nextIndex = emitter.freshTemp();
+      emitter.line(nextIndex + " = add i32 " + index + ", 1");
+      emitter.line("store i32 " + nextIndex + ", ptr " + indexSlot);
+      emitter.emitBranch(conditionLabel);
+      emitter.emitLabel(endLabel);
+      emitter.line("store i32 " + leftLength + ", ptr " + resultLengthPointer);
+    }
+
+    const std::string result = emitter.freshTemp();
+    emitter.line(result + " = insertvalue " + LLVMType(left.type) + " undef, ptr " + resultHandle +
+                 ", 0");
+    return Value{result, left.type};
+  }
+
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateElementAddExpression(
+      const Value& left, const Value& right, IREmitter& emitter,
+      FunctionCodegenContext& context) const {
+    if (left.type != right.type) {
+      throw CompileError("codegen: internal error: mismatched collection element types");
+    }
+    if (left.type.kind == TypeKind::Array) {
+      return generateArrayAddExpression(left, right, emitter, context);
+    }
+    if (left.type == Type::str()) {
+      return generateStringConcatExpression(left, right, emitter, context);
+    }
+    const std::string result = emitter.freshTemp();
+    if (left.type == Type::f64()) {
+      emitter.line(result + " = fadd double " + left.text + ", " + right.text);
+      return Value{result, Type::f64()};
+    }
+    if (left.type == Type::i32()) {
+      emitter.line(result + " = add i32 " + left.text + ", " + right.text);
+      return Value{result, Type::i32()};
+    }
+    throw CompileError("codegen: internal error: unsupported collection element addition");
+  }
+
   LLVMGenerator::Value
-  LLVMGenerator::generateComparisonExpression(const ast::BinaryExpression& binary,
+  LLVMGenerator::ExpressionsState::generateComparisonExpression(const ast::BinaryExpression& binary,
                                               const Value& left, const Value& right,
                                               IREmitter& emitter) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
@@ -423,7 +759,7 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Value LLVMGenerator::generateNumericBinaryExpression(
+  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateNumericBinaryExpression(
       const ast::BinaryExpression& binary, const Value& left, const Value& right,
       IREmitter& emitter, FunctionCodegenContext& context) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
@@ -443,7 +779,7 @@ namespace noria {
       const std::string operation = division ? "division" : "remainder";
       const std::string divisorNonZero = emitter.freshTemp();
       emitter.line(divisorNonZero + " = icmp ne i32 " + right.text + ", 0");
-      emitTrapUnless(divisorNonZero, "integer.divisor", emitter, context,
+      generator().emitTrapUnless(divisorNonZero, "integer.divisor", emitter, context,
                      "integer " + operation + " by zero\n");
 
       const std::string leftIsMin = emitter.freshTemp();
@@ -455,12 +791,12 @@ namespace noria {
       emitter.line(overflows + " = and i1 " + leftIsMin + ", " + rightIsNegativeOne);
       const std::string noOverflow = emitter.freshTemp();
       emitter.line(noOverflow + " = xor i1 " + overflows + ", true");
-      emitTrapUnless(noOverflow, "integer.overflow", emitter, context,
+      generator().emitTrapUnless(noOverflow, "integer.overflow", emitter, context,
                      "integer " + operation + " overflow\n");
     } else if (info->integerSafetyRule == IntegerSafetyRule::ShiftCount) {
       const std::string countInRange = emitter.freshTemp();
       emitter.line(countInRange + " = icmp ult i32 " + right.text + ", 32");
-      emitTrapUnless(countInRange, "integer.shift", emitter, context,
+      generator().emitTrapUnless(countInRange, "integer.shift", emitter, context,
                      "integer shift count out of range (expected 0..31)\n");
     }
 

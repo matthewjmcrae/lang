@@ -1,0 +1,16 @@
+import std::set::{Set, set_insert, set_new};
+
+fn main() -> i32 {
+  let seen: Set<i32> = set_new(0);
+  if seen[1] {
+    return 1;
+  }
+  seen = set_insert(seen, 1);
+  if !seen[1] {
+    return 2;
+  }
+  if seen[2] {
+    return 3;
+  }
+  return 0;
+}

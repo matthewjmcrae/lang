@@ -116,8 +116,12 @@ namespace noria::monomorphize_detail {
 
     ast::Function specialized = ast::cloneFunction(templated);
     specialized.name = mangleSpecialization(templated.name, typeArgs);
+    if (!templated.returnType) {
+      throw CompileError("monomorphize: generic function '" + templated.name +
+                         "' has an unresolved return type");
+    }
     specialized.returnType =
-        rewriteAppliedStructType(substituteType(templated.returnType, substitution));
+        rewriteAppliedStructType(substituteType(*templated.returnType, substitution));
     specialized.implTag.reset();
     specialized.typeParams.clear();
     for (ast::Parameter& parameter : specialized.parameters) {

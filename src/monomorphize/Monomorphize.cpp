@@ -302,7 +302,8 @@ namespace noria {
 
     rewriteFinalSpecializations(module, accumulated);
     stripGenericTemplates(module);
-    return MonomorphizationResult{cache.functionSpecializationTypeArgs()};
+    return MonomorphizationResult{cache.functionSpecializationTypeArgs(),
+                                  cache.structSpecializationTypeArgs()};
   }
 
 } // namespace noria

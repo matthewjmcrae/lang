@@ -1,5 +1,4 @@
-#include "CodegenInternal.hpp"
-#include "CodegenStrategy.hpp"
+#include "CodegenState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -21,10 +20,9 @@ namespace noria {
   using namespace codegen_detail;
 
   std::optional<LLVMGenerator::Value>
-  LLVMGenerator::tryGenerateBuiltinCall(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::tryGenerateBuiltinCall(const ast::CallExpression& call, IREmitter& emitter,
                                               FunctionCodegenContext& context,
                                               const std::vector<Scope>& scopes) const {
-    const auto strategy = activate(CodegenStrategyKind::Builtins);
 
     const BuiltinSignature* descriptor = lookupBuiltin(call.callee);
     if (descriptor == nullptr)
@@ -37,32 +35,32 @@ namespace noria {
     return std::nullopt;
   }
 
-  std::optional<LLVMGenerator::BuiltinEmitter>
-  LLVMGenerator::builtinEmitterFor(BuiltinId id) const {
+  std::optional<LLVMGenerator::BuiltinsState::BuiltinEmitter>
+  LLVMGenerator::BuiltinsState::builtinEmitterFor(BuiltinId id) const {
     static constexpr std::array<std::pair<BuiltinId, BuiltinEmitter>, 23> emitters{{
-        {BuiltinId::Println, &LLVMGenerator::emitPrintlnBuiltin},
-        {BuiltinId::Print, &LLVMGenerator::emitPrintBuiltin},
-        {BuiltinId::PrintInt, &LLVMGenerator::emitPrintIntBuiltin},
-        {BuiltinId::PrintFloat, &LLVMGenerator::emitPrintFloatBuiltin},
-        {BuiltinId::PrintChar, &LLVMGenerator::emitPrintCharBuiltin},
-        {BuiltinId::Sqrt, &LLVMGenerator::emitSqrtBuiltin},
-        {BuiltinId::Pow, &LLVMGenerator::emitPowBuiltin},
-        {BuiltinId::Len, &LLVMGenerator::emitLenBuiltin},
-        {BuiltinId::RtAlloc, &LLVMGenerator::emitRtAllocBuiltin},
-        {BuiltinId::RtRealloc, &LLVMGenerator::emitRtReallocBuiltin},
-        {BuiltinId::RtRelease, &LLVMGenerator::emitRtReleaseBuiltin},
-        {BuiltinId::RtSizeof, &LLVMGenerator::emitRtSizeofBuiltin},
-        {BuiltinId::RtLoad, &LLVMGenerator::emitRtLoadBuiltin},
-        {BuiltinId::RtStore, &LLVMGenerator::emitRtStoreBuiltin},
-        {BuiltinId::RtLoadPtr, &LLVMGenerator::emitRtLoadPtrBuiltin},
-        {BuiltinId::RtStorePtr, &LLVMGenerator::emitRtStorePtrBuiltin},
-        {BuiltinId::RtLoadI32, &LLVMGenerator::emitRtLoadI32Builtin},
-        {BuiltinId::RtStoreI32, &LLVMGenerator::emitRtStoreI32Builtin},
-        {BuiltinId::RtTrap, &LLVMGenerator::emitRtTrapBuiltin},
-        {BuiltinId::RtNull, &LLVMGenerator::emitRtNullBuiltin},
-        {BuiltinId::RtPtrEq, &LLVMGenerator::emitRtPtrEqBuiltin},
-        {BuiltinId::RtHash, &LLVMGenerator::emitRtHashBuiltin},
-        {BuiltinId::RtByteOffset, &LLVMGenerator::emitRtByteOffsetBuiltin},
+        {BuiltinId::Println, &BuiltinsState::emitPrintlnBuiltin},
+        {BuiltinId::Print, &BuiltinsState::emitPrintBuiltin},
+        {BuiltinId::PrintInt, &BuiltinsState::emitPrintIntBuiltin},
+        {BuiltinId::PrintFloat, &BuiltinsState::emitPrintFloatBuiltin},
+        {BuiltinId::PrintChar, &BuiltinsState::emitPrintCharBuiltin},
+        {BuiltinId::Sqrt, &BuiltinsState::emitSqrtBuiltin},
+        {BuiltinId::Pow, &BuiltinsState::emitPowBuiltin},
+        {BuiltinId::Len, &BuiltinsState::emitLenBuiltin},
+        {BuiltinId::RtAlloc, &BuiltinsState::emitRtAllocBuiltin},
+        {BuiltinId::RtRealloc, &BuiltinsState::emitRtReallocBuiltin},
+        {BuiltinId::RtRelease, &BuiltinsState::emitRtReleaseBuiltin},
+        {BuiltinId::RtSizeof, &BuiltinsState::emitRtSizeofBuiltin},
+        {BuiltinId::RtLoad, &BuiltinsState::emitRtLoadBuiltin},
+        {BuiltinId::RtStore, &BuiltinsState::emitRtStoreBuiltin},
+        {BuiltinId::RtLoadPtr, &BuiltinsState::emitRtLoadPtrBuiltin},
+        {BuiltinId::RtStorePtr, &BuiltinsState::emitRtStorePtrBuiltin},
+        {BuiltinId::RtLoadI32, &BuiltinsState::emitRtLoadI32Builtin},
+        {BuiltinId::RtStoreI32, &BuiltinsState::emitRtStoreI32Builtin},
+        {BuiltinId::RtTrap, &BuiltinsState::emitRtTrapBuiltin},
+        {BuiltinId::RtNull, &BuiltinsState::emitRtNullBuiltin},
+        {BuiltinId::RtPtrEq, &BuiltinsState::emitRtPtrEqBuiltin},
+        {BuiltinId::RtHash, &BuiltinsState::emitRtHashBuiltin},
+        {BuiltinId::RtByteOffset, &BuiltinsState::emitRtByteOffsetBuiltin},
     }};
 
     for (const auto& [candidate, emitter] : emitters) {
@@ -74,7 +72,7 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPrintlnBuiltin(const ast::CallExpression&, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPrintlnBuiltin(const ast::CallExpression&, IREmitter& emitter,
                                           FunctionCodegenContext&,
                                           const std::vector<Scope>&) const {
     emitter.line("call i32 @putchar(i32 10)");
@@ -82,10 +80,10 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPrintBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPrintBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                         FunctionCodegenContext& context,
                                         const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string formatPointer = emitter.freshTemp();
     emitter.line(formatPointer +
                  " = getelementptr inbounds [3 x i8], ptr @.fmt.str, i32 0, i32 0");
@@ -95,19 +93,19 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPrintIntBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPrintIntBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                            FunctionCodegenContext& context,
                                            const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     emitter.line("call void @noria_print_int(i32 " + argument.text + ")");
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPrintFloatBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPrintFloatBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                              FunctionCodegenContext& context,
                                              const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string formatPointer = emitter.freshTemp();
     emitter.line(formatPointer +
                  " = getelementptr inbounds [3 x i8], ptr @.fmt.float, i32 0, i32 0");
@@ -117,30 +115,30 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPrintCharBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPrintCharBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     emitter.line("call i32 @putchar(i32 " + argument.text + ")");
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitSqrtBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitSqrtBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                        FunctionCodegenContext& context,
                                        const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = call double @llvm.sqrt.f64(double " + argument.text + ")");
     return Value{result, Type::f64()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitPowBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitPowBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                       FunctionCodegenContext& context,
                                       const std::vector<Scope>& scopes) const {
-    const Value base = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value exponent = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value base = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value exponent = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = call double @llvm.pow.f64(double " + base.text + ", double " +
                  exponent.text + ")");
@@ -148,10 +146,10 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitLenBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitLenBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                       FunctionCodegenContext& context,
                                       const std::vector<Scope>& scopes) const {
-    const Value argument = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     if (argument.type == Type::str()) {
       const std::string length = emitter.freshTemp();
       emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
@@ -168,43 +166,43 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtAllocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtAllocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                           FunctionCodegenContext& context,
                                           const std::vector<Scope>& scopes) const {
-    const Value size = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value size = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string size64 = emitter.freshTemp();
     emitter.line(size64 + " = sext i32 " + size.text + " to i64");
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = call ptr @malloc(i64 " + size64 + ")");
-    emitNullPointerCheck(result, emitter, context);
+    generator().emitNullPointerCheck(result, emitter, context);
     return Value{result, Type::rawPtr()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtReallocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtReallocBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value size = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value size = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string size64 = emitter.freshTemp();
     emitter.line(size64 + " = sext i32 " + size.text + " to i64");
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = call ptr @realloc(ptr " + pointer.text + ", i64 " + size64 + ")");
-    emitNullPointerCheck(result, emitter, context);
+    generator().emitNullPointerCheck(result, emitter, context);
     return Value{result, Type::rawPtr()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtReleaseBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtReleaseBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     emitter.line("call void @free(ptr " + pointer.text + ")");
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtSizeofBuiltin(const ast::CallExpression&, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtSizeofBuiltin(const ast::CallExpression&, IREmitter& emitter,
                                            FunctionCodegenContext& context,
                                            const std::vector<Scope>&) const {
     const Type witness =
@@ -215,97 +213,97 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtLoadBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtLoadBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                          FunctionCodegenContext& context,
                                          const std::vector<Scope>& scopes) const {
     const Type witness =
         resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, witness, emitter);
-    const std::string loaded = emitBufferLoad(witness, elementPointer, emitter);
+        generator().emitRawBufferElementPointer(pointer, index, witness, emitter);
+    const std::string loaded = generator().emitBufferLoad(witness, elementPointer, emitter);
     return Value{loaded, witness};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtStoreBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtStoreBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                           FunctionCodegenContext& context,
                                           const std::vector<Scope>& scopes) const {
     const Type witness =
         resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generator().generateRvalue(*call.arguments[2], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, witness, emitter);
-    emitBufferStore(witness, value.text, elementPointer, emitter);
+        generator().emitRawBufferElementPointer(pointer, index, witness, emitter);
+    generator().emitBufferStore(witness, value.text, elementPointer, emitter);
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtLoadPtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtLoadPtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+        generator().emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
     const std::string loaded = emitter.freshTemp();
     emitter.line(loaded + " = load ptr, ptr " + elementPointer);
     return Value{loaded, Type::rawPtr()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtStorePtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtStorePtrBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                              FunctionCodegenContext& context,
                                              const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generator().generateRvalue(*call.arguments[2], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
+        generator().emitRawBufferElementPointer(pointer, index, Type::rawPtr(), emitter);
     emitter.line("store ptr " + value.text + ", ptr " + elementPointer);
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtLoadI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtLoadI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
                                             FunctionCodegenContext& context,
                                             const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+        generator().emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
     const std::string loaded = emitter.freshTemp();
     emitter.line(loaded + " = load i32, ptr " + elementPointer);
     return Value{loaded, Type::i32()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtStoreI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtStoreI32Builtin(const ast::CallExpression& call, IREmitter& emitter,
                                              FunctionCodegenContext& context,
                                              const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value index = generateRvalue(*call.arguments[1], emitter, context, scopes);
-    const Value value = generateRvalue(*call.arguments[2], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value value = generator().generateRvalue(*call.arguments[2], emitter, context, scopes);
     const std::string elementPointer =
-        emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
+        generator().emitRawBufferElementPointer(pointer, index, Type::i32(), emitter);
     emitter.line("store i32 " + value.text + ", ptr " + elementPointer);
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtTrapBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtTrapBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                          FunctionCodegenContext& context,
                                          const std::vector<Scope>& scopes) const {
-    const Value message = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value message = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     emitter.line("call void @\"__noria.rt.trap\"(ptr " + message.text + ")");
     return Value{"", Type::voidType()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtNullBuiltin(const ast::CallExpression&, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtNullBuiltin(const ast::CallExpression&, IREmitter& emitter,
                                          FunctionCodegenContext&, const std::vector<Scope>&) const {
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = inttoptr i64 0 to ptr");
@@ -313,23 +311,23 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtPtrEqBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtPtrEqBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                           FunctionCodegenContext& context,
                                           const std::vector<Scope>& scopes) const {
-    const Value left = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value right = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value left = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value right = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = icmp eq ptr " + left.text + ", " + right.text);
     return Value{result, Type::boolean()};
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtHashBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtHashBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                          FunctionCodegenContext& context,
                                          const std::vector<Scope>& scopes) const {
     const Type witness =
         resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
-    const Value key = generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value key = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const std::string result = emitter.freshTemp();
     if (witness == Type::i32()) {
       const std::string mixed = emitter.freshTemp();
@@ -350,11 +348,11 @@ namespace noria {
   }
 
   LLVMGenerator::Value
-  LLVMGenerator::emitRtByteOffsetBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+  LLVMGenerator::BuiltinsState::emitRtByteOffsetBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                                FunctionCodegenContext& context,
                                                const std::vector<Scope>& scopes) const {
-    const Value pointer = generateRvalue(*call.arguments[0], emitter, context, scopes);
-    const Value bytes = generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value bytes = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = getelementptr i8, ptr " + pointer.text + ", i32 " + bytes.text);
     return Value{result, Type::rawPtr()};

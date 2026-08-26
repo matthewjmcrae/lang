@@ -1,3 +1,3 @@
-fn helper() -> i32 {
+helper missing_entry() -> i32 {
   return 0;
 }

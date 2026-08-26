@@ -1,7 +1,7 @@
-fn main() -> i32 {
-  let A: i32 = 1;
-  if (A < 2) {
-    return 1;
+FN Main() -> I32 {
+  LET Answer: I32 = 1;
+  IF (aNsWeR < 2) {
+    RETURN ANSWER;
   }
-  return 0;
+  RETURN 0;
 }

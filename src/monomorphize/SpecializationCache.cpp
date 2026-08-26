@@ -157,6 +157,7 @@ namespace noria::monomorphize_detail {
               compilerCache->cloneStdlibStructSpecialization(*cacheKey)) {
         module.structs.push_back(std::move(*cached));
         registry.emittedStructs.insert(mangledName);
+        registry.structTypeArgs.emplace(mangledName, request.typeArgs);
         return 1;
       }
     }
@@ -173,6 +174,7 @@ namespace noria::monomorphize_detail {
     }
     module.structs.push_back(std::move(specialized));
     registry.emittedStructs.insert(mangledName);
+    registry.structTypeArgs.emplace(mangledName, request.typeArgs);
     return 1;
   }
 
@@ -226,6 +228,11 @@ namespace noria {
   const std::unordered_map<std::string, std::vector<Type>>&
   SpecializationCache::functionSpecializationTypeArgs() const {
     return impl_->registry.functionTypeArgs;
+  }
+
+  const std::unordered_map<std::string, std::vector<Type>>&
+  SpecializationCache::structSpecializationTypeArgs() const {
+    return impl_->registry.structTypeArgs;
   }
 
 } // namespace noria

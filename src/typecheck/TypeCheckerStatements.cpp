@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,24 +20,24 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  TypeChecker::StatementVisitor::StatementVisitor(TypeChecker& checker, Type expectedReturnType)
-      : StatementOnlyVisitor("typecheck"), checker_(checker),
+  TypeChecker::StatementsState::StatementVisitor::StatementVisitor(StatementsState& state, Type expectedReturnType)
+      : StatementOnlyVisitor("typecheck"), state_(state),
         expectedReturnType_(expectedReturnType) {}
 
-  void TypeChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
-    const bool allowInternal = checker_.isStdlibContext();
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+    const bool allowInternal = state_.isStdlibContext();
     std::optional<Type> declaredType = letStatement.declaredType;
     if (declaredType) {
-      checker_.requireKnownType(*declaredType, letStatement.location, nullptr, false,
+      state_.requireKnownType(*declaredType, letStatement.location, nullptr, false,
                                 allowInternal);
     }
 
     Type localType;
     if (letStatement.initializer) {
-      const Type initializerType = checker_.checkRvalue(*letStatement.initializer, declaredType);
+      const Type initializerType = state_.checkRvalue(*letStatement.initializer, declaredType);
       if (declaredType) {
         localType = *declaredType;
-        if (!checker_.isAssignable(localType, initializerType)) {
+        if (!state_.isAssignable(localType, initializerType)) {
           throw CompileError(
               formatDiagnostic(letStatement.initializer->location, DiagnosticStage::TypeCheck,
                                "cannot initialize '" + letStatement.name + "' of type " +
@@ -50,7 +50,7 @@ namespace noria {
               letStatement.initializer->location, DiagnosticStage::TypeCheck,
               "cannot infer local variable '" + letStatement.name + "' from void initializer"));
         }
-        checker_.requireKnownType(localType, letStatement.location, nullptr, false, allowInternal);
+        state_.requireKnownType(localType, letStatement.location, nullptr, false, allowInternal);
       }
     } else {
       if (!declaredType) {
@@ -59,6 +59,7 @@ namespace noria {
                                                 "' requires a type or initializer"));
       }
       localType = *declaredType;
+      state_.requireDefaultInitializable(localType, letStatement.location);
     }
 
     if (localType == Type::voidType()) {
@@ -67,7 +68,7 @@ namespace noria {
                            "local variable '" + letStatement.name + "' cannot have type void"));
     }
 
-    if (!checker_.declareLocal(letStatement.name, localType)) {
+    if (!state_.declareLocal(letStatement.name, localType)) {
       throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
                                           "duplicate local variable '" + letStatement.name + "'"));
     }
@@ -75,11 +76,11 @@ namespace noria {
     returned_ = false;
   }
 
-  void TypeChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
-    const auto place = checker_.checkPlace(*assignmentStatement.lhs);
-    const Type valueType = checker_.checkRvalue(*assignmentStatement.rhs, place.type);
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
+    const auto place = state_.checkPlace(*assignmentStatement.lhs);
+    const Type valueType = state_.checkRvalue(*assignmentStatement.rhs, place.type);
 
-    if (!checker_.isAssignable(place.type, valueType)) {
+    if (!state_.isAssignable(place.type, valueType)) {
       throw CompileError(formatDiagnostic(assignmentStatement.rhs->location,
                                           DiagnosticStage::TypeCheck,
                                           "cannot assign " + valueType.name() + " to variable '" +
@@ -89,7 +90,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void TypeChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
     if (!returnStatement.expression) {
       if (expectedReturnType_ != Type::voidType()) {
         throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
@@ -104,9 +105,9 @@ namespace noria {
                                           "void function cannot return a value"));
     }
 
-    const Type returnType = checker_.checkRvalue(*returnStatement.expression, expectedReturnType_);
+    const Type returnType = state_.checkRvalue(*returnStatement.expression, expectedReturnType_);
 
-    if (!checker_.isAssignable(expectedReturnType_, returnType)) {
+    if (!state_.isAssignable(expectedReturnType_, returnType)) {
       throw CompileError(
           formatDiagnostic(returnStatement.expression->location, DiagnosticStage::TypeCheck,
                            "return type " + returnType.name() + " does not match expected " +
@@ -116,46 +117,46 @@ namespace noria {
     returned_ = true;
   }
 
-  void TypeChecker::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
-    const Type conditionType = checker_.checkRvalue(*ifStatement.condition);
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+    const Type conditionType = state_.checkRvalue(*ifStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
           formatDiagnostic(ifStatement.condition->location, DiagnosticStage::TypeCheck,
                            "if condition must be bool, got " + conditionType.name()));
     }
 
-    checker_.pushScope();
-    const bool thenReturns = checker_.checkStatements(ifStatement.thenBranch, expectedReturnType_);
-    checker_.popScope();
+    state_.pushScope();
+    const bool thenReturns = state_.checkStatements(ifStatement.thenBranch, expectedReturnType_);
+    state_.popScope();
 
-    checker_.pushScope();
-    const bool elseReturns = checker_.checkStatements(ifStatement.elseBranch, expectedReturnType_);
-    checker_.popScope();
+    state_.pushScope();
+    const bool elseReturns = state_.checkStatements(ifStatement.elseBranch, expectedReturnType_);
+    state_.popScope();
 
     returned_ = thenReturns && elseReturns;
   }
 
-  void TypeChecker::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
-    const Type conditionType = checker_.checkRvalue(*whileStatement.condition);
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+    const Type conditionType = state_.checkRvalue(*whileStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
           formatDiagnostic(whileStatement.condition->location, DiagnosticStage::TypeCheck,
                            "while condition must be bool, got " + conditionType.name()));
     }
 
-    checker_.pushScope();
-    checker_.checkStatements(whileStatement.body, expectedReturnType_);
-    checker_.popScope();
+    state_.pushScope();
+    state_.checkStatements(whileStatement.body, expectedReturnType_);
+    state_.popScope();
     returned_ = false;
   }
 
-  void TypeChecker::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
+  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
     if (dynamic_cast<const ast::CallExpression*>(expressionStatement.expression.get()) == nullptr) {
       throw CompileError(formatDiagnostic(expressionStatement.location, DiagnosticStage::TypeCheck,
                                           "expression statement must be a function call"));
     }
 
-    const Type expressionType = checker_.checkRvalue(*expressionStatement.expression);
+    const Type expressionType = state_.checkRvalue(*expressionStatement.expression);
     if (expressionType != Type::voidType()) {
       throw CompileError(formatDiagnostic(expressionStatement.expression->location,
                                           DiagnosticStage::TypeCheck,

@@ -39,6 +39,16 @@ int main() {
   expect(noria::implementationTagTable().size() == 4, "all implementation tags have metadata");
   expect(noria::requiredOperationTable().size() == 3, "all required operations have metadata");
 
+  const std::optional<ImplementationTag> hashmapTag =
+      noria::implementationTagFromName("hashmap");
+  const std::optional<ImplementationTag> hashsetTag =
+      noria::implementationTagFromName("hashset");
+  expect(hashmapTag && *hashmapTag == ImplementationTag::Hashmap,
+         "hashmap spelling resolves to hashmap tag");
+  expect(hashsetTag && *hashsetTag == ImplementationTag::Hashmap,
+         "hashset spelling resolves to hashmap tag");
+  expect(hashmapTag == hashsetTag, "hashmap and hashset spellings resolve identically");
+
   const noria::BinaryOperatorInfo* addInfo = noria::binaryOperatorInfo(BinaryOperator::Add);
   expect(addInfo != nullptr, "add operator info exists");
   if (addInfo != nullptr) {

@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"

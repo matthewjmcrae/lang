@@ -1,0 +1,6 @@
+fn main() -> i32 {
+  let numbers: [i32] = [1, 2];
+  let flags: [bool] = [true, false];
+  let sum = numbers + flags;
+  return 0;
+}

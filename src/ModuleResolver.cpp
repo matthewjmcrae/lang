@@ -5,6 +5,7 @@
 #include "noria/Diagnostic.hpp"
 #include "noria/Lexer.hpp"
 #include "noria/Parser.hpp"
+#include "noria/SemanticTables.hpp"
 #include "noria/Types.hpp"
 
 #include <fstream>
@@ -16,6 +17,129 @@
 namespace noria {
 
   namespace {
+
+    std::optional<ImplementationTag> defaultImplementationFor(
+        const std::string& structName, std::size_t typeArgumentCount,
+        const SymbolOrigins& symbolOrigins) {
+      const auto origin = symbolOrigins.structs.find(structName);
+      if (origin == symbolOrigins.structs.end()) {
+        return std::nullopt;
+      }
+
+      if (origin->second == "std::sequence" &&
+          (structName == "Sequence" || structName == "sequence") &&
+          typeArgumentCount == 1) {
+        return ImplementationTag::Arr;
+      }
+      if (origin->second == "std::set" && (structName == "Set" || structName == "set") &&
+          typeArgumentCount == 1) {
+        return ImplementationTag::Hashmap;
+      }
+      if (origin->second == "std::dictionary" &&
+          (structName == "Dictionary" || structName == "dictionary") &&
+          typeArgumentCount == 2) {
+        return ImplementationTag::Hashmap;
+      }
+      return std::nullopt;
+    }
+
+    void normalizeType(Type& type, const SymbolOrigins& symbolOrigins) {
+      if (type.kind == TypeKind::Array) {
+        if (type.element) {
+          normalizeType(*type.element, symbolOrigins);
+        }
+        return;
+      }
+      if (type.kind != TypeKind::Struct) {
+        return;
+      }
+
+      for (Type& typeArgument : type.typeArgs) {
+        normalizeType(typeArgument, symbolOrigins);
+      }
+      if (const auto defaultTag =
+              defaultImplementationFor(type.structName, type.typeArgs.size(), symbolOrigins)) {
+        type.typeArgs.push_back(Type::implementationTag(*defaultTag));
+      }
+    }
+
+    void normalizeExpression(ast::Expression& expression, const SymbolOrigins& symbolOrigins);
+
+    void normalizeStatement(ast::Statement& statement, const SymbolOrigins& symbolOrigins);
+
+    void normalizeExpressionList(
+        std::vector<std::unique_ptr<ast::Expression>>& expressions,
+        const SymbolOrigins& symbolOrigins) {
+      for (auto& expression : expressions) {
+        normalizeExpression(*expression, symbolOrigins);
+      }
+    }
+
+    void normalizeStatementList(std::vector<std::unique_ptr<ast::Statement>>& statements,
+                                const SymbolOrigins& symbolOrigins) {
+      for (auto& statement : statements) {
+        normalizeStatement(*statement, symbolOrigins);
+      }
+    }
+
+    void normalizeExpression(ast::Expression& expression, const SymbolOrigins& symbolOrigins) {
+      if (auto* cast = dynamic_cast<ast::CastExpression*>(&expression)) {
+        normalizeType(cast->targetType, symbolOrigins);
+        normalizeExpression(*cast->expression, symbolOrigins);
+      } else if (auto* unary = dynamic_cast<ast::UnaryExpression*>(&expression)) {
+        normalizeExpression(*unary->operand, symbolOrigins);
+      } else if (auto* binary = dynamic_cast<ast::BinaryExpression*>(&expression)) {
+        normalizeExpression(*binary->left, symbolOrigins);
+        normalizeExpression(*binary->right, symbolOrigins);
+      } else if (auto* call = dynamic_cast<ast::CallExpression*>(&expression)) {
+        normalizeExpressionList(call->arguments, symbolOrigins);
+      } else if (auto* array = dynamic_cast<ast::ArrayLiteral*>(&expression)) {
+        normalizeExpressionList(array->elements, symbolOrigins);
+      } else if (auto* index = dynamic_cast<ast::IndexExpression*>(&expression)) {
+        normalizeExpression(*index->base, symbolOrigins);
+        normalizeExpression(*index->index, symbolOrigins);
+      } else if (auto* literal = dynamic_cast<ast::StructLiteral*>(&expression)) {
+        for (Type& typeArgument : literal->typeArgs) {
+          normalizeType(typeArgument, symbolOrigins);
+        }
+        if (const auto defaultTag = defaultImplementationFor(
+                literal->structName, literal->typeArgs.size(), symbolOrigins)) {
+          literal->typeArgs.push_back(Type::implementationTag(*defaultTag));
+        }
+        for (auto& field : literal->fields) {
+          normalizeExpression(*field.value, symbolOrigins);
+        }
+      } else if (auto* fieldAccess = dynamic_cast<ast::FieldAccessExpression*>(&expression)) {
+        normalizeExpression(*fieldAccess->base, symbolOrigins);
+      }
+    }
+
+    void normalizeStatement(ast::Statement& statement, const SymbolOrigins& symbolOrigins) {
+      if (auto* returnStatement = dynamic_cast<ast::ReturnStatement*>(&statement)) {
+        if (returnStatement->expression) {
+          normalizeExpression(*returnStatement->expression, symbolOrigins);
+        }
+      } else if (auto* let = dynamic_cast<ast::LetStatement*>(&statement)) {
+        if (let->declaredType) {
+          normalizeType(*let->declaredType, symbolOrigins);
+        }
+        if (let->initializer) {
+          normalizeExpression(*let->initializer, symbolOrigins);
+        }
+      } else if (auto* conditional = dynamic_cast<ast::IfStatement*>(&statement)) {
+        normalizeExpression(*conditional->condition, symbolOrigins);
+        normalizeStatementList(conditional->thenBranch, symbolOrigins);
+        normalizeStatementList(conditional->elseBranch, symbolOrigins);
+      } else if (auto* loop = dynamic_cast<ast::WhileStatement*>(&statement)) {
+        normalizeExpression(*loop->condition, symbolOrigins);
+        normalizeStatementList(loop->body, symbolOrigins);
+      } else if (auto* assignment = dynamic_cast<ast::AssignmentStatement*>(&statement)) {
+        normalizeExpression(*assignment->lhs, symbolOrigins);
+        normalizeExpression(*assignment->rhs, symbolOrigins);
+      } else if (auto* expressionStatement = dynamic_cast<ast::ExpressionStatement*>(&statement)) {
+        normalizeExpression(*expressionStatement->expression, symbolOrigins);
+      }
+    }
 
     [[noreturn]] void throwResolverError(SourceLocation location, const std::string& modulePath,
                                          std::string_view message) {
@@ -390,6 +514,60 @@ namespace noria {
                          "module '" + modulePath + "' does not export '" + importedName.name + "'");
     }
 
+    void mergeHiddenContainerOperation(ast::Module& merged, const ast::Module& sourceModule,
+                                       const std::string& modulePath, StandardContainer container,
+                                       ContainerOperation operation, SymbolOrigins& symbolOrigins) {
+      const std::string sourceName(containerOperationSourceName(container, operation));
+      const std::string hiddenName(containerOperationHiddenName(container, operation));
+      if (sourceName.empty() || hiddenName.empty() || symbolOrigins.functions.contains(hiddenName)) {
+        return;
+      }
+
+      for (ast::Function& function : cloneFunctionFamily(sourceModule, sourceName)) {
+        function.name = hiddenName;
+        merged.functions.push_back(std::move(function));
+      }
+      symbolOrigins.functions.emplace(hiddenName, modulePath);
+      symbolOrigins.hiddenFunctions.insert(hiddenName);
+    }
+
+    void mergeHiddenContainerOperations(ast::Module& merged, const ast::Module& sourceModule,
+                                        const std::string& modulePath,
+                                        const ast::ImportedName& importedName,
+                                        SymbolOrigins& symbolOrigins) {
+      const StandardContainerInfo* info = standardContainerInfo(modulePath, importedName.name);
+      if (info == nullptr || !findStruct(sourceModule, importedName.name)) {
+        return;
+      }
+
+      switch (info->kind) {
+      case StandardContainer::Sequence:
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::New, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Get, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Set, symbolOrigins);
+        return;
+      case StandardContainer::Dictionary:
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::New, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Get, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Contains, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Insert, symbolOrigins);
+        return;
+      case StandardContainer::Set:
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::New, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Contains, symbolOrigins);
+        return;
+      }
+    }
+
     void mergeStdlibDependencies(ast::Module& merged, const ast::Module& stdlibModule,
                                  Resolver& resolver, SymbolOrigins& symbolOrigins,
                                  std::unordered_set<std::string>& mergedStdlibModules,
@@ -429,6 +607,8 @@ namespace noria {
 
         for (const auto& importedName : importDecl.names) {
           mergeImportedName(merged, dependency, modulePath, importedName, symbolOrigins);
+          mergeHiddenContainerOperations(merged, dependency, modulePath, importedName,
+                                         symbolOrigins);
         }
 
         if (isStdlibModulePath(modulePath)) {
@@ -515,6 +695,27 @@ namespace noria {
                            symbolOrigins, "", mergedStdlibModules);
     resolved.symbolOrigins = std::move(symbolOrigins);
     return resolved;
+  }
+
+  void applyDefaultAdtImplementations(ast::Module& module,
+                                      const SymbolOrigins& symbolOrigins) {
+    for (auto& structDecl : module.structs) {
+      for (auto& field : structDecl.fields) {
+        normalizeType(field.type, symbolOrigins);
+      }
+    }
+
+    for (auto& function : module.functions) {
+      if (function.returnType) {
+        normalizeType(*function.returnType, symbolOrigins);
+      }
+      for (auto& parameter : function.parameters) {
+        normalizeType(parameter.type, symbolOrigins);
+      }
+      for (auto& statement : function.body) {
+        normalizeStatement(*statement, symbolOrigins);
+      }
+    }
   }
 
 } // namespace noria

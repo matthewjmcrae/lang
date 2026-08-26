@@ -32,6 +32,11 @@ completing control-flow path with a bare `return;`.
 
 Noria does not perform implicit conversions among `i32`, `bool`, `f64`, or `str`. Use `as` casts where conversions are supported (see [Casts](#casts)).
 
+Names in Noria are case-insensitive. Identifiers and keywords are normalized to lowercase during
+lexing, so `Main`, `main`, and `MAIN` refer to the same name. String literal contents retain their
+original casing. Because of that folding, a type parameter `I` is the same name as a local `i`;
+write `name: Type` in that situation (`let i: i32`) rather than type-first `Type: name`.
+
 ## Program Structure
 
 A Noria program is a list of optional import declarations followed by struct and function declarations.
@@ -103,7 +108,7 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(n) shift; insert at index in `[0, len]`; traps otherwise | O(n); walk to index + link; insert at index in `[0, len]`; traps otherwise |
 | `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(n) shift; remove at index in `[0, len)`; traps otherwise | O(n); walk + unlink; remove at index in `[0, len)`; traps otherwise |
 
-Callers select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`). A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint.
+Callers may select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`); omitting it defaults to `arr` (`Sequence<i32>`). A typed `Sequence<T>` local without an initializer is an empty sequence, equivalent to `sequence_new` with a default sample. Index a sequence with `s[i]` like a C++ `vector`: the result has type `T`, and `s[i] = expr` updates in place. Equal-length sequences of the same type can be added with `+` when `T` supports `+`; length mismatches trap at runtime. A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint, and an entirely unannotated constructor call still cannot infer its implementation tag.
 
 `bst` and other implementation tags are not implemented for `Sequence` yet; selecting them is a compile-time error.
 
@@ -134,7 +139,7 @@ fn main() -> i32 {
 
 ## Dictionary (bst and hashmap)
 
-`std::dictionary` exports a generic `Dictionary<K, V, I>` struct and tag-selected operation families. `bst` keys require `<` and `==`; `hashmap` keys require `==` and V2 `hash` (`i32`, `bool`, `str`).
+`std::dictionary` exports a generic `Dictionary<K, V, I>` struct and tag-selected operation families. Omitting `I` defaults to `hashmap`, so `Dictionary<K, V>` is equivalent to `Dictionary<K, V, hashmap>`. `bst` keys require `<` and `==`; `hashmap` keys require `==` and V2 `hash` (`i32`, `bool`, `str`). A typed `Dictionary<K, V>` local without an initializer is an empty dictionary. Indexing `d[k]` behaves like C++ `unordered_map`: a present key yields the value, a missing key inserts a default `V` and returns it, and `d[k] = v` inserts or updates.
 
 | Operation | Signature | bst | hashmap |
 | --- | --- | --- | --- |
@@ -170,7 +175,7 @@ fn main() -> i32 {
 
 ## Set (bst and hashmap)
 
-`std::set` exports a generic `Set<T, I>` struct and tag-selected operation families. Implementations reuse the dictionary BST/hashmap storage layout with a dummy `i32` value (same header, keys, and internal search paths as `Dictionary<T, i32, I>`). `bst` elements require `<` and `==`; `hashmap` elements require `==` and V2 `hash` (`i32`, `bool`, `str`).
+`std::set` exports a generic `Set<T, I>` struct and tag-selected operation families. Omitting `I` defaults to the hashmap implementation, so `Set<T>` is equivalent to `Set<T, hashset>`; `hashset` and `hashmap` are aliases. Implementations reuse the dictionary BST/hashmap storage layout with a dummy `i32` value (same header, keys, and internal search paths as `Dictionary<T, i32, I>`). `bst` elements require `<` and `==`; `hashmap` elements require `==` and V2 `hash` (`i32`, `bool`, `str`). A typed `Set<T>` local without an initializer is an empty set. Indexing `s[x]` is a membership test (`bool`) and does not insert; `s[x] = expr` is rejected.
 
 | Operation | Signature | bst | hashmap |
 | --- | --- | --- | --- |
@@ -232,8 +237,14 @@ fn main() -> i32 {
 
 ## Functions
 
-Functions use typed parameters and a typed return value. Parameters may be written
-name-first or type-first; both forms produce the same function signature.
+Functions use typed parameters. A trailing return annotation is optional: when omitted, the
+compiler infers one type from every `return` statement. Parameters may be written name-first or
+type-first; both forms produce the same function signature. An explicit annotation remains useful
+as documentation and is checked against the inferred body type.
+
+`fn`, `util`, `helper`, and `recfn` are interchangeable function keywords. They all parse as the
+same declaration; the spellings exist only for readability (`util` for small helpers, `recfn` for
+recursive functions, `helper` for supporting methods).
 
 ```noria
 fn add(a: i32, b: i32) -> i32 {
@@ -244,10 +255,14 @@ fn add_swapped(i32: a, b: i32) -> i32 {
   return a + b;
 }
 
-fn main() -> i32 {
+fn main() {
   return add(3, 4);
 }
 ```
+
+Bare `return;` infers `void`. All value returns must infer the same type. If a recursive cycle or
+an empty literal leaves the result underconstrained, write an explicit `-> Type` annotation.
+Empty array literals still need an expected element type, so `return [];` cannot seed inference.
 
 Every function must explicitly return on each control-flow path that can reach the end of its body. Non-void functions use `return <value>;`; void procedures use `return;`. A `while` loop is conservatively considered capable of ending, including `while true`. Statements that follow an `if`/`else` where both branches return are still type-checked, but codegen does not emit them (unreachable).
 
@@ -295,7 +310,9 @@ Each distinct specialization is monomorphized into a concrete function with a de
 
 When a generic call sits inside another specialization, type parameters that share a name with the caller (`V` in `dictionary_get<K, V>` calling `bst_load_value<V>`) are reused. Remaining parameters are inferred from arguments, then from a `let`/return expected type, then from leftover caller type arguments.
 
-Generic functions may declare tag-selected implementations after the return type. Each implementation shares the same public signature and is chosen at specialization time from the inferred implementation tag in the type arguments:
+Generic functions may declare tag-selected implementations after an optional return type. Each
+implementation shares the same public signature and is chosen at specialization time from the
+inferred implementation tag in the type arguments:
 
 ```noria
 fn kind<T, I>(b: Box<T, I>) -> i32 impl arr { return 1; }
@@ -316,7 +333,7 @@ struct Box<T> {
 
 Use type applications in annotations and struct literals: `Box<i32>`, `Box<i32> { value: 42 }`. When type arguments are omitted from a literal (`Box { value: 42 }`), the compiler infers them from field values. Each concrete application is monomorphized into a specialized struct type such as `Box$s.i32`. Uncalled generic struct templates are not emitted in LLVM IR.
 
-Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time selectors used only inside type-argument lists (for example `Box<i32, arr>`). They are not runtime types and cannot appear as standalone value types. Each tag participates in specialization keys and mangling (`tag.arr`). Tagged specializations enforce key-type constraints at instantiation time: `bst` keys require `<` and `==` on `i32` or `f64`; `hashmap` keys require `==` and a V2 `hash` on `i32`, `bool`, or `str`. `arr` and `list` impose no key constraints.
+Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time selectors used only inside type-argument lists (for example `Box<i32, arr>`). `hashset` is an additional spelling for `hashmap`. They are not runtime types and cannot appear as standalone value types. Each tag participates in specialization keys and mangling (`tag.arr`). Tagged specializations enforce key-type constraints at instantiation time: `bst` keys require `<` and `==` on `i32` or `f64`; `hashmap` keys require `==` and a V2 `hash` on `i32`, `bool`, or `str`. `arr` and `list` impose no key constraints.
 
 ## Variables
 
@@ -325,7 +342,8 @@ typed form without `let`, or `let name = expr;` when the type can be inferred
 from the initializer. Bare `name = expr;` remains assignment. Declarations
 without an initializer must include an explicit type and are default-initialized.
 Defaults are `0` for `i32`, `false` for `bool`, `0.0` for `f64`, `""` for `str`,
-a length-0 heap array for `[T]`, and field-wise defaults for structs.
+a length-0 heap array for `[T]`, `sequence_new` / `set_new` / `dictionary_new` for the
+standard ADTs, and field-wise defaults for other structs.
 
 ```noria
 let x: i32 = 42;
@@ -665,7 +683,7 @@ let empty: [i32] = [];
 let grid: [[i32]] = [[]];
 ```
 
-An empty literal uses a direct expected array type, such as a typed local declaration, function parameter, return value, assignment target, or struct-literal field. When an array literal is checked against `[T]`, each element is checked against `T`, so a nested `[]` is allowed when `T` is itself an array type (`let grid: [[i32]] = [[]];` or `let grid: [[i32]] = [[1], []];`). Unannotated declarations such as `let values = [];` and `let grid = [[]];` are rejected because no element type is known. A typed `[T]` local without an initializer is an empty array, equivalent to `[]`. Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Field and nested index chains rooted at a local are the same kind of assignment place: `h.items[i] = expr` and `h.grid[0][1] = expr` store through the shared heap buffer. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
+An empty literal uses a direct expected array type, such as a typed local declaration, function parameter, return value, assignment target, or struct-literal field. When an array literal is checked against `[T]`, each element is checked against `T`, so a nested `[]` is allowed when `T` is itself an array type (`let grid: [[i32]] = [[]];` or `let grid: [[i32]] = [[1], []];`). Unannotated declarations such as `let values = [];` and `let grid = [[]];` are rejected because no element type is known. A typed `[T]` local without an initializer is an empty array, equivalent to `[]`. Use `len(a)` on an array to read its element count as an `i32`. Index an array with `a[i]` where `i` is an `i32`; the result has the element type. Assign through an array index with `a[i] = expr` when the right-hand side matches the element type. Field and nested index chains rooted at a local are the same kind of assignment place: `h.items[i] = expr` and `h.grid[0][1] = expr` store through the shared heap buffer. Arrays of equal length can be added with `+` when the element type itself supports `+` (`i32`, `f64`, `str`, or nested arrays of those). Length mismatches trap at runtime. Arrays are heap-allocated: a literal calls `malloc(8 + n * sizeof(T))`, stores the element count in an `i64` header at offset 0, and stores elements contiguously starting at offset 8. An array value is the malloc base pointer. Passing an array to a function copies the pointer (shared buffer). Out-of-range indexes, including negatives, trap at runtime. Failed allocations trap. `[bool]` elements are stored with byte stride even though SSA `bool` values are `i1`. Arrays are not freed — they leak on program exit, consistent with the MVP allocator stance.
 
 String indexing is read-only; `s[i] = expr` is rejected at type check.
 

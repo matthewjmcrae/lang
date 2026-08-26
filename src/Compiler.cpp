@@ -9,9 +9,6 @@
 #include "noria/Parser.hpp"
 #include "noria/TypeChecker.hpp"
 
-#include "codegen/CodegenStrategy.hpp"
-#include "typecheck/TypeCheckerStrategy.hpp"
-
 #include <algorithm>
 #include <filesystem>
 
@@ -38,16 +35,19 @@ namespace noria {
             main->location, DiagnosticStage::TypeCheck,
             "entry point 'main' must accept no parameters; expected 'fn main() -> i32'"));
       }
-      if (main->returnType != Type::i32()) {
+      if (!main->returnType || *main->returnType != Type::i32()) {
         throw CompileError(
             formatDiagnostic(main->location, DiagnosticStage::TypeCheck,
-                             "entry point 'main' must return i32, got " + main->returnType.name()));
+                             "entry point 'main' must return i32, got " +
+                                 (main->returnType ? main->returnType->name()
+                                                   : std::string{"<inferred>"})));
       }
     }
 
     PipelineOutput compileParsedModule(std::vector<Token> tokens, ast::Module module,
                                        StopAfter stopAfter, SymbolOrigins symbolOrigins = {}) {
       PipelineOutput output;
+      applyDefaultAdtImplementations(module, symbolOrigins);
       output.tokens = std::move(tokens);
       output.module = std::move(module);
 
@@ -55,7 +55,7 @@ namespace noria {
         return output;
       }
 
-      TypeChecker checker = makeTypeCheckerWithDriverStrategy();
+      TypeChecker checker;
       checker.check(output.module, symbolOrigins);
       validateMainEntryPoint(output.module, output.tokens.back().location);
 
@@ -66,8 +66,9 @@ namespace noria {
         return output;
       }
 
-      LLVMGenerator generator = makeLLVMGeneratorWithModuleStrategy();
+      LLVMGenerator generator;
       generator.setFunctionSpecializationTypeArgs(monomorphization.functionSpecializationTypeArgs);
+      generator.setStructSpecializationTypeArgs(monomorphization.structSpecializationTypeArgs);
       output.LLVM = generator.generate(output.module);
       return output;
     }

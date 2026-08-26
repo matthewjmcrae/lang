@@ -1,9 +1,12 @@
+#include "noria/AstClone.hpp"
 #include "noria/Codegen.hpp"
 #include "noria/Compiler.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Monomorphize.hpp"
+#include "noria/Token.hpp"
 #include "noria/TypeChecker.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -62,6 +65,33 @@ fn main() -> i32 {
 }
 )";
 
+  constexpr std::string_view functionKeywordSource = R"(
+UTIL Increment(VALUE: I32) -> I32 {
+  RETURN VALUE + 1;
+}
+
+HELPER Double(VALUE: I32) -> I32 {
+  RETURN VALUE + VALUE;
+}
+
+RECFN Sum_To(VALUE: I32) -> I32 {
+  IF VALUE == 0 {
+    RETURN 0;
+  }
+  RETURN VALUE + SUM_TO(VALUE - 1);
+}
+
+FN MAIN() -> I32 {
+  RETURN DOUBLE(INCREMENT(SUM_TO(3)));
+}
+)";
+
+  constexpr std::string_view mixedCaseStringSource = R"(
+FN MAIN() -> STR {
+  RETURN "MiXeD Case";
+}
+)";
+
   constexpr std::string_view voidProcedureSource = R"(
 fn announce() -> void {
   return;
@@ -98,7 +128,7 @@ fn main() -> i32 {
 }
 )";
 
-  constexpr std::string_view missingMainSource = "fn helper() -> i32 { return 0; }\n";
+  constexpr std::string_view missingMainSource = "helper missing_entry() -> i32 { return 0; }\n";
   constexpr std::string_view genericMainSource = "fn main<T>() -> i32 { return 0; }\n";
   constexpr std::string_view parameterizedMainSource =
       "fn main(argc: i32) -> i32 { return argc; }\n";
@@ -179,6 +209,47 @@ fn main() -> i32 {
       noria::compileSource(goodSource, noria::StopAfter::Tokens);
   expect(!tokensOutput.tokens.empty(), "Tokens stop produces tokens");
   expect(tokensOutput.module.functions.empty(), "Tokens stop does not parse");
+
+  const noria::PipelineOutput functionKeywordTokens =
+      noria::compileSource(functionKeywordSource, noria::StopAfter::Tokens);
+  constexpr std::array<std::string_view, 4> functionKeywordSpellings =
+      {"fn", "util", "helper", "recfn"};
+  for (const std::string_view spelling : functionKeywordSpellings) {
+    bool found = false;
+    for (const noria::Token& token : functionKeywordTokens.tokens) {
+      if (token.text == spelling && token.kind == noria::TokenKind::Fn) {
+        found = true;
+        break;
+      }
+    }
+    expect(found, "function declaration spelling lexes as fn");
+  }
+  bool foundCanonicalIdentifier = false;
+  for (const noria::Token& token : functionKeywordTokens.tokens) {
+    if (token.kind == noria::TokenKind::Identifier && token.text == "increment") {
+      foundCanonicalIdentifier = true;
+      break;
+    }
+  }
+  expect(foundCanonicalIdentifier, "mixed-case identifiers lex as lowercase names");
+
+  const noria::PipelineOutput functionKeywordOutput =
+      noria::compileSource(functionKeywordSource, noria::StopAfter::Ir);
+  expect(functionKeywordOutput.module.functions.size() == 4,
+         "all function declaration spellings parse into ordinary functions");
+  expect(functionKeywordOutput.LLVM.find("define i32 @sum_to") != std::string::npos,
+         "recfn declaration follows the ordinary code-generation path");
+
+  const noria::PipelineOutput mixedCaseStringTokens =
+      noria::compileSource(mixedCaseStringSource, noria::StopAfter::Tokens);
+  bool preservedString = false;
+  for (const noria::Token& token : mixedCaseStringTokens.tokens) {
+    if (token.kind == noria::TokenKind::String && token.text == "MiXeD Case") {
+      preservedString = true;
+      break;
+    }
+  }
+  expect(preservedString, "string literal casing is preserved while names are normalized");
 
   const noria::PipelineOutput astOutput =
       noria::compileSource(typeInvalidSource, noria::StopAfter::Ast);
@@ -324,13 +395,15 @@ fn main() -> i32 {
 
   noria::TypeChecker checker;
   try {
-    checker.check(astOutput.module);
+    noria::ast::Module astModule = noria::ast::cloneModule(astOutput.module);
+    checker.check(astModule);
     expect(false, "checker reports invalid module");
   } catch (const noria::CompileError&) {
   }
-  checker.check(typedOutput.module);
+  noria::ast::Module typedModule = noria::ast::cloneModule(typedOutput.module);
+  checker.check(typedModule);
   noria::TypeChecker movedChecker(std::move(checker));
-  movedChecker.check(typedOutput.module);
+  movedChecker.check(typedModule);
 
   noria::LLVMGenerator generator;
   generator.setFunctionSpecializationTypeArgs({});

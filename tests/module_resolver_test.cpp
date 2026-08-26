@@ -292,7 +292,7 @@ fn main() -> i32 { return 0; }
                               noria::CompileOptions{}, structDupProvider);
       },
       "intra-module duplicate struct rejected",
-      "import: duplicate struct 'Pair'");
+      "import: duplicate struct 'pair'");
 
   MemoryModuleSourceProvider conflictProvider;
   conflictProvider.addModule("std::conflict", R"(
@@ -313,7 +313,7 @@ fn main() -> i32 { return Box(); }
                               noria::CompileOptions{}, conflictProvider);
       },
       "function and struct export conflict rejected",
-      "import: export 'Box' is both a function and a struct");
+      "import: export 'box' is both a function and a struct");
 
   expectThrowsContains(
       [&] {

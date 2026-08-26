@@ -1154,4 +1154,12 @@ No ownership/release model yet. `read_char` deferred to Phase 8. User-defined mo
 
 Phase 8 — deterministic CLI dungeon (`read_char`, `examples/demos/dungeon_cli.noria`, scripted transcript tests).
 
+## Return type inference
+
+Function return annotations are optional. The parser records an omitted annotation, and the type
+checker resolves it before collecting callable signatures. Inference unifies value returns, treats
+bare returns as `void`, reaches a fixpoint through forward and anchored recursive calls, and leaves
+underconstrained cycles as source-located diagnostics that request an explicit `-> Type`. Resolved
+types are written into the typed AST, so monomorphization and LLVM code generation retain their
+existing concrete-signature invariants. Explicit annotations remain checked as before.
 

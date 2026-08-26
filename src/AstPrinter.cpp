@@ -287,7 +287,12 @@ namespace noria {
         out << function.parameters[index].name << ": " << function.parameters[index].type.name();
       }
 
-      out << ") -> " << function.returnType.name();
+      out << ") -> ";
+      if (function.returnType) {
+        out << function.returnType->name();
+      } else {
+        out << "<inferred>";
+      }
       if (function.implTag) {
         out << " impl " << implementationTagName(*function.implTag);
       }

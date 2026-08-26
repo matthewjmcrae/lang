@@ -176,7 +176,10 @@ namespace noria {
 
     std::size_t functionWeight(const ast::Function& function) {
       std::size_t weight = sizeof(function) + stringWeight(function.name) +
-                           stringWeight(function.location.file) + typeWeight(function.returnType);
+                           stringWeight(function.location.file);
+      if (function.returnType) {
+        weight += typeWeight(*function.returnType);
+      }
       for (const auto& typeParam : function.typeParams) {
         weight += sizeof(typeParam) + stringWeight(typeParam.name) +
                   stringWeight(typeParam.location.file);

@@ -15,6 +15,12 @@ namespace noria {
     Hashmap,
   };
 
+  enum class StandardContainer {
+    Sequence,
+    Dictionary,
+    Set,
+  };
+
   enum class TypeKind {
     I32,
     F64,

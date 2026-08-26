@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,31 +20,35 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::ExpressionVisitor::visit(const ast::CallExpression& call) {
-    const auto strategy = checker_.activate(TypeCheckerStrategyKind::Calls);
+  void TypeChecker::ExpressionsState::ExpressionVisitor::visit(const ast::CallExpression& call) {
     if (const BuiltinSignature* descriptor = lookupBuiltin(call.callee)) {
-      result_ = checker_.checkBuiltinCall(call, *descriptor);
+      result_ = state_.checkBuiltinCall(call, *descriptor);
       return;
     }
 
-    checker_.requireFunctionCallable(call.callee, call.location);
+    state_.requireFunctionCallable(call.callee, call.location);
 
-    const auto concreteFunction = checker_.environment_.functions.find(call.callee);
-    if (concreteFunction != checker_.environment_.functions.end()) {
-      result_ = checker_.checkConcreteFunctionCall(call, concreteFunction->second);
+    if (state_.inferringReturnTypes() &&
+        state_.pendingReturnTypeFunctions().contains(call.callee)) {
+      throw ReturnInferencePending{};
+    }
+
+    const auto concreteFunction = state_.environment().functions.find(call.callee);
+    if (concreteFunction != state_.environment().functions.end()) {
+      result_ = state_.checkConcreteFunctionCall(call, concreteFunction->second);
       return;
     }
 
-    const auto genericFunction = checker_.environment_.genericFunctions.find(call.callee);
-    if (genericFunction == checker_.environment_.genericFunctions.end()) {
+    const auto genericFunction = state_.environment().genericFunctions.find(call.callee);
+    if (genericFunction == state_.environment().genericFunctions.end()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
                                           "unknown function '" + call.callee + "'"));
     }
 
-    result_ = checker_.checkGenericFunctionCall(call, genericFunction->second, expectedType_);
+    result_ = state_.checkGenericFunctionCall(call, genericFunction->second, expectedType_);
   }
 
-  Type TypeChecker::checkConcreteFunctionCall(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkConcreteFunctionCall(const ast::CallExpression& call,
                                               const FunctionSignature& signature) {
     if (call.arguments.size() != signature.parameterTypes.size()) {
       std::ostringstream out;
@@ -68,7 +72,7 @@ namespace noria {
     return signature.returnType;
   }
 
-  Type TypeChecker::checkGenericFunctionCall(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkGenericFunctionCall(const ast::CallExpression& call,
                                              const std::vector<std::size_t>& family,
                                              const std::optional<Type>& expectedType) {
     const bool calleeHasImplTags =
@@ -83,12 +87,12 @@ namespace noria {
     const std::vector<Type> typeArgs = inferGenericCallTypeArgs(
         call, signature, specializedNestedImplCall, expectedType, bindings);
 
-    if (environment_.activeModule == nullptr) {
+    if (environment().activeModule == nullptr) {
       throw CompileError(
           "typecheck: internal error: generic function lookup without active module");
     }
     const ast::Function* selected = selectGenericImplementation(
-        *environment_.activeModule, family, findImplTag(typeArgs), call.callee, call.location);
+        *environment().activeModule, family, findImplTag(typeArgs), call.callee, call.location);
 
     Substitution substitution;
     for (const auto& typeParam : selected->typeParams) {
@@ -96,12 +100,15 @@ namespace noria {
     }
 
     checkSpecializationConstraints(call.callee, typeArgs, call.location);
-    session_.specializationRequests.push_back(
-        SpecializationRequest{call.callee, typeArgs, call.location, session_.currentFunctionName});
-    return substitute(selected->returnType, substitution);
+    session().specializationRequests.push_back(
+        SpecializationRequest{call.callee, typeArgs, call.location, session().currentFunctionName});
+    if (!selected->returnType) {
+      throw CompileError("typecheck: internal error: selected generic function has no return type");
+    }
+    return substitute(*selected->returnType, substitution);
   }
 
-  std::vector<Type> TypeChecker::inferGenericCallTypeArgs(
+  std::vector<Type> TypeChecker::CallsState::inferGenericCallTypeArgs(
       const ast::CallExpression& call, const ast::Function& signature,
       bool seedFromSpecializedCaller, const std::optional<Type>& expectedType,
       std::unordered_map<std::string, Type>& bindings) {
@@ -128,7 +135,10 @@ namespace noria {
     }
 
     seedMatchingTypeParamsFromCaller(bindings, signature.typeParams);
-    seedUnboundTypeParamsFromExpectedType(bindings, signature.returnType, expectedType,
+    if (!signature.returnType) {
+      throw CompileError("typecheck: internal error: generic function has no return type");
+    }
+    seedUnboundTypeParamsFromExpectedType(bindings, *signature.returnType, expectedType,
                                           call.location);
     seedUnboundTypeParamsFromCaller(bindings, signature.typeParams);
 
@@ -147,7 +157,7 @@ namespace noria {
     return typeArgs;
   }
 
-  Type TypeChecker::checkBuiltinCall(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkBuiltinCall(const ast::CallExpression& call,
                                      const BuiltinSignature& descriptor) {
     requireBuiltinCallable(call, descriptor);
 
@@ -178,7 +188,7 @@ namespace noria {
     return checkDeclaredBuiltinArguments(call, descriptor);
   }
 
-  void TypeChecker::requireBuiltinCallable(const ast::CallExpression& call,
+  void TypeChecker::CallsState::requireBuiltinCallable(const ast::CallExpression& call,
                                            const BuiltinSignature& descriptor) const {
     if (descriptor.visibility == Visibility::Internal && !isStdlibContext()) {
       throw CompileError(formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
@@ -193,7 +203,7 @@ namespace noria {
     }
   }
 
-  Type TypeChecker::checkLenBuiltin(const ast::CallExpression& call) {
+  Type TypeChecker::CallsState::checkLenBuiltin(const ast::CallExpression& call) {
     const Type actual = checkRvalue(*call.arguments[0]);
     if (actual == Type::str() || actual.kind == TypeKind::Array)
       return Type::i32();
@@ -202,7 +212,7 @@ namespace noria {
                                         "len expects str or array, got " + actual.name()));
   }
 
-  Type TypeChecker::checkRtSizeofBuiltin(const ast::CallExpression& call) const {
+  Type TypeChecker::CallsState::checkRtSizeofBuiltin(const ast::CallExpression& call) const {
     const Type witness = resolveWitnessType(call.location);
     if (!isScalarWitnessType(witness)) {
       throw CompileError(
@@ -212,7 +222,7 @@ namespace noria {
     return Type::i32();
   }
 
-  Type TypeChecker::checkRtHashBuiltin(const ast::CallExpression& call) {
+  Type TypeChecker::CallsState::checkRtHashBuiltin(const ast::CallExpression& call) {
     const Type witness = resolveWitnessType(call.location);
     if (!supportsOperation(witness, RequiredOperation::Hash)) {
       throw CompileError(formatDiagnostic(
@@ -228,7 +238,7 @@ namespace noria {
     return Type::i32();
   }
 
-  Type TypeChecker::checkRtLoadBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkRtLoadBuiltin(const ast::CallExpression& call,
                                        const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
@@ -253,7 +263,7 @@ namespace noria {
     return witness;
   }
 
-  Type TypeChecker::checkRtStoreBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkRtStoreBuiltin(const ast::CallExpression& call,
                                         const BuiltinSignature& descriptor) {
     const Type pointer = checkRvalue(*call.arguments[0]);
     const Type index = checkRvalue(*call.arguments[1]);
@@ -283,7 +293,7 @@ namespace noria {
     return Type::voidType();
   }
 
-  Type TypeChecker::checkAllArgumentsBuiltin(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkAllArgumentsBuiltin(const ast::CallExpression& call,
                                              const BuiltinSignature& descriptor) {
     const Type firstType = checkRvalue(*call.arguments[0]);
     const Type secondType = checkRvalue(*call.arguments[1]);
@@ -297,7 +307,7 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
-  Type TypeChecker::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
+  Type TypeChecker::CallsState::checkDeclaredBuiltinArguments(const ast::CallExpression& call,
                                                   const BuiltinSignature& descriptor) {
     for (std::size_t index{}; index < descriptor.arity; ++index) {
       const Type actual = checkRvalue(*call.arguments[index]);
@@ -321,20 +331,20 @@ namespace noria {
     return Type(descriptor.returnKind);
   }
 
-  bool TypeChecker::isEnclosingFunctionSpecialized() const {
-    return session_.functionSpecializationTypeArgs.contains(session_.currentFunctionName);
+  bool TypeChecker::CallsState::isEnclosingFunctionSpecialized() const {
+    return session().functionSpecializationTypeArgs.contains(session().currentFunctionName);
   }
 
-  const std::vector<Type>* TypeChecker::enclosingFunctionSpecializationTypeArgs() const {
+  const std::vector<Type>* TypeChecker::CallsState::enclosingFunctionSpecializationTypeArgs() const {
     const auto specialization =
-        session_.functionSpecializationTypeArgs.find(session_.currentFunctionName);
-    if (specialization == session_.functionSpecializationTypeArgs.end()) {
+        session().functionSpecializationTypeArgs.find(session().currentFunctionName);
+    if (specialization == session().functionSpecializationTypeArgs.end()) {
       return nullptr;
     }
     return &specialization->second;
   }
 
-  void TypeChecker::seedMatchingTypeParamsFromCaller(
+  void TypeChecker::CallsState::seedMatchingTypeParamsFromCaller(
       std::unordered_map<std::string, Type>& bindings,
       const std::vector<ast::TypeParameter>& calleeTypeParams) const {
     const std::vector<Type>* callerTypeArgs = enclosingFunctionSpecializationTypeArgs();
@@ -342,14 +352,14 @@ namespace noria {
       return;
     }
 
-    const std::size_t dollar = session_.currentFunctionName.find('$');
+    const std::size_t dollar = session().currentFunctionName.find('$');
     if (dollar == std::string::npos) {
       return;
     }
 
-    const std::string templateName = session_.currentFunctionName.substr(0, dollar);
-    const auto family = environment_.genericFunctions.find(templateName);
-    if (family == environment_.genericFunctions.end() || family->second.empty()) {
+    const std::string templateName = session().currentFunctionName.substr(0, dollar);
+    const auto family = environment().genericFunctions.find(templateName);
+    if (family == environment().genericFunctions.end() || family->second.empty()) {
       return;
     }
 
@@ -372,10 +382,10 @@ namespace noria {
     }
   }
 
-  Type TypeChecker::resolveWitnessType(SourceLocation location) const {
+  Type TypeChecker::CallsState::resolveWitnessType(SourceLocation location) const {
     const auto specialization =
-        session_.functionSpecializationTypeArgs.find(session_.currentFunctionName);
-    if (specialization == session_.functionSpecializationTypeArgs.end()) {
+        session().functionSpecializationTypeArgs.find(session().currentFunctionName);
+    if (specialization == session().functionSpecializationTypeArgs.end()) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "witness-polymorphic runtime builtin requires an "
                                           "enclosing generic specialization context"));
@@ -391,12 +401,12 @@ namespace noria {
     return *witness;
   }
 
-  void TypeChecker::seedUnboundTypeParamsFromCaller(
+  void TypeChecker::CallsState::seedUnboundTypeParamsFromCaller(
       std::unordered_map<std::string, Type>& bindings,
       const std::vector<ast::TypeParameter>& typeParams) const {
     const auto callerSpecialization =
-        session_.functionSpecializationTypeArgs.find(session_.currentFunctionName);
-    if (callerSpecialization == session_.functionSpecializationTypeArgs.end()) {
+        session().functionSpecializationTypeArgs.find(session().currentFunctionName);
+    if (callerSpecialization == session().functionSpecializationTypeArgs.end()) {
       return;
     }
 
@@ -421,7 +431,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::seedUnboundTypeParamsFromExpectedType(
+  void TypeChecker::CallsState::seedUnboundTypeParamsFromExpectedType(
       std::unordered_map<std::string, Type>& bindings, const Type& returnType,
       const std::optional<Type>& expectedType, SourceLocation location) const {
     if (!expectedType) {

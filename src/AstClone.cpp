@@ -64,6 +64,7 @@ namespace noria::ast {
         auto base = cloneChild(*node.base);
         expression_ = std::make_unique<IndexExpression>(std::move(base), cloneChild(*node.index),
                                                         node.location);
+        static_cast<IndexExpression&>(*expression_).standardContainer = node.standardContainer;
       }
 
       void visit(const StructLiteral& node) override {

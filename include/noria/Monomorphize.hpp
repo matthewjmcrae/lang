@@ -22,6 +22,7 @@ namespace noria {
     std::vector<Type> typeArgs;
     SourceLocation callSiteLocation;
     std::string enclosingFunction;
+    bool rewriteCallSite = true;
   };
 
   struct StructSpecializationRequest {
@@ -55,6 +56,7 @@ namespace noria {
 
     const std::unordered_map<std::string, std::vector<Type>>&
     functionSpecializationTypeArgs() const;
+    const std::unordered_map<std::string, std::vector<Type>>& structSpecializationTypeArgs() const;
 
   private:
     class Impl;
@@ -63,6 +65,7 @@ namespace noria {
 
   struct MonomorphizationResult {
     std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs;
+    std::unordered_map<std::string, std::vector<Type>> structSpecializationTypeArgs;
   };
 
   Type substitute(const Type& type, const Substitution& substitution);

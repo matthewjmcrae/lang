@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,14 +20,13 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
-    const auto strategy = checker_.activate(TypeCheckerStrategyKind::Structs);
-    result_ = checker_.checkStructLiteral(literal);
+  void TypeChecker::ExpressionsState::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    result_ = state_.checkStructLiteral(literal);
   }
 
-  Type TypeChecker::checkStructLiteral(const ast::StructLiteral& literal) {
-    const auto genericStruct = environment_.genericStructs.find(literal.structName);
-    if (genericStruct != environment_.genericStructs.end()) {
+  Type TypeChecker::StructsState::checkStructLiteral(const ast::StructLiteral& literal) {
+    const auto genericStruct = environment().genericStructs.find(literal.structName);
+    if (genericStruct != environment().genericStructs.end()) {
       return checkGenericStructLiteral(literal, genericStructAt(genericStruct->second));
     }
 
@@ -41,7 +40,7 @@ namespace noria {
     return checkConcreteStructLiteral(literal, structInfo, {});
   }
 
-  Type TypeChecker::checkGenericStructLiteral(const ast::StructLiteral& literal,
+  Type TypeChecker::StructsState::checkGenericStructLiteral(const ast::StructLiteral& literal,
                                               const ast::StructDecl& templated) {
     std::vector<Type> typeArgs = literal.typeArgs;
     if (typeArgs.empty()) {
@@ -63,7 +62,7 @@ namespace noria {
     return checkConcreteStructLiteral(literal, structInfo, typeArgs);
   }
 
-  std::vector<Type> TypeChecker::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
+  std::vector<Type> TypeChecker::StructsState::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
                                                             const ast::StructDecl& templated) {
     std::unordered_map<std::string, Type> bindings;
     std::unordered_map<std::string, Type> provided;
@@ -118,7 +117,7 @@ namespace noria {
     return typeArgs;
   }
 
-  Type TypeChecker::checkConcreteStructLiteral(const ast::StructLiteral& literal,
+  Type TypeChecker::StructsState::checkConcreteStructLiteral(const ast::StructLiteral& literal,
                                                const StructInfo& structInfo,
                                                std::vector<Type> typeArgs) {
     const std::unordered_map<std::string, Type> provided =
@@ -128,7 +127,7 @@ namespace noria {
   }
 
   std::unordered_map<std::string, Type>
-  TypeChecker::checkStructLiteralFields(const ast::StructLiteral& literal,
+  TypeChecker::StructsState::checkStructLiteralFields(const ast::StructLiteral& literal,
                                         const StructInfo& structInfo) {
     std::unordered_map<std::string, Type> provided;
     for (const auto& field : literal.fields) {
@@ -152,7 +151,7 @@ namespace noria {
     return provided;
   }
 
-  void TypeChecker::requireStructLiteralComplete(
+  void TypeChecker::StructsState::requireStructLiteralComplete(
       const ast::StructLiteral& literal, const StructInfo& structInfo,
       const std::unordered_map<std::string, Type>& provided) const {
     for (const auto& expectedField : structInfo.fields) {
@@ -172,7 +171,7 @@ namespace noria {
     }
   }
 
-  TypeChecker::StructInfo TypeChecker::resolveStructInfo(const Type& structType,
+  TypeChecker::StructInfo TypeChecker::StructsState::resolveStructInfo(const Type& structType,
                                                          SourceLocation location) const {
     if (structType.kind != TypeKind::Struct) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
@@ -183,8 +182,8 @@ namespace noria {
       return lookupStruct(structType.structName, location);
     }
 
-    const auto genericStruct = environment_.genericStructs.find(structType.structName);
-    if (genericStruct == environment_.genericStructs.end()) {
+    const auto genericStruct = environment().genericStructs.find(structType.structName);
+    if (genericStruct == environment().genericStructs.end()) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "unknown type '" + structType.name() + "'"));
     }
@@ -214,10 +213,10 @@ namespace noria {
     return info;
   }
 
-  const TypeChecker::StructInfo& TypeChecker::lookupStruct(const std::string& name,
+  const TypeChecker::StructInfo& TypeChecker::StructsState::lookupStruct(const std::string& name,
                                                            SourceLocation location) const {
-    const auto structInfo = environment_.structs.find(name);
-    if (structInfo == environment_.structs.end()) {
+    const auto structInfo = environment().structs.find(name);
+    if (structInfo == environment().structs.end()) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck, "unknown type '" + name + "'"));
     }
@@ -225,13 +224,13 @@ namespace noria {
     return structInfo->second;
   }
 
-  void TypeChecker::checkStructAcyclic(const std::string& structName,
+  void TypeChecker::StructsState::checkStructAcyclic(const std::string& structName,
                                        SourceLocation location) const {
     std::vector<const std::string*> stack;
     std::unordered_set<std::string> visiting;
 
     const auto visitStruct = [&](const auto& visitStructRef, const std::string& name) -> void {
-      if (!environment_.structs.contains(name)) {
+      if (!environment().structs.contains(name)) {
         return;
       }
 
@@ -239,12 +238,12 @@ namespace noria {
         return;
 
       stack.push_back(&name);
-      if (stack.size() > environment_.structs.size()) {
+      if (stack.size() > environment().structs.size()) {
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                             "struct '" + structName + "' has infinite size"));
       }
 
-      const StructInfo& info = environment_.structs.at(name);
+      const StructInfo& info = environment().structs.at(name);
       for (const auto& field : info.fields) {
         if (field.type.kind == TypeKind::Struct) {
           for (const std::string* seen : stack) {
@@ -264,16 +263,15 @@ namespace noria {
     visitStruct(visitStruct, structName);
   }
 
-  void TypeChecker::collectStructDecls(const ast::Module& module) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
-    environment_.structs.clear();
-    environment_.genericStructs.clear();
-    environment_.genericStructs.reserve(module.structs.size());
+  void TypeChecker::StructsState::collectStructDecls(const ast::Module& module) {
+    environment().structs.clear();
+    environment().genericStructs.clear();
+    environment().genericStructs.reserve(module.structs.size());
 
     for (std::size_t index{}; index < module.structs.size(); ++index) {
       const ast::StructDecl& decl = module.structs[index];
-      if (environment_.structs.contains(decl.name) ||
-          environment_.genericStructs.contains(decl.name)) {
+      if (environment().structs.contains(decl.name) ||
+          environment().genericStructs.contains(decl.name)) {
         throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
                                             "duplicate struct '" + decl.name + "'"));
       }
@@ -289,8 +287,7 @@ namespace noria {
     validateConcreteStructFieldTypes(module);
   }
 
-  void TypeChecker::collectGenericStructDecl(const ast::StructDecl& decl, std::size_t moduleIndex) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
+  void TypeChecker::StructsState::collectGenericStructDecl(const ast::StructDecl& decl, std::size_t moduleIndex) {
     std::unordered_set<std::string> allowedTypeParams;
     for (const auto& typeParam : decl.typeParams) {
       allowedTypeParams.insert(typeParam.name);
@@ -308,13 +305,12 @@ namespace noria {
                        allowsInternalStructTypes(decl));
     }
 
-    environment_.genericStructs.emplace(decl.name, moduleIndex);
+    environment().genericStructs.emplace(decl.name, moduleIndex);
   }
 
-  void TypeChecker::collectConcreteStructDecl(const ast::StructDecl& decl) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
-    if (environment_.structs.contains(decl.name) ||
-        environment_.genericStructs.contains(decl.name)) {
+  void TypeChecker::StructsState::collectConcreteStructDecl(const ast::StructDecl& decl) {
+    if (environment().structs.contains(decl.name) ||
+        environment().genericStructs.contains(decl.name)) {
       throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
                                           "duplicate struct '" + decl.name + "'"));
     }
@@ -335,12 +331,11 @@ namespace noria {
       info.fieldIndex.emplace(field.name, index);
     }
 
-    environment_.structs.emplace(decl.name, std::move(info));
+    environment().structs.emplace(decl.name, std::move(info));
   }
 
-  void TypeChecker::validateConcreteStructFieldTypes(const ast::Module& module,
+  void TypeChecker::StructsState::validateConcreteStructFieldTypes(const ast::Module& module,
                                                      std::size_t firstStruct) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Structs);
     for (std::size_t index = firstStruct; index < module.structs.size(); ++index) {
       const ast::StructDecl& decl = module.structs[index];
       if (!decl.typeParams.empty()) {
@@ -355,28 +350,28 @@ namespace noria {
     }
   }
 
-  bool TypeChecker::allowsInternalStructTypes(const ast::StructDecl& decl) const {
-    const auto origin = environment_.symbolOrigins.structs.find(decl.name);
-    return origin != environment_.symbolOrigins.structs.end() && isStdlibOrigin(origin->second);
+  bool TypeChecker::StructsState::allowsInternalStructTypes(const ast::StructDecl& decl) const {
+    const auto origin = environment().symbolOrigins.structs.find(decl.name);
+    return origin != environment().symbolOrigins.structs.end() && isStdlibOrigin(origin->second);
   }
 
-  std::string TypeChecker::structOriginModule(const std::string& structName) const {
-    const auto origin = environment_.symbolOrigins.structs.find(structName);
-    if (origin == environment_.symbolOrigins.structs.end()) {
+  std::string TypeChecker::StructsState::structOriginModule(const std::string& structName) const {
+    const auto origin = environment().symbolOrigins.structs.find(structName);
+    if (origin == environment().symbolOrigins.structs.end()) {
       return "";
     }
     return origin->second;
   }
 
-  std::string TypeChecker::currentModuleOrigin() const {
-    const auto origin = environment_.symbolOrigins.functions.find(session_.currentFunctionName);
-    if (origin == environment_.symbolOrigins.functions.end()) {
+  std::string TypeChecker::StructsState::currentModuleOrigin() const {
+    const auto origin = environment().symbolOrigins.functions.find(session().currentFunctionName);
+    if (origin == environment().symbolOrigins.functions.end()) {
       return "";
     }
     return origin->second;
   }
 
-  void TypeChecker::requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
+  void TypeChecker::StructsState::requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
                                         SourceLocation location) const {
     if (field.visibility == ast::FieldVisibility::Public) {
       return;

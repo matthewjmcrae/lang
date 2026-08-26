@@ -1,5 +1,5 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerStrategy.hpp"
+#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,26 +20,31 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  bool TypeChecker::isStdlibOrigin(const std::string& modulePath) const {
+  bool TypeChecker::DeclarationsState::isStdlibOrigin(const std::string& modulePath) const {
     return modulePath.rfind("std::", 0) == 0;
   }
 
-  bool TypeChecker::isStdlibContext() const {
-    const auto origin = environment_.symbolOrigins.functions.find(session_.currentFunctionName);
-    if (origin == environment_.symbolOrigins.functions.end()) {
+  bool TypeChecker::DeclarationsState::isStdlibContext() const {
+    const auto origin = environment().symbolOrigins.functions.find(session().currentFunctionName);
+    if (origin == environment().symbolOrigins.functions.end()) {
       return false;
     }
     return isStdlibOrigin(origin->second);
   }
 
-  bool TypeChecker::isInternalModuleOrigin(const std::string& modulePath) const {
+  bool TypeChecker::DeclarationsState::isInternalModuleOrigin(const std::string& modulePath) const {
     return modulePath.rfind("std::internal::", 0) == 0;
   }
 
-  void TypeChecker::requireFunctionCallable(const std::string& calleeName,
+  void TypeChecker::DeclarationsState::requireFunctionCallable(const std::string& calleeName,
                                             SourceLocation location) const {
-    const auto origin = environment_.symbolOrigins.functions.find(calleeName);
-    if (origin == environment_.symbolOrigins.functions.end()) {
+    if (environment().symbolOrigins.hiddenFunctions.contains(calleeName)) {
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
+                                          "function '" + calleeName + "' is internal"));
+    }
+
+    const auto origin = environment().symbolOrigins.functions.find(calleeName);
+    if (origin == environment().symbolOrigins.functions.end()) {
       return;
     }
 
@@ -50,24 +55,23 @@ namespace noria {
     }
   }
 
-  const ast::Function& TypeChecker::genericFunctionAt(std::size_t moduleIndex) const {
-    if (environment_.activeModule == nullptr ||
-        moduleIndex >= environment_.activeModule->functions.size()) {
+  const ast::Function& TypeChecker::DeclarationsState::genericFunctionAt(std::size_t moduleIndex) const {
+    if (environment().activeModule == nullptr ||
+        moduleIndex >= environment().activeModule->functions.size()) {
       throw CompileError("typecheck: internal error: invalid generic function index");
     }
-    return environment_.activeModule->functions[moduleIndex];
+    return environment().activeModule->functions[moduleIndex];
   }
 
-  const ast::StructDecl& TypeChecker::genericStructAt(std::size_t moduleIndex) const {
-    if (environment_.activeModule == nullptr ||
-        moduleIndex >= environment_.activeModule->structs.size()) {
+  const ast::StructDecl& TypeChecker::DeclarationsState::genericStructAt(std::size_t moduleIndex) const {
+    if (environment().activeModule == nullptr ||
+        moduleIndex >= environment().activeModule->structs.size()) {
       throw CompileError("typecheck: internal error: invalid generic struct index");
     }
-    return environment_.activeModule->structs[moduleIndex];
+    return environment().activeModule->structs[moduleIndex];
   }
 
-  void TypeChecker::collectFunctionSignatures(const ast::Module& module) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
+  void TypeChecker::DeclarationsState::collectFunctionSignatures(const ast::Module& module) {
     for (std::size_t index{}; index < module.functions.size(); ++index) {
       const ast::Function& function = module.functions[index];
       if (!function.typeParams.empty()) {
@@ -78,30 +82,30 @@ namespace noria {
       collectConcreteFunctionSignature(function);
     }
 
-    for (const auto& [name, family] : environment_.genericFunctions) {
+    for (const auto& [name, family] : environment().genericFunctions) {
       validateGenericFunctionFamily(name, family);
     }
   }
 
-  void TypeChecker::requireDefinableFunctionName(const ast::Function& function) const {
+  void TypeChecker::DeclarationsState::requireDefinableFunctionName(const ast::Function& function) const {
     if (lookupBuiltin(function.name) != nullptr) {
       throw CompileError(
           formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                            "cannot define function '" + function.name + "': name is a builtin"));
     }
 
-    if (function.name.rfind("__rt_", 0) == 0 && !allowsInternalFunctionTypes(function)) {
+    if ((function.name.rfind("__rt_", 0) == 0 || function.name.rfind("__noria_", 0) == 0) &&
+        !allowsInternalFunctionTypes(function)) {
       throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                                           "name '" + function.name + "' is reserved"));
     }
   }
 
-  void TypeChecker::collectGenericFunctionSignature(const ast::Function& function,
+  void TypeChecker::DeclarationsState::collectGenericFunctionSignature(const ast::Function& function,
                                                     std::size_t moduleIndex) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
     requireDefinableFunctionName(function);
-    const auto existing = environment_.genericFunctions.find(function.name);
-    if (existing != environment_.genericFunctions.end()) {
+    const auto existing = environment().genericFunctions.find(function.name);
+    if (existing != environment().genericFunctions.end()) {
       for (std::size_t candidateIndex : existing->second) {
         const ast::Function& candidate = genericFunctionAt(candidateIndex);
         if (function.implTag && candidate.implTag && *function.implTag == *candidate.implTag) {
@@ -120,7 +124,7 @@ namespace noria {
                                               "duplicate function '" + function.name + "'"));
         }
       }
-    } else if (environment_.functions.contains(function.name)) {
+    } else if (environment().functions.contains(function.name)) {
       throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                                           "duplicate function '" + function.name + "'"));
     }
@@ -132,8 +136,12 @@ namespace noria {
       allowedTypeParams.insert(typeParam.name);
     }
 
-    if (function.returnType != Type::voidType()) {
-      requireKnownType(function.returnType, function.location, &allowedTypeParams, false,
+    if (!function.returnType) {
+      throw CompileError("typecheck: internal error: function '" + function.name +
+                         "' has an unresolved return type");
+    }
+    if (*function.returnType != Type::voidType()) {
+      requireKnownType(*function.returnType, function.location, &allowedTypeParams, false,
                        allowInternal);
     }
     for (const auto& parameter : function.parameters) {
@@ -141,14 +149,13 @@ namespace noria {
                        allowInternal);
     }
 
-    environment_.genericFunctions[function.name].push_back(moduleIndex);
+    environment().genericFunctions[function.name].push_back(moduleIndex);
   }
 
-  void TypeChecker::collectConcreteFunctionSignature(const ast::Function& function) {
-    const auto strategy = activate(TypeCheckerStrategyKind::Declarations);
+  void TypeChecker::DeclarationsState::collectConcreteFunctionSignature(const ast::Function& function) {
     requireDefinableFunctionName(function);
-    if (environment_.functions.contains(function.name) ||
-        environment_.genericFunctions.contains(function.name)) {
+    if (environment().functions.contains(function.name) ||
+        environment().genericFunctions.contains(function.name)) {
       throw CompileError(formatDiagnostic(function.location, DiagnosticStage::TypeCheck,
                                           "duplicate function '" + function.name + "'"));
     }
@@ -156,20 +163,24 @@ namespace noria {
     const bool allowInternal = allowsInternalFunctionTypes(function);
 
     FunctionSignature signature;
-    if (function.returnType != Type::voidType()) {
-      requireKnownType(function.returnType, function.location, nullptr, false, allowInternal);
+    if (!function.returnType) {
+      throw CompileError("typecheck: internal error: function '" + function.name +
+                         "' has an unresolved return type");
     }
-    signature.returnType = function.returnType;
+    if (*function.returnType != Type::voidType()) {
+      requireKnownType(*function.returnType, function.location, nullptr, false, allowInternal);
+    }
+    signature.returnType = *function.returnType;
 
     for (const auto& parameter : function.parameters) {
       requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
       signature.parameterTypes.push_back(parameter.type);
     }
 
-    environment_.functions.emplace(function.name, std::move(signature));
+    environment().functions.emplace(function.name, std::move(signature));
   }
 
-  void TypeChecker::validateGenericFunctionFamily(std::string_view name,
+  void TypeChecker::DeclarationsState::validateGenericFunctionFamily(std::string_view name,
                                                   const std::vector<std::size_t>& family) const {
     if (family.size() <= 1) {
       return;
@@ -186,9 +197,9 @@ namespace noria {
     }
   }
 
-  bool TypeChecker::allowsInternalFunctionTypes(const ast::Function& function) const {
-    const auto origin = environment_.symbolOrigins.functions.find(function.name);
-    return origin != environment_.symbolOrigins.functions.end() && isStdlibOrigin(origin->second);
+  bool TypeChecker::DeclarationsState::allowsInternalFunctionTypes(const ast::Function& function) const {
+    const auto origin = environment().symbolOrigins.functions.find(function.name);
+    return origin != environment().symbolOrigins.functions.end() && isStdlibOrigin(origin->second);
   }
 
 } // namespace noria
