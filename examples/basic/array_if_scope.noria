@@ -1,0 +1,8 @@
+fn main() -> i32 {
+  let result: i32 = 0;
+  if true {
+    let temp: [i32] = [10, 20, 30];
+    result = temp[1];
+  }
+  return result;
+}

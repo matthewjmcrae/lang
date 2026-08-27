@@ -31,15 +31,27 @@ namespace noria {
         std::unordered_map<std::string, std::vector<Type>> typeArgsByStruct);
     std::string generate(const ast::Module& module) const;
 
+    enum class OwnershipMode {
+      Borrow,
+      Own,
+    };
+
   private:
+
     struct Value {
       std::string text;
       Type type;
+      bool owned = false;
     };
     struct LocalBinding {
       std::string slot;
       Type type;
       bool byteBuffer = false;
+      std::string ownedSlot;
+    };
+    struct Scope {
+      std::unordered_map<std::string, LocalBinding> bindings;
+      bool containsPtr = false;
     };
     struct FunctionBinding {
       Type returnType;
@@ -50,8 +62,6 @@ namespace noria {
       std::vector<Type> fieldTypes;
       HashTable<std::string, std::size_t> fieldIndex;
     };
-    using Scope = std::unordered_map<std::string, LocalBinding>;
-
     struct ModuleCodegenContext {
       ModuleCodegenContext(
           const std::unordered_map<std::string, std::vector<Type>>& functionTypeArgs,
@@ -101,7 +111,8 @@ namespace noria {
                                   const std::vector<Scope>&) const;
     Value generateRvalue(const ast::Expression&, IREmitter&, FunctionCodegenContext&,
                          const std::vector<Scope>&,
-                         std::optional<Type> expectedType = std::nullopt) const;
+                         std::optional<Type> expectedType = std::nullopt,
+                         OwnershipMode ownership = OwnershipMode::Own) const;
     LocalBinding generatePlace(const ast::Expression&, IREmitter&, FunctionCodegenContext&,
                                const std::vector<Scope>&) const;
     std::optional<Value> tryGenerateBuiltinCall(const ast::CallExpression&, IREmitter&,
@@ -128,8 +139,19 @@ namespace noria {
     Value emitDefaultValue(const Type&, IREmitter&, FunctionCodegenContext&) const;
     void emitDefaultStore(const Type&, const std::string&, IREmitter&,
                           FunctionCodegenContext&) const;
-    bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding) const;
+    bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding,
+                      FunctionCodegenContext&) const;
     const LocalBinding& lookupLocal(const std::vector<Scope>&, const std::string&) const;
+    void emitDropScope(Scope&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropScopes(std::vector<Scope>&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropValue(const Value&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropLocal(const LocalBinding&, IREmitter&, FunctionCodegenContext&) const;
+    Value emitCloneValue(const Value&, IREmitter&, FunctionCodegenContext&) const;
+    void emitStoreManagedLocal(const LocalBinding&, const Value&, IREmitter&,
+                               FunctionCodegenContext&) const;
+    void emitReleaseIfOwned(const Value&, IREmitter&, FunctionCodegenContext&) const;
+    bool typeNeedsDrop(const Type&, const FunctionCodegenContext&) const;
+    bool typeContainsManaged(const Type&, const FunctionCodegenContext&) const;
     std::unordered_map<std::string, FunctionBinding>
     collectFunctionBindings(const ast::Module&) const;
     std::unordered_map<std::string, StructLayout>

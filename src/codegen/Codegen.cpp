@@ -144,9 +144,10 @@ namespace noria {
                                                       IREmitter& emitter,
                                                       FunctionCodegenContext& context,
                                                       const std::vector<Scope>& scopes,
-                                                      std::optional<Type> expectedType) const {
+                                                      std::optional<Type> expectedType,
+                                                      OwnershipMode ownership) const {
     return expressionsState_->generateRvalue(expression, emitter, context, scopes,
-                                             std::move(expectedType));
+                                             std::move(expectedType), ownership);
   }
 
   LLVMGenerator::LocalBinding LLVMGenerator::generatePlace(
@@ -239,13 +240,60 @@ namespace noria {
   }
 
   bool LLVMGenerator::declareLocal(std::vector<Scope>& scopes, const std::string& name,
-                                   LocalBinding binding) const {
-    return statementsState_->declareLocal(scopes, name, std::move(binding));
+                                   LocalBinding binding,
+                                   FunctionCodegenContext& context) const {
+    return statementsState_->declareLocal(scopes, name, std::move(binding), context);
   }
 
   const LLVMGenerator::LocalBinding&
   LLVMGenerator::lookupLocal(const std::vector<Scope>& scopes, const std::string& name) const {
     return statementsState_->lookupLocal(scopes, name);
+  }
+
+  bool LLVMGenerator::typeNeedsDrop(const Type& type,
+                                     const FunctionCodegenContext& context) const {
+    return placesState_->typeNeedsDrop(type, context);
+  }
+
+  bool LLVMGenerator::typeContainsManaged(const Type& type,
+                                           const FunctionCodegenContext& context) const {
+    return placesState_->typeContainsManaged(type, context);
+  }
+
+  void LLVMGenerator::emitDropScope(Scope& scope, IREmitter& emitter,
+                                     FunctionCodegenContext& context) const {
+    placesState_->emitDropScope(scope, emitter, context);
+  }
+
+  void LLVMGenerator::emitDropScopes(std::vector<Scope>& scopes, IREmitter& emitter,
+                                      FunctionCodegenContext& context) const {
+    placesState_->emitDropScopes(scopes, emitter, context);
+  }
+
+  void LLVMGenerator::emitDropValue(const Value& value, IREmitter& emitter,
+                                     FunctionCodegenContext& context) const {
+    placesState_->emitDropValue(value, emitter, context);
+  }
+
+  void LLVMGenerator::emitDropLocal(const LocalBinding& local, IREmitter& emitter,
+                                     FunctionCodegenContext& context) const {
+    placesState_->emitDropLocal(local, emitter, context);
+  }
+
+  LLVMGenerator::Value LLVMGenerator::emitCloneValue(const Value& value, IREmitter& emitter,
+                                                      FunctionCodegenContext& context) const {
+    return placesState_->emitCloneValue(value, emitter, context);
+  }
+
+  void LLVMGenerator::emitStoreManagedLocal(const LocalBinding& local, const Value& value,
+                                             IREmitter& emitter,
+                                             FunctionCodegenContext& context) const {
+    placesState_->emitStoreManagedLocal(local, value, emitter, context);
+  }
+
+  void LLVMGenerator::emitReleaseIfOwned(const Value& value, IREmitter& emitter,
+                                          FunctionCodegenContext& context) const {
+    placesState_->emitReleaseIfOwned(value, emitter, context);
   }
 
   std::unordered_map<std::string, LLVMGenerator::FunctionBinding>

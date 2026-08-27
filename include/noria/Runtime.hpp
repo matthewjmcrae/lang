@@ -61,9 +61,11 @@ namespace noria::runtime {
       "declare ptr @strcat(ptr, ptr)\n",
   };
 
-  constexpr std::array<std::string_view, 2> runtimeGlobals = {
+  constexpr std::array<std::string_view, 3> runtimeGlobals = {
       "@.fmt.float = private unnamed_addr constant [3 x i8] c\"%g\\00\"\n",
       "@.fmt.str = private unnamed_addr constant [3 x i8] c\"%s\\00\"\n",
+      "@.noria.alloc.fail = private unnamed_addr constant { i32, [18 x i8] } "
+      "{ i32 -1, [18 x i8] c\"allocation failed\\00\" }\n",
   };
 
   constexpr std::string_view runtimeDefinitions =
@@ -153,6 +155,42 @@ namespace noria::runtime {
       "  %raw = load i32, ptr %hash\n"
       "  %masked = and i32 %raw, 2147483647\n"
       "  ret i32 %masked\n"
+      "}\n\n"
+      "define void @__noria.rt.drop_str(ptr %bytes) {\n"
+      "entry:\n"
+      "  %base = getelementptr i8, ptr %bytes, i64 -4\n"
+      "  %tag = load i32, ptr %base\n"
+      "  %heap = icmp sge i32 %tag, 0\n"
+      "  br i1 %heap, label %free, label %done\n"
+      "free:\n"
+      "  call void @free(ptr %base)\n"
+      "  br label %done\n"
+      "done:\n"
+      "  ret void\n"
+      "}\n\n"
+      "define ptr @__noria.rt.clone_str(ptr %bytes) {\n"
+      "entry:\n"
+      "  %base = getelementptr i8, ptr %bytes, i64 -4\n"
+      "  %tag = load i32, ptr %base\n"
+      "  %heap = icmp sge i32 %tag, 0\n"
+      "  br i1 %heap, label %copy, label %immortal\n"
+      "immortal:\n"
+      "  ret ptr %bytes\n"
+      "copy:\n"
+      "  %len = call i64 @strlen(ptr %bytes)\n"
+      "  %payload = add i64 %len, 1\n"
+      "  %size = add i64 %payload, 4\n"
+      "  %buf = call ptr @malloc(i64 %size)\n"
+      "  %null = icmp eq ptr %buf, null\n"
+      "  br i1 %null, label %trap, label %init\n"
+      "trap:\n"
+      "  call void @__noria.rt.trap(ptr @.noria.alloc.fail)\n"
+      "  unreachable\n"
+      "init:\n"
+      "  store i32 1, ptr %buf\n"
+      "  %dst = getelementptr i8, ptr %buf, i64 4\n"
+      "  call ptr @strcpy(ptr %dst, ptr %bytes)\n"
+      "  ret ptr %dst\n"
       "}\n\n";
 
   inline std::string_view runtimeTrapDefinition() {

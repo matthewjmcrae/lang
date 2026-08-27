@@ -122,7 +122,7 @@ On Linux, or any machine with Valgrind installed, you can also run the compiler 
 just valgrind
 ```
 
-That wraps every compiler invocation in `valgrind --leak-check=full --error-exitcode=1`, so leaks or memory errors fail the test run.
+That wraps every compiler invocation in `valgrind --leak-check=full --error-exitcode=1`, so leaks or memory errors fail the test run. The examples harness also runs Valgrind on a generated `string_concat_loop` binary when Valgrind is available.
 
 ## Continuous Integration
 

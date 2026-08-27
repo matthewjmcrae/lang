@@ -202,7 +202,7 @@ add_test(NAME generics COMMAND generics_test)
 add_test(NAME constraints COMMAND constraints_test)
 add_test(NAME semantic_tables COMMAND semantic_tables_test)
 
-set_tests_properties(examples PROPERTIES LABELS "e2e" TIMEOUT 180)
+set_tests_properties(examples PROPERTIES LABELS "e2e")
 
 set(NORIA_UNIT_TESTS
   type_representation

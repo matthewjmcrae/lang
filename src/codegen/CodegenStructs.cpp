@@ -134,7 +134,7 @@ namespace noria {
 
     const std::string result = emitter.freshTemp();
     emitter.emitLoad(structType, slot, result);
-    return Value{result, structType};
+    return Value{result, structType, generator().typeNeedsDrop(structType, context)};
   }
 
   LLVMGenerator::Value LLVMGenerator::StructsState::generateFieldAccess(const ast::FieldAccessExpression& access,
@@ -153,14 +153,16 @@ namespace noria {
       slot = local.slot;
       structType = local.type;
     } else {
-      const Value baseValue = generator().generateRvalue(*access.base, emitter, context, scopes);
-      if (baseValue.type.kind != TypeKind::Struct) {
+      const Value base = generator().generateRvalue(*access.base, emitter, context, scopes,
+                                                    std::nullopt,
+                                                    LLVMGenerator::OwnershipMode::Borrow);
+      if (base.type.kind != TypeKind::Struct) {
         throw CompileError("codegen: field access requires struct base");
       }
-      structType = baseValue.type;
+      structType = base.type;
       slot = emitter.freshTemp();
       emitter.emitAlloca(structType, slot);
-      emitter.emitStore(structType, baseValue.text, slot);
+      emitter.emitStore(structType, base.text, slot);
     }
 
     const StructLayout& layout = lookupStructLayout(context, structType);

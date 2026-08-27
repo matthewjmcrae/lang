@@ -911,6 +911,27 @@ if grep -Fq "store ptr null" "${TEST_OUT_DIR}/default_initialized_string_print.l
   fail "default-initialized str must not store null"
 fi
 
+phase "managed str and array auto-free acceptance programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/string_concat_loop.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_if_scope.noria" 20
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_copy_independence.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/array_param_mutation.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/return_owned_array.noria" 6
+run_native_exit_test "${ROOT_DIR}/examples/basic/return_owned_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/str_array_reassign_scope.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_array_field.noria" 3
+grep -q "call void @__noria.rt.drop_str" "${TEST_OUT_DIR}/string_concat_loop.ll"
+grep -q "call void @free" "${TEST_OUT_DIR}/string_concat_loop.ll"
+grep -q "call void @free" "${TEST_OUT_DIR}/array_if_scope.ll"
+grep -q "call void @free" "${TEST_OUT_DIR}/array_copy_independence.ll"
+if command -v valgrind >/dev/null 2>&1 && [[ -n "${CLANG}" ]]; then
+  set_case "valgrind examples/basic/string_concat_loop.noria"
+  echo "[noria-tests] valgrind examples/basic/string_concat_loop.noria"
+  link_ir "${TEST_OUT_DIR}/string_concat_loop.ll" "${TEST_OUT_DIR}/string_concat_loop_valgrind"
+  valgrind --leak-check=full --error-exitcode=1 \
+    "${TEST_OUT_DIR}/string_concat_loop_valgrind" >/dev/null
+fi
+
 phase "phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
   "${TEST_OUT_DIR}/concat_str_i32.stderr"

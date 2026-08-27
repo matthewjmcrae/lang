@@ -184,6 +184,15 @@ fn main() -> i32 {
   return len(s);
 }
 )";
+  constexpr std::string_view managedAutoFreeSource = R"(
+fn main() -> i32 {
+  let s: str = "a";
+  s = s + "b";
+  let a: [i32] = [1, 2];
+  let b: [i32] = a;
+  return len(s) + len(b);
+}
+)";
   constexpr std::string_view emptyUntypedArraySource = R"(
 fn main() -> i32 {
   let values = [];
@@ -343,6 +352,13 @@ fn main() -> i32 {
          "default-initialized strings must not store null");
   expect(defaultStrOutput.LLVM.find("[1 x i8]") != std::string::npos,
          "default-initialized strings materialize an empty C string");
+
+  const noria::PipelineOutput managedAutoFreeOutput =
+      noria::compileSource(managedAutoFreeSource, noria::StopAfter::Ir);
+  expect(managedAutoFreeOutput.LLVM.find("call void @__noria.rt.drop_str") != std::string::npos,
+         "string reassignment emits drop_str for the previous value");
+  expect(managedAutoFreeOutput.LLVM.find("call void @free") != std::string::npos,
+         "managed array copies emit free on reassignment or scope exit");
 
   expectCompileError(noria::StopAfter::Typed, typeInvalidSource, "Typed stop throws on type error");
   expectCompileError(noria::StopAfter::Ast, syntaxInvalidSource, "Ast stop throws on syntax error");

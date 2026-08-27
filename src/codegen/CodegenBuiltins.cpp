@@ -223,7 +223,11 @@ namespace noria {
     const std::string elementPointer =
         generator().emitRawBufferElementPointer(pointer, index, witness, emitter);
     const std::string loaded = generator().emitBufferLoad(witness, elementPointer, emitter);
-    return Value{loaded, witness};
+    Value result{loaded, witness, false};
+    if (witness == Type::str()) {
+      result = generator().emitCloneValue(result, emitter, context);
+    }
+    return result;
   }
 
   LLVMGenerator::Value
@@ -234,10 +238,15 @@ namespace noria {
         resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
     const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
     const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
-    const Value value = generator().generateRvalue(*call.arguments[2], emitter, context, scopes);
+    Value value = generator().generateRvalue(*call.arguments[2], emitter, context, scopes);
     const std::string elementPointer =
         generator().emitRawBufferElementPointer(pointer, index, witness, emitter);
-    generator().emitBufferStore(witness, value.text, elementPointer, emitter);
+    Value stored = value;
+    if (witness == Type::str()) {
+      stored = generator().emitCloneValue(value, emitter, context);
+    }
+    generator().emitBufferStore(witness, stored.text, elementPointer, emitter);
+    generator().emitReleaseIfOwned(value, emitter, context);
     return Value{"", Type::voidType()};
   }
 

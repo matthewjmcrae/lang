@@ -29,8 +29,8 @@ namespace noria {
       const ast::LetStatement& letStatement) {
     std::optional<Value> initializer;
     if (letStatement.initializer) {
-      initializer = state_.generateRvalue(*letStatement.initializer, emitter_, context_,
-                                              scopes_, letStatement.declaredType);
+      initializer = state_.generateRvalue(*letStatement.initializer, emitter_, context_, scopes_,
+                                          letStatement.declaredType);
     }
 
     const Type localType =
@@ -40,14 +40,36 @@ namespace noria {
 
     emitter_.emitAlloca(localType, slot);
 
-    if (!state_.declareLocal(scopes_, letStatement.name, LocalBinding{slot, localType})) {
+    LocalBinding binding{slot, localType, false, {}};
+    if (state_.generator().typeNeedsDrop(localType, context_)) {
+      binding.ownedSlot = "%" + letStatement.name + ".owned";
+      emitter_.emitAlloca(Type::boolean(), binding.ownedSlot);
+    }
+
+    if (!state_.declareLocal(scopes_, letStatement.name, std::move(binding), context_)) {
       throw CompileError("codegen: duplicate local variable '" + letStatement.name + "'");
     }
 
+    const LocalBinding& local = state_.lookupLocal(scopes_, letStatement.name);
     if (initializer) {
-      emitter_.emitStore(localType, initializer->text, slot);
+      Value stored = *initializer;
+      if (letStatement.initializer &&
+          dynamic_cast<const ast::IdentifierExpression*>(letStatement.initializer.get()) !=
+              nullptr &&
+          state_.generator().typeNeedsDrop(localType, context_)) {
+        stored = state_.generator().emitCloneValue(stored, emitter_, context_);
+      } else if (letStatement.initializer &&
+                 dynamic_cast<const ast::FieldAccessExpression*>(letStatement.initializer.get()) !=
+                     nullptr &&
+                 state_.generator().typeNeedsDrop(localType, context_)) {
+        stored = state_.generator().emitCloneValue(stored, emitter_, context_);
+      } else if (state_.generator().typeNeedsDrop(localType, context_) && !stored.owned) {
+        stored.owned = true;
+      }
+      state_.generator().emitStoreManagedLocal(local, stored, emitter_, context_);
     } else {
-      state_.emitDefaultStore(localType, slot, emitter_, context_);
+      const Value defaultValue = state_.emitDefaultValue(localType, emitter_, context_);
+      state_.generator().emitStoreManagedLocal(local, defaultValue, emitter_, context_);
     }
     returned_ = false;
   }
@@ -58,6 +80,7 @@ namespace noria {
       if (expectedReturnType_ != Type::voidType()) {
         throw CompileError("codegen: non-void function returned without a value");
       }
+      state_.emitDropScopes(scopes_, emitter_, context_);
       emitter_.line("ret void");
       returned_ = true;
       return;
@@ -67,8 +90,54 @@ namespace noria {
       throw CompileError("codegen: void function returned a value");
     }
 
-    Value returnValue = state_.generateRvalue(*returnStatement.expression, emitter_, context_,
-                                                  scopes_, expectedReturnType_);
+    Value returnValue;
+    if (state_.generator().typeNeedsDrop(expectedReturnType_, context_) &&
+        dynamic_cast<const ast::IdentifierExpression*>(returnStatement.expression.get()) !=
+            nullptr) {
+      returnValue = state_.generateRvalue(*returnStatement.expression, emitter_, context_,
+                                          scopes_, expectedReturnType_,
+                                          LLVMGenerator::OwnershipMode::Borrow);
+    } else {
+      returnValue = state_.generateRvalue(*returnStatement.expression, emitter_, context_,
+                                          scopes_, expectedReturnType_);
+    }
+
+    if (state_.generator().typeNeedsDrop(expectedReturnType_, context_)) {
+      if (const auto* identifier =
+              dynamic_cast<const ast::IdentifierExpression*>(returnStatement.expression.get())) {
+        const LocalBinding& local = state_.generator().lookupLocal(scopes_, identifier->name);
+        if (!local.ownedSlot.empty()) {
+          const std::string owned = emitter_.freshTemp();
+          emitter_.line(owned + " = load i1, ptr " + local.ownedSlot);
+          const int labelId = emitter_.freshLabelId();
+          const std::string moveLabel = "return.move" + std::to_string(labelId);
+          const std::string cloneLabel = "return.clone" + std::to_string(labelId);
+          const std::string readyLabel = "return.ready" + std::to_string(labelId);
+          const std::string resultSlot = "return.result" + std::to_string(labelId);
+          emitter_.emitAlloca(expectedReturnType_, "%" + resultSlot);
+          emitter_.emitCondBranch(owned, moveLabel, cloneLabel);
+          emitter_.emitLabel(moveLabel);
+          emitter_.line("store i1 false, ptr " + local.ownedSlot);
+          emitter_.emitStore(expectedReturnType_, returnValue.text, "%" + resultSlot);
+          emitter_.emitBranch(readyLabel);
+          emitter_.emitLabel(cloneLabel);
+          const Value cloned =
+              state_.generator().emitCloneValue(returnValue, emitter_, context_);
+          emitter_.emitStore(expectedReturnType_, cloned.text, "%" + resultSlot);
+          emitter_.emitBranch(readyLabel);
+          emitter_.emitLabel(readyLabel);
+          const std::string result = emitter_.freshTemp();
+          emitter_.emitLoad(expectedReturnType_, "%" + resultSlot, result);
+          returnValue = Value{result, expectedReturnType_, true};
+        }
+      } else if (!returnValue.owned) {
+        returnValue = state_.generator().emitCloneValue(returnValue, emitter_, context_);
+      } else {
+        returnValue.owned = true;
+      }
+    }
+
+    state_.emitDropScopes(scopes_, emitter_, context_);
     emitter_.line("ret " + LLVMType(expectedReturnType_) + " " + returnValue.text);
     returned_ = true;
   }
@@ -88,7 +157,30 @@ namespace noria {
 
     Value rvalue = state_.generateRvalue(*assignmentStatement.rhs, emitter_, context_, scopes_,
                                          local.type);
-    if (local.byteBuffer) {
+
+    if (local.byteBuffer && state_.generator().typeContainsManaged(local.type, context_)) {
+      const std::string oldValue = state_.emitBufferLoad(local.type, local.slot, emitter_);
+      state_.generator().emitDropValue(Value{oldValue, local.type, true}, emitter_, context_);
+      if (state_.generator().typeNeedsDrop(local.type, context_) && !rvalue.owned) {
+        rvalue = state_.generator().emitCloneValue(rvalue, emitter_, context_);
+      }
+      state_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
+      returned_ = false;
+      return;
+    }
+
+    if (!local.ownedSlot.empty()) {
+      state_.generator().emitDropLocal(local, emitter_, context_);
+      if (dynamic_cast<const ast::IdentifierExpression*>(assignmentStatement.rhs.get()) !=
+              nullptr ||
+          dynamic_cast<const ast::FieldAccessExpression*>(assignmentStatement.rhs.get()) !=
+              nullptr) {
+        rvalue = state_.generator().emitCloneValue(rvalue, emitter_, context_);
+      } else if (!rvalue.owned) {
+        rvalue.owned = true;
+      }
+      state_.generator().emitStoreManagedLocal(local, rvalue, emitter_, context_);
+    } else if (local.byteBuffer) {
       state_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
     } else {
       emitter_.emitStore(local.type, rvalue.text, local.slot);
@@ -111,6 +203,9 @@ namespace noria {
     scopes_.emplace_back();
     const bool thenReturns = state_.generateStatements(ifStatement.thenBranch, emitter_,
                                                            context_, expectedReturnType_, scopes_);
+    if (!thenReturns) {
+      state_.emitDropScope(scopes_.back(), emitter_, context_);
+    }
     scopes_.pop_back();
 
     if (!thenReturns)
@@ -120,6 +215,9 @@ namespace noria {
     scopes_.emplace_back();
     const bool elseReturns = state_.generateStatements(ifStatement.elseBranch, emitter_,
                                                            context_, expectedReturnType_, scopes_);
+    if (!elseReturns) {
+      state_.emitDropScope(scopes_.back(), emitter_, context_);
+    }
     scopes_.pop_back();
     if (!elseReturns)
       emitter_.emitBranch(endLabel);
@@ -151,6 +249,9 @@ namespace noria {
     scopes_.emplace_back();
     const bool bodyReturns = state_.generateStatements(whileStatement.body, emitter_, context_,
                                                            expectedReturnType_, scopes_);
+    if (!bodyReturns) {
+      state_.emitDropScope(scopes_.back(), emitter_, context_);
+    }
     scopes_.pop_back();
     if (!bodyReturns)
       emitter_.emitBranch(conditionLabel);
@@ -161,7 +262,9 @@ namespace noria {
 
   void LLVMGenerator::StatementsState::StatementVisitor::visit(
       const ast::ExpressionStatement& expressionStatement) {
-    state_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
+    const Value value =
+        state_.generateRvalue(*expressionStatement.expression, emitter_, context_, scopes_);
+    state_.generator().emitReleaseIfOwned(value, emitter_, context_);
     returned_ = false;
   }
 
@@ -185,15 +288,20 @@ namespace noria {
 
   bool LLVMGenerator::StatementsState::declareLocal(std::vector<Scope>& scopes,
                                                      const std::string& name,
-                                                     LocalBinding binding) const {
+                                                     LocalBinding binding,
+                                                     FunctionCodegenContext& context) const {
     if (scopes.empty())
       scopes.emplace_back();
 
     auto& scope = scopes.back();
-    if (scope.contains(name))
+    if (scope.bindings.contains(name))
       return false;
 
-    scope.emplace(name, std::move(binding));
+    if (generator().typeContainsManaged(binding.type, context)) {
+      scope.containsPtr = true;
+    }
+
+    scope.bindings.emplace(name, std::move(binding));
     return true;
   }
 
@@ -202,12 +310,23 @@ namespace noria {
                                                const std::string& name) const {
 
     for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope) {
-      const auto local = scope->find(name);
-      if (local != scope->end())
+      const auto local = scope->bindings.find(name);
+      if (local != scope->bindings.end())
         return local->second;
     }
 
     throw CompileError("codegen: unknown local variable '" + name + "'");
+  }
+
+  void LLVMGenerator::StatementsState::emitDropScope(Scope& scope, IREmitter& emitter,
+                                                      FunctionCodegenContext& context) const {
+    generator().emitDropScope(scope, emitter, context);
+  }
+
+  void LLVMGenerator::StatementsState::emitDropScopes(std::vector<Scope>& scopes,
+                                                       IREmitter& emitter,
+                                                       FunctionCodegenContext& context) const {
+    generator().emitDropScopes(scopes, emitter, context);
   }
 
   void LLVMGenerator::StatementsState::assignContainerIndex(

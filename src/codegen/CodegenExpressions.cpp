@@ -25,9 +25,11 @@ namespace noria {
                                                       IREmitter& emitter,
                                                       FunctionCodegenContext& context,
                                                       const std::vector<Scope>& scopes,
-                                                      std::optional<Type> expectedType)
+                                                      std::optional<Type> expectedType,
+                                                      LLVMGenerator::OwnershipMode ownership)
       : ExpressionOnlyVisitor("codegen"), state_(state), emitter_(emitter),
-        context_(context), scopes_(scopes), expectedType_(std::move(expectedType)) {}
+        context_(context), scopes_(scopes), expectedType_(std::move(expectedType)),
+        ownership_(ownership) {}
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
@@ -92,7 +94,13 @@ namespace noria {
 
     const std::string result = emitter_.freshTemp();
     emitter_.emitLoad(local.type, local.slot, result);
-    result_ = Value{result, local.type};
+    Value loaded{result, local.type, false};
+    if (ownership_ == LLVMGenerator::OwnershipMode::Own &&
+        state_.generator().typeNeedsDrop(local.type, context_)) {
+      result_ = state_.generator().emitCloneValue(loaded, emitter_, context_);
+      return;
+    }
+    result_ = loaded;
   }
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::CallExpression& call) {
@@ -111,7 +119,8 @@ namespace noria {
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type expectedType = function->second.parameterTypes[index];
       arguments.push_back(state_.generateRvalue(*call.arguments[index], emitter_, context_,
-                                                    scopes_, expectedType));
+                                                    scopes_, expectedType,
+                                                    LLVMGenerator::OwnershipMode::Borrow));
     }
 
     const bool returnsVoid = function->second.returnType == Type::voidType();
@@ -128,7 +137,21 @@ namespace noria {
     }
     callLine += ")";
     emitter_.line(callLine);
-    result_ = Value{result, function->second.returnType};
+
+    for (const Value& argument : arguments) {
+      state_.generator().emitReleaseIfOwned(argument, emitter_, context_);
+    }
+
+    if (returnsVoid) {
+      result_ = Value{"", Type::voidType()};
+      return;
+    }
+
+    Value returnValue{result, function->second.returnType, false};
+    if (state_.generator().typeNeedsDrop(function->second.returnType, context_)) {
+      returnValue.owned = true;
+    }
+    result_ = returnValue;
   }
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
@@ -136,7 +159,7 @@ namespace noria {
   }
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IndexExpression& index) {
-    result_ = state_.generateIndexExpression(index, emitter_, context_, scopes_);
+    result_ = state_.generateIndexExpression(index, emitter_, context_, scopes_, ownership_);
   }
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
@@ -144,13 +167,18 @@ namespace noria {
   }
 
   void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
-    result_ = state_.generator().generateFieldAccess(access, emitter_, context_, scopes_);
+    Value field = state_.generator().generateFieldAccess(access, emitter_, context_, scopes_);
+    if (ownership_ == LLVMGenerator::OwnershipMode::Own &&
+        state_.generator().typeNeedsDrop(field.type, context_)) {
+      field = state_.generator().emitCloneValue(field, emitter_, context_);
+    }
+    result_ = field;
   }
 
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateStringLiteral(const ast::StringLiteral& literal,
                                                             IREmitter& emitter,
                                                             FunctionCodegenContext& context) const {
-    return Value{generator().emitCStringPointer(literal.value, emitter, context), Type::str()};
+    return Value{generator().emitCStringPointer(literal.value, emitter, context), Type::str(), false};
   }
 
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayLiteral(
@@ -193,15 +221,17 @@ namespace noria {
       generator().emitBufferStore(elementType, elements[index].text, slot, emitter);
     }
 
-    return Value{base, arrayType};
+    return Value{base, arrayType, true};
   }
 
   LLVMGenerator::Value
   LLVMGenerator::ExpressionsState::generateIndexExpression(const ast::IndexExpression& index,
                                                            IREmitter& emitter,
                                                            FunctionCodegenContext& context,
-                                                           const std::vector<Scope>& scopes) const {
-    const Value base = generateRvalue(*index.base, emitter, context, scopes);
+                                                           const std::vector<Scope>& scopes,
+                                                           LLVMGenerator::OwnershipMode ownership) const {
+    const Value base = generateRvalue(*index.base, emitter, context, scopes, std::nullopt,
+                                      LLVMGenerator::OwnershipMode::Borrow);
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
 
     if (index.standardContainer) {
@@ -246,7 +276,12 @@ namespace noria {
       const std::string pointer =
           emitArrayElementPointer(base, indexValue, elementType, emitter, context);
       const std::string result = emitBufferLoad(elementType, pointer, emitter);
-      return Value{result, elementType};
+      Value loaded{result, elementType, false};
+      if (ownership == LLVMGenerator::OwnershipMode::Own &&
+          generator().typeNeedsDrop(elementType, context)) {
+        return generator().emitCloneValue(loaded, emitter, context);
+      }
+      return loaded;
     }
 
     const std::string length = emitter.freshTemp();
@@ -334,8 +369,9 @@ namespace noria {
                                                      IREmitter& emitter,
                                                      FunctionCodegenContext& context,
                                                      const std::vector<Scope>& scopes,
-                                                     std::optional<Type> expectedType) const {
-    ExpressionVisitor visitor(*this, emitter, context, scopes, std::move(expectedType));
+                                                     std::optional<Type> expectedType,
+                                                     LLVMGenerator::OwnershipMode ownership) const {
+    ExpressionVisitor visitor(*this, emitter, context, scopes, std::move(expectedType), ownership);
     expression.accept(visitor);
     return visitor.result();
   }
@@ -424,12 +460,19 @@ namespace noria {
     emitter.line(rightLength + " = call i64 @strlen(ptr " + right.text + ")");
     const std::string sumLength = emitter.freshTemp();
     emitter.line(sumLength + " = add i64 " + leftLength + ", " + rightLength);
+    const std::string payloadSize = emitter.freshTemp();
+    emitter.line(payloadSize + " = add i64 " + sumLength + ", 1");
     const std::string size = emitter.freshTemp();
-    emitter.line(size + " = add i64 " + sumLength + ", 1");
-    const std::string buffer = generator().emitCheckedMalloc(size, emitter, context);
+    emitter.line(size + " = add i64 " + payloadSize + ", 4");
+    const std::string allocation = generator().emitCheckedMalloc(size, emitter, context);
+    emitter.line("store i32 1, ptr " + allocation);
+    const std::string buffer = emitter.freshTemp();
+    emitter.line(buffer + " = getelementptr i8, ptr " + allocation + ", i64 4");
     emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
     emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
-    return Value{buffer, Type::str()};
+    generator().emitReleaseIfOwned(left, emitter, context);
+    generator().emitReleaseIfOwned(right, emitter, context);
+    return Value{buffer, Type::str(), true};
   }
 
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateCollectionAddExpression(
@@ -513,7 +556,9 @@ namespace noria {
     emitter.line("store i64 " + nextIndex + ", ptr " + indexSlot);
     emitter.emitBranch(conditionLabel);
     emitter.emitLabel(endLabel);
-    return Value{result, left.type};
+    generator().emitReleaseIfOwned(left, emitter, context);
+    generator().emitReleaseIfOwned(right, emitter, context);
+    return Value{result, left.type, true};
   }
 
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateSequenceAddExpression(

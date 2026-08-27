@@ -77,7 +77,7 @@ namespace noria {
   LLVMGenerator::ModuleState::emitDefaultValue(const Type& type, IREmitter& emitter,
                                                 FunctionCodegenContext& context) const {
     if (type.kind == TypeKind::Str) {
-      return Value{emitCStringPointer("", emitter, context), Type::str()};
+      return Value{emitCStringPointer("", emitter, context), Type::str(), false};
     }
 
     if (type.kind == TypeKind::Array) {
@@ -86,7 +86,7 @@ namespace noria {
       }
       const std::string base = emitCheckedMalloc("8", emitter, context);
       emitter.line("store i64 0, ptr " + base);
-      return Value{base, type};
+      return Value{base, type, true};
     }
 
     if (type.kind == TypeKind::Struct) {
@@ -171,8 +171,14 @@ namespace noria {
 
     for (const auto& parameter : function.parameters) {
       const Type parameterType = parameter.type;
-      if (!generator().declareLocal(context.scopes, parameter.name,
-                                    LocalBinding{"%" + parameter.name, parameterType})) {
+      LocalBinding binding{"%" + parameter.name, parameterType};
+      if (generator().typeNeedsDrop(parameterType, context)) {
+        binding.ownedSlot = "%" + parameter.name + ".owned";
+        emitter.emitAlloca(Type::boolean(), binding.ownedSlot);
+        emitter.line("store i1 false, ptr " + binding.ownedSlot);
+      }
+
+      if (!generator().declareLocal(context.scopes, parameter.name, std::move(binding), context)) {
         throw CompileError("codegen: duplicate parameter '" + parameter.name + "'");
       }
 

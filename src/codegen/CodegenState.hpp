@@ -47,9 +47,10 @@ namespace noria {
     }
     Value generateRvalue(const ast::Expression& expression, IREmitter& emitter,
                          FunctionCodegenContext& context, const std::vector<Scope>& scopes,
-                         std::optional<Type> expectedType = std::nullopt) const {
+                         std::optional<Type> expectedType = std::nullopt,
+                         LLVMGenerator::OwnershipMode ownership = LLVMGenerator::OwnershipMode::Own) const {
       return generator().generateRvalue(expression, emitter, context, scopes,
-                                        std::move(expectedType));
+                                        std::move(expectedType), ownership);
     }
     LocalBinding generatePlace(const ast::Expression& expression, IREmitter& emitter,
                                FunctionCodegenContext& context,
@@ -121,8 +122,8 @@ namespace noria {
       generator().emitDefaultStore(type, slot, emitter, context);
     }
     bool declareLocal(std::vector<Scope>& scopes, const std::string& name,
-                      LocalBinding binding) const {
-      return generator().declareLocal(scopes, name, std::move(binding));
+                      LocalBinding binding, FunctionCodegenContext& context) const {
+      return generator().declareLocal(scopes, name, std::move(binding), context);
     }
     const LocalBinding& lookupLocal(const std::vector<Scope>& scopes,
                                     const std::string& name) const {
@@ -236,14 +237,16 @@ namespace noria {
                                   const std::vector<Scope>&) const;
     Value generateRvalue(const ast::Expression&, IREmitter&, FunctionCodegenContext&,
                          const std::vector<Scope>&,
-                         std::optional<Type> expectedType = std::nullopt) const;
+                         std::optional<Type> expectedType = std::nullopt,
+                         LLVMGenerator::OwnershipMode ownership = LLVMGenerator::OwnershipMode::Own) const;
 
   private:
     class ExpressionVisitor final : public internal::ExpressionOnlyVisitor {
     public:
       using internal::ExpressionOnlyVisitor::visit;
       ExpressionVisitor(const ExpressionsState&, IREmitter&, FunctionCodegenContext&,
-                        const std::vector<Scope>&, std::optional<Type>);
+                        const std::vector<Scope>&, std::optional<Type>,
+                        LLVMGenerator::OwnershipMode);
       Value result() const { return result_; }
       void visit(const ast::IntegerLiteral&) override;
       void visit(const ast::FloatLiteral&) override;
@@ -265,6 +268,7 @@ namespace noria {
       FunctionCodegenContext& context_;
       const std::vector<Scope>& scopes_;
       std::optional<Type> expectedType_;
+      LLVMGenerator::OwnershipMode ownership_;
       Value result_{};
     };
 
@@ -294,7 +298,9 @@ namespace noria {
     Value generateArrayLiteral(const ast::ArrayLiteral&, IREmitter&, FunctionCodegenContext&,
                                const std::vector<Scope>&, const std::optional<Type>&) const;
     Value generateIndexExpression(const ast::IndexExpression&, IREmitter&, FunctionCodegenContext&,
-                                  const std::vector<Scope>&) const;
+                                  const std::vector<Scope>&,
+                                  LLVMGenerator::OwnershipMode ownership =
+                                      LLVMGenerator::OwnershipMode::Own) const;
     Value emitCheckedF64ToI32Cast(const Value&, IREmitter&, FunctionCodegenContext&) const;
   };
 
@@ -318,6 +324,16 @@ namespace noria {
     std::string emitCheckedMalloc(const std::string&, IREmitter&, FunctionCodegenContext&) const;
     void emitBoundsCheck(const std::string&, const Value&, IREmitter&, FunctionCodegenContext&,
                          std::string_view) const;
+    bool typeNeedsDrop(const Type&, const FunctionCodegenContext&) const;
+    bool typeContainsManaged(const Type&, const FunctionCodegenContext&) const;
+    void emitDropValue(const Value&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropLocal(const LocalBinding&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropScope(Scope&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropScopes(std::vector<Scope>&, IREmitter&, FunctionCodegenContext&) const;
+    Value emitCloneValue(const Value&, IREmitter&, FunctionCodegenContext&) const;
+    void emitStoreManagedLocal(const LocalBinding&, const Value&, IREmitter&,
+                               FunctionCodegenContext&) const;
+    void emitReleaseIfOwned(const Value&, IREmitter&, FunctionCodegenContext&) const;
 
   private:
     class PlaceVisitor final : public ast::AstVisitor {
@@ -362,8 +378,11 @@ namespace noria {
                             IREmitter&, FunctionCodegenContext&, Type, std::vector<Scope>&) const;
     bool generateStatement(const ast::Statement&, IREmitter&, FunctionCodegenContext&, Type,
                            std::vector<Scope>&) const;
-    bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding) const;
+    bool declareLocal(std::vector<Scope>&, const std::string&, LocalBinding,
+                      FunctionCodegenContext&) const;
     const LocalBinding& lookupLocal(const std::vector<Scope>&, const std::string&) const;
+    void emitDropScope(Scope&, IREmitter&, FunctionCodegenContext&) const;
+    void emitDropScopes(std::vector<Scope>&, IREmitter&, FunctionCodegenContext&) const;
 
   private:
     class StatementVisitor final : public internal::StatementOnlyVisitor {
