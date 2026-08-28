@@ -3,8 +3,8 @@ import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictiona
 
 fn main() -> i32 {
   let d: Dictionary<i32, str, hashmap> = dictionary_new(0, "");
-  d = dictionary_insert(d, 1, "one");
-  d = dictionary_insert(d, 2, "two");
+  dictionary_insert(d, 1, "one");
+  dictionary_insert(d, 2, "two");
   if dictionary_len(d) != 2 {
     return 1;
   }
@@ -14,7 +14,7 @@ fn main() -> i32 {
   if dictionary_get(d, 2) != "two" {
     return 3;
   }
-  d = dictionary_insert(d, 1, "uno");
+  dictionary_insert(d, 1, "uno");
   if dictionary_get(d, 1) != "uno" {
     return 4;
   }

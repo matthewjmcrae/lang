@@ -3,13 +3,13 @@ import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictiona
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 1, 10);
-  d = dictionary_insert(d, 2, 20);
-  d = dictionary_insert(d, 3, 30);
-  d = dictionary_insert(d, 4, 40);
-  d = dictionary_insert(d, 5, 50);
-  d = dictionary_insert(d, 6, 60);
-  d = dictionary_insert(d, 7, 70);
+  dictionary_insert(d, 1, 10);
+  dictionary_insert(d, 2, 20);
+  dictionary_insert(d, 3, 30);
+  dictionary_insert(d, 4, 40);
+  dictionary_insert(d, 5, 50);
+  dictionary_insert(d, 6, 60);
+  dictionary_insert(d, 7, 70);
   if dictionary_len(d) != 7 {
     return 1;
   }
@@ -19,8 +19,8 @@ fn main() -> i32 {
   if dictionary_get(d, 7) != 70 {
     return 3;
   }
-  d = dictionary_insert(d, 8, 80);
-  d = dictionary_insert(d, 9, 90);
+  dictionary_insert(d, 8, 80);
+  dictionary_insert(d, 9, 90);
   if dictionary_len(d) != 9 {
     return 4;
   }

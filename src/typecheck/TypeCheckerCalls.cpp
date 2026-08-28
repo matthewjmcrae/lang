@@ -181,6 +181,10 @@ namespace noria {
       return checkRtStoreBuiltin(call, descriptor);
     }
 
+    if (descriptor.id == BuiltinId::RtDrop) {
+      return checkRtDropBuiltin(call, descriptor);
+    }
+
     if (descriptor.style == MismatchStyle::AllArguments) {
       return checkAllArgumentsBuiltin(call, descriptor);
     }
@@ -289,6 +293,30 @@ namespace noria {
       throw CompileError(
           formatDiagnostic(call.arguments[2]->location, DiagnosticStage::TypeCheck,
                            "__rt_store expects " + witness.name() + ", got " + value.name()));
+    }
+    return Type::voidType();
+  }
+
+  Type TypeChecker::CallsState::checkRtDropBuiltin(const ast::CallExpression& call,
+                                        const BuiltinSignature& descriptor) {
+    const Type pointer = checkRvalue(*call.arguments[0]);
+    const Type index = checkRvalue(*call.arguments[1]);
+    if (pointer != Type::rawPtr()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[0]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::RawPtr, pointer.name())));
+    }
+    if (index != Type::i32()) {
+      throw CompileError(formatDiagnostic(
+          call.arguments[1]->location, DiagnosticStage::TypeCheck,
+          formatBuiltinPerArgumentMismatch(descriptor.name, TypeKind::I32, index.name())));
+    }
+
+    const Type witness = resolveWitnessType(call.location);
+    if (!isScalarWitnessType(witness)) {
+      throw CompileError(
+          formatDiagnostic(call.location, DiagnosticStage::TypeCheck,
+                           "__rt_drop requires a scalar element type, got " + witness.name()));
     }
     return Type::voidType();
   }

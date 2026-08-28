@@ -119,6 +119,9 @@ namespace noria {
     void requireDefaultInitializable(const Type& type, SourceLocation location) {
       checker().requireDefaultInitializable(type, location);
     }
+    void requireContainerOwnershipOps(const Type& type, SourceLocation location) {
+      checker().requireContainerOwnershipOps(type, location);
+    }
     void pushScope() { checker().pushScope(); }
     void popScope() { checker().popScope(); }
     bool declareLocal(const std::string& name, Type type) {
@@ -217,6 +220,7 @@ namespace noria {
     Type checkRtHashBuiltin(const ast::CallExpression&);
     Type checkRtLoadBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkRtStoreBuiltin(const ast::CallExpression&, const BuiltinSignature&);
+    Type checkRtDropBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkAllArgumentsBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkDeclaredBuiltinArguments(const ast::CallExpression&, const BuiltinSignature&);
     Type checkGenericFunctionCall(const ast::CallExpression&, const std::vector<std::size_t>&,

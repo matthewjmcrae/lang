@@ -6,13 +6,13 @@ fn kth_largest(nums: [i32], k: i32) -> i32 {
   let i: i32 = 0;
   while i < len(nums) {
     if sequence_len(heap) < k {
-      heap = heappush(heap, nums[i]);
+      heappush(heap, nums[i]);
     } else {
       let smallest: i32 = heappop(heap);
       if nums[i] > smallest {
-        heap = heappush(heap, nums[i]);
+        heappush(heap, nums[i]);
       } else {
-        heap = heappush(heap, smallest);
+        heappush(heap, smallest);
       }
     }
     i = i + 1;

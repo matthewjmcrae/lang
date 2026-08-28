@@ -37,7 +37,7 @@ namespace noria {
 
   std::optional<LLVMGenerator::BuiltinsState::BuiltinEmitter>
   LLVMGenerator::BuiltinsState::builtinEmitterFor(BuiltinId id) const {
-    static constexpr std::array<std::pair<BuiltinId, BuiltinEmitter>, 23> emitters{{
+    static constexpr std::array<std::pair<BuiltinId, BuiltinEmitter>, 24> emitters{{
         {BuiltinId::Println, &BuiltinsState::emitPrintlnBuiltin},
         {BuiltinId::Print, &BuiltinsState::emitPrintBuiltin},
         {BuiltinId::PrintInt, &BuiltinsState::emitPrintIntBuiltin},
@@ -52,6 +52,7 @@ namespace noria {
         {BuiltinId::RtSizeof, &BuiltinsState::emitRtSizeofBuiltin},
         {BuiltinId::RtLoad, &BuiltinsState::emitRtLoadBuiltin},
         {BuiltinId::RtStore, &BuiltinsState::emitRtStoreBuiltin},
+        {BuiltinId::RtDrop, &BuiltinsState::emitRtDropBuiltin},
         {BuiltinId::RtLoadPtr, &BuiltinsState::emitRtLoadPtrBuiltin},
         {BuiltinId::RtStorePtr, &BuiltinsState::emitRtStorePtrBuiltin},
         {BuiltinId::RtLoadI32, &BuiltinsState::emitRtLoadI32Builtin},
@@ -247,6 +248,23 @@ namespace noria {
     }
     generator().emitBufferStore(witness, stored.text, elementPointer, emitter);
     generator().emitReleaseIfOwned(value, emitter, context);
+    return Value{"", Type::voidType()};
+  }
+
+  LLVMGenerator::Value
+  LLVMGenerator::BuiltinsState::emitRtDropBuiltin(const ast::CallExpression& call, IREmitter& emitter,
+                                         FunctionCodegenContext& context,
+                                         const std::vector<Scope>& scopes) const {
+    const Type witness =
+        resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
+    const Value pointer = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value index = generator().generateRvalue(*call.arguments[1], emitter, context, scopes);
+    const std::string elementPointer =
+        generator().emitRawBufferElementPointer(pointer, index, witness, emitter);
+    if (witness == Type::str()) {
+      const std::string loaded = generator().emitBufferLoad(witness, elementPointer, emitter);
+      generator().emitDropValue(Value{loaded, witness, true}, emitter, context);
+    }
     return Value{"", Type::voidType()};
   }
 

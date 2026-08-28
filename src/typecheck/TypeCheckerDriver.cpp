@@ -367,6 +367,9 @@ namespace noria {
       requireKnownType(*function.returnType, function.location, nullptr, false, allowInternal);
     }
     const Type expectedReturnType = *function.returnType;
+    if (expectedReturnType != Type::voidType()) {
+      requireContainerOwnershipOps(expectedReturnType, function.location);
+    }
 
     for (const auto& parameter : function.parameters) {
       requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
@@ -376,6 +379,7 @@ namespace noria {
         throw CompileError(formatDiagnostic(parameter.location, DiagnosticStage::TypeCheck,
                                             "duplicate parameter '" + parameter.name + "'"));
       }
+      requireContainerOwnershipOps(parameterType, parameter.location);
     }
 
     checkStatements(function.body, expectedReturnType);

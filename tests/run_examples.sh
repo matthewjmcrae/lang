@@ -930,6 +930,11 @@ if command -v valgrind >/dev/null 2>&1 && [[ -n "${CLANG}" ]]; then
   link_ir "${TEST_OUT_DIR}/string_concat_loop.ll" "${TEST_OUT_DIR}/string_concat_loop_valgrind"
   valgrind --leak-check=full --error-exitcode=1 \
     "${TEST_OUT_DIR}/string_concat_loop_valgrind" >/dev/null
+  set_case "valgrind examples/basic/sequence_push_loop.noria"
+  echo "[noria-tests] valgrind examples/basic/sequence_push_loop.noria"
+  link_ir "${TEST_OUT_DIR}/sequence_push_loop.ll" "${TEST_OUT_DIR}/sequence_push_loop_valgrind"
+  valgrind --leak-check=full --error-exitcode=1 \
+    "${TEST_OUT_DIR}/sequence_push_loop_valgrind" >/dev/null
 fi
 
 phase "phase 3 string concat diagnostics"
@@ -1058,6 +1063,20 @@ run_native_exit_test "${ROOT_DIR}/examples/basic/array_add.noria" 0
 run_native_failure_test "${ROOT_DIR}/examples/basic/array_add_length_mismatch.noria" 70 \
   "array addition requires equal lengths"
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_get.noria" 60
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_if_scope.noria" 20
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_mixed_scope_drop.noria" 8
+run_native_exit_test "${ROOT_DIR}/examples/basic/dictionary_copy_independence.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/set_copy_independence.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_param_mutate.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_str_reassign_scope.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/struct_sequence_field.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_push_loop.noria" 0
+grep -q "call void @__noria_sequence_drop" "${TEST_OUT_DIR}/sequence_if_scope.ll"
+grep -q "call void @__noria_sequence_drop" "${TEST_OUT_DIR}/container_mixed_scope_drop.ll"
+grep -q "call void @__noria_dictionary_drop" "${TEST_OUT_DIR}/container_mixed_scope_drop.ll"
+grep -q "call void @__noria.rt.drop_str" "${TEST_OUT_DIR}/container_mixed_scope_drop.ll"
+grep -q "call void @free" "${TEST_OUT_DIR}/container_mixed_scope_drop.ll"
+grep -q "call void @__noria_sequence_drop" "${TEST_OUT_DIR}/sequence_push_loop.ll"
 run_native_exit_test "${ROOT_DIR}/examples/basic/declaration_container_type_first.noria" 42
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_f64.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/sequence_pop_set.noria" 0
@@ -1183,7 +1202,7 @@ grep -q "typecheck: internal runtime builtin '__rt_trap' is unavailable outside 
   "${TEST_OUT_DIR}/use_private_rt_trap.stderr"
 grep -q "typecheck: conflicting types i32 and bool for type parameter 't'" \
   "${TEST_OUT_DIR}/sequence_set_type_mismatch.stderr"
-grep -q "typecheck: __rt_sizeof requires a scalar element type, got point" \
+grep -q "typecheck: __rt_drop requires a scalar element type, got point" \
   "${TEST_OUT_DIR}/sequence_struct_element.stderr"
 grep -Fq "typecheck: collection addition requires matching array types, got [i32] and [bool]" \
   "${TEST_OUT_DIR}/array_add_type_mismatch.stderr"

@@ -1,7 +1,7 @@
 import std::internal::dictionary_bst::{type_size};
-import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, hash_of, load_at,
-                           load_i32_at, load_ptr_at, null_ptr, ptr_eq, release_bytes, store_at,
-                           store_i32_at, store_ptr_at};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, drop_at, drop_witness, field_alignment, hash_of,
+                           load_at, load_i32_at, load_ptr_at, null_ptr, ptr_eq, release_bytes,
+                           store_at, store_i32_at, store_ptr_at};
 
 fn slot_key_offset() -> i32 {
   return 8;
@@ -188,6 +188,11 @@ fn hashmap_insert_slot<K, V>(header: __rt_ptr, key: K, value: V) -> bool {
   let had_key: bool = st == slot_occupied();
   let mark: i32 = set_slot_status(slot, slot_occupied());
   let sk: i32 = set_slot_key(slot, key_size, key);
+  if had_key {
+    let old_value: V = slot_value(slot, key_size, val_size);
+    let val_ptr: __rt_ptr = byte_offset(slot, slot_value_offset(key_size, val_size));
+    let drop_val: i32 = drop_witness(val_ptr, 0, old_value);
+  }
   let sv: i32 = set_slot_value(slot, key_size, val_size, value);
   return had_key;
 }
@@ -225,4 +230,40 @@ fn hashmap_remove<K, V>(header: __rt_ptr, key: K) -> V {
   let len: i32 = load_i32_at(header, 0);
   let dec: i32 = store_i32_at(header, 0, len - 1);
   return value;
+}
+
+fn hashmap_drop_keys<K>(table: __rt_ptr, cap: i32, key_size: i32, stride: i32) -> i32 {
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_occupied() {
+      let key: K = slot_key(slot, key_size);
+      let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+      let drop_key: i32 = drop_witness(key_ptr, 0, key);
+    }
+    i = i + 1;
+  }
+  let free0: i32 = release_bytes(table);
+  return 0;
+}
+
+fn hashmap_drop_table<K, V>(table: __rt_ptr, cap: i32, key_size: i32, val_size: i32,
+                            stride: i32) -> i32 {
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_occupied() {
+      let key: K = slot_key(slot, key_size);
+      let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+      let drop_key: i32 = drop_witness(key_ptr, 0, key);
+      let value: V = slot_value(slot, key_size, val_size);
+      let val_ptr: __rt_ptr = byte_offset(slot, slot_value_offset(key_size, val_size));
+      let drop_val: i32 = drop_witness(val_ptr, 0, value);
+    }
+    i = i + 1;
+  }
+  let free0: i32 = release_bytes(table);
+  return 0;
 }

@@ -1,0 +1,18 @@
+import std::set::{Set, set_contains, set_insert, set_new};
+
+fn main() -> i32 {
+  let a: Set<i32, hashmap> = set_new(0);
+  set_insert(a, 1);
+  let b: Set<i32, hashmap> = a;
+  set_insert(b, 2);
+  if !set_contains(a, 1) {
+    return 1;
+  }
+  if set_contains(a, 2) {
+    return 2;
+  }
+  if !set_contains(b, 2) {
+    return 3;
+  }
+  return 0;
+}

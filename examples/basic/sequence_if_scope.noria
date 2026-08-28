@@ -1,0 +1,12 @@
+import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let result: i32 = 0;
+  if true {
+    let temp: Sequence<i32, arr> = sequence_new(0);
+    sequence_push(temp, 10);
+    sequence_push(temp, 20);
+    result = sequence_get(temp, 1);
+  }
+  return result;
+}

@@ -72,6 +72,7 @@ namespace noria {
       throw CompileError(formatDiagnostic(letStatement.location, DiagnosticStage::TypeCheck,
                                           "duplicate local variable '" + letStatement.name + "'"));
     }
+    state_.requireContainerOwnershipOps(localType, letStatement.location);
 
     returned_ = false;
   }

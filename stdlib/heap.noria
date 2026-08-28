@@ -1,8 +1,8 @@
 import std::sequence::{Sequence, sequence_get, sequence_len, sequence_pop, sequence_push,
                        sequence_set};
 
-fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl arr {
-  s = sequence_push(s, value);
+fn heappush<T, I>(s: Sequence<T, I>, value: T) -> void impl arr {
+  sequence_push(s, value);
   let i: i32 = sequence_len(s) - 1;
   let done: bool = false;
   while !done && i > 0 {
@@ -10,18 +10,18 @@ fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl arr {
     if sequence_get(s, i) < sequence_get(s, parent) {
       let tmp: T = sequence_get(s, i);
       let pval: T = sequence_get(s, parent);
-      s = sequence_set(s, i, pval);
-      s = sequence_set(s, parent, tmp);
+      sequence_set(s, i, pval);
+      sequence_set(s, parent, tmp);
       i = parent;
     } else {
       done = true;
     }
   }
-  return s;
+  return;
 }
 
-fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl list {
-  s = sequence_push(s, value);
+fn heappush<T, I>(s: Sequence<T, I>, value: T) -> void impl list {
+  sequence_push(s, value);
   let i: i32 = sequence_len(s) - 1;
   let done: bool = false;
   while !done && i > 0 {
@@ -29,14 +29,14 @@ fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl list {
     if sequence_get(s, i) < sequence_get(s, parent) {
       let tmp: T = sequence_get(s, i);
       let pval: T = sequence_get(s, parent);
-      s = sequence_set(s, i, pval);
-      s = sequence_set(s, parent, tmp);
+      sequence_set(s, i, pval);
+      sequence_set(s, parent, tmp);
       i = parent;
     } else {
       done = true;
     }
   }
-  return s;
+  return;
 }
 
 fn heappop<T, I>(s: Sequence<T, I>) -> T impl arr {
@@ -50,7 +50,7 @@ fn heappop<T, I>(s: Sequence<T, I>) -> T impl arr {
     return root;
   }
   let last: T = sequence_pop(s);
-  s = sequence_set(s, 0, last);
+  sequence_set(s, 0, last);
   let size: i32 = len - 1;
   let i: i32 = 0;
   let done: bool = false;
@@ -73,8 +73,8 @@ fn heappop<T, I>(s: Sequence<T, I>) -> T impl arr {
     } else {
       let tmp: T = sequence_get(s, i);
       let sval: T = sequence_get(s, smallest);
-      s = sequence_set(s, i, sval);
-      s = sequence_set(s, smallest, tmp);
+      sequence_set(s, i, sval);
+      sequence_set(s, smallest, tmp);
       i = smallest;
     }
   }
@@ -92,7 +92,7 @@ fn heappop<T, I>(s: Sequence<T, I>) -> T impl list {
     return root;
   }
   let last: T = sequence_pop(s);
-  s = sequence_set(s, 0, last);
+  sequence_set(s, 0, last);
   let size: i32 = len - 1;
   let i: i32 = 0;
   let done: bool = false;
@@ -115,18 +115,18 @@ fn heappop<T, I>(s: Sequence<T, I>) -> T impl list {
     } else {
       let tmp: T = sequence_get(s, i);
       let sval: T = sequence_get(s, smallest);
-      s = sequence_set(s, i, sval);
-      s = sequence_set(s, smallest, tmp);
+      sequence_set(s, i, sval);
+      sequence_set(s, smallest, tmp);
       i = smallest;
     }
   }
   return root;
 }
 
-fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl arr {
+fn heapify<T, I>(s: Sequence<T, I>) -> void impl arr {
   let len: i32 = sequence_len(s);
   if len <= 1 {
-    return s;
+    return;
   }
   let start: i32 = len / 2 - 1;
   let idx: i32 = start;
@@ -152,20 +152,20 @@ fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl arr {
       } else {
         let tmp: T = sequence_get(s, i);
         let sval: T = sequence_get(s, smallest);
-        s = sequence_set(s, i, sval);
-        s = sequence_set(s, smallest, tmp);
+        sequence_set(s, i, sval);
+        sequence_set(s, smallest, tmp);
         i = smallest;
       }
     }
     idx = idx - 1;
   }
-  return s;
+  return;
 }
 
-fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl list {
+fn heapify<T, I>(s: Sequence<T, I>) -> void impl list {
   let len: i32 = sequence_len(s);
   if len <= 1 {
-    return s;
+    return;
   }
   let start: i32 = len / 2 - 1;
   let idx: i32 = start;
@@ -191,12 +191,12 @@ fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl list {
       } else {
         let tmp: T = sequence_get(s, i);
         let sval: T = sequence_get(s, smallest);
-        s = sequence_set(s, i, sval);
-        s = sequence_set(s, smallest, tmp);
+        sequence_set(s, i, sval);
+        sequence_set(s, smallest, tmp);
         i = smallest;
       }
     }
     idx = idx - 1;
   }
-  return s;
+  return;
 }

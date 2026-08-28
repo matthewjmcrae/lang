@@ -1,8 +1,40 @@
-# Noria Syntax
+# Noria language reference
 
-Noria is a small statically typed language that currently compiles to LLVM IR and native macOS executables.
+This document is the complete reference for Noria's implemented syntax and semantics. It includes the language's deliberate quirks, generic ADTs, ownership behavior, runtime traps, and current limitations. For a project-level introduction, start with the [README](README.md); for compiler internals and design rationale, see [engineering.md](engineering.md).
 
-## Supported Types
+## Syntax that is intentionally different
+
+These rules are easy to miss if you approach Noria from C++, Rust, or TypeScript:
+
+| Choice | Noria rule | Example |
+| --- | --- | --- |
+| **The ADT is named, not the backing container** | `Sequence`, `Dictionary`, and `Set` are the public abstractions. `arr`, `list`, `bst`, and `hashmap` are compile-time implementation tags, never standalone runtime types. | `Sequence<i32, list>` is still a `Sequence`, with the Sequence API. |
+| **ADT implementation defaults** | An omitted final tag expands before type checking: `Sequence<T>` defaults to `arr`; `Dictionary<K, V>` and `Set<T>` default to `hashmap`. `hashset` aliases `hashmap`. | `let seen: Set<str>;` creates an empty hashmap-backed set. |
+| **Default initialization is real initialization** | A typed declaration may omit `= expr`; the compiler constructs the type's default value rather than leaving uninitialized storage. | `let n: i32;`, `let text: str;`, `let values: [i32];` |
+| **Trailing return types are optional** | Omitting `-> Type` asks the checker to infer one type from all returns. Recursive or otherwise underconstrained functions need an annotation. | `fn answer() { return 42; }` infers `i32`. |
+| **Function keywords are aliases** | `fn`, `util`, `helper`, and `recfn` lex as the same declaration. The spelling communicates intent but has no semantic effect. | `recfn factorial(...) -> i32 { ... }` |
+| **Type/name order is independent** | Parameters, struct fields, and typed locals accept either `name: Type` or `Type: name`. | `left: i32` and `i32: left` are equivalent. |
+| **Top-level declaration order is independent** | Struct and function declarations are collected before bodies are checked, enabling forward calls and mutual references where the types can be resolved. Imports alone must precede declarations. | `main` may call a later declared helper. |
+| **Names are case-insensitive** | The lexer lowercases identifiers and keywords. String contents retain their case. | `Main`, `main`, and `MAIN` are the same identifier. |
+| **Returns are explicit on every completing path** | Inferred return types do not imply an implicit final expression. Value functions use `return expr;`; void functions use `return;`. | Both branches of an exhaustive `if` may return. |
+
+### Default values
+
+| Type | Default |
+| --- | --- |
+| `i32` | `0` |
+| `f64` | `0.0` |
+| `bool` | `false` |
+| `str` | immortal empty string `""` |
+| `[T]` | allocated, length-zero array |
+| ordinary struct | field-wise defaults |
+| `Sequence<T>` | empty `Sequence<T, arr>` |
+| `Dictionary<K, V>` | empty `Dictionary<K, V, hashmap>` |
+| `Set<T>` | empty `Set<T, hashmap>` |
+
+`void`, raw runtime pointers, and implementation tags cannot be local value types and therefore have no user-visible default.
+
+## Supported types
 
 Noria currently supports:
 
@@ -37,7 +69,7 @@ lexing, so `Main`, `main`, and `MAIN` refer to the same name. String literal con
 original casing. Because of that folding, a type parameter `I` is the same name as a local `i`;
 write `name: Type` in that situation (`let i: i32`) rather than type-first `Type: name`.
 
-## Program Structure
+## Program structure
 
 A Noria program is a list of optional import declarations followed by struct and function declarations.
 
@@ -47,7 +79,7 @@ fn main() -> i32 {
 }
 ```
 
-The compiler expects an executable program to contain:
+After return inference, an executable program must contain a non-generic, zero-parameter entry point with this signature:
 
 ```noria
 fn main() -> i32
@@ -57,7 +89,7 @@ Struct types are declared by name and referenced in annotations (for example, `P
 
 ## Modules
 
-Wake 1 supports importing selected symbols from bundled stdlib modules. Import declarations must appear before any struct or function declarations.
+Noria supports importing selected symbols from bundled stdlib modules. Import declarations must appear before any struct or function declarations.
 
 ```noria
 import std::mathx::{square};
@@ -101,11 +133,11 @@ These names are reserved with the `__rt_` prefix. User code cannot import `std::
 | --- | --- | --- | --- |
 | `sequence_new` | `fn sequence_new<T, I>(sample: T) -> Sequence<T, I>` | Geometric initial capacity; `sample` seeds element type inference | Circular sentinel doubly linked list; empty list |
 | `sequence_len` | `fn sequence_len<T, I>(s: Sequence<T, I>) -> i32` | O(1) | O(1) |
-| `sequence_push` | `fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I>` | O(1) amortized; grow/reallocate when full | O(1); append before sentinel |
+| `sequence_push` | `fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> void` | O(1) amortized; grow/reallocate when full | O(1); append before sentinel |
 | `sequence_get` | `fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
-| `sequence_set` | `fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
+| `sequence_set` | `fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void` | O(1); traps on out-of-bounds | O(n); walk from front; traps on out-of-bounds |
 | `sequence_pop` | `fn sequence_pop<T, I>(s: Sequence<T, I>) -> T` | O(1); remove last; traps on empty | O(1); remove last before sentinel; traps on empty |
-| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>` | O(n) shift; insert at index in `[0, len]`; traps otherwise | O(n); walk to index + link; insert at index in `[0, len]`; traps otherwise |
+| `sequence_insert` | `fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void` | O(n) shift; insert at index in `[0, len]`; traps otherwise | O(n); walk to index + link; insert at index in `[0, len]`; traps otherwise |
 | `sequence_remove` | `fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T` | O(n) shift; remove at index in `[0, len)`; traps otherwise | O(n); walk + unlink; remove at index in `[0, len)`; traps otherwise |
 
 Callers may select the backing implementation with the second type argument (`Sequence<i32, arr>` vs `Sequence<i32, list>`); omitting it defaults to `arr` (`Sequence<i32>`). A typed `Sequence<T>` local without an initializer is an empty sequence, equivalent to `sequence_new` with a default sample. Index a sequence with `s[i]` like a C++ `vector`: the result has type `T`, and `s[i] = expr` updates in place. Equal-length sequences of the same type can be added with `+` when `T` supports `+`; length mismatches trap at runtime. A `let` binding's declared type seeds constructor tag inference for the initializer's root call, such as `sequence_new(0)`. Nested expressions under that root do not inherit the declared type as an inference hint, and an entirely unannotated constructor call still cannot infer its implementation tag.
@@ -117,8 +149,8 @@ import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
 
 fn main() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  s = sequence_push(s, 10);
-  s = sequence_push(s, 20);
+  sequence_push(s, 10);
+  sequence_push(s, 20);
   return sequence_get(s, 0) + sequence_get(s, 1);
 }
 ```
@@ -128,8 +160,8 @@ import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, seque
 
 fn main() -> i32 {
   let s: Sequence<i32, list> = sequence_new(0);
-  s = sequence_push(s, 10);
-  s = sequence_push(s, 20);
+  sequence_push(s, 10);
+  sequence_push(s, 20);
   if sequence_len(s) != 2 {
     return 1;
   }
@@ -145,7 +177,7 @@ fn main() -> i32 {
 | --- | --- | --- | --- |
 | `dictionary_new` | `fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I>` | Empty tree; samples seed type inference | Empty table (cap 8); samples seed type inference |
 | `dictionary_len` | `fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32` | O(1) | O(1) |
-| `dictionary_insert` | `fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> Dictionary<K, V, I>` | Upsert; O(h) | Upsert; O(1) avg; resize at 75% load |
+| `dictionary_insert` | `fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> void` | Upsert; O(h) | Upsert; O(1) avg; resize at 75% load |
 | `dictionary_contains` | `fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool` | O(h) | O(1) avg |
 | `dictionary_get` | `fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V` | O(h); traps on missing key | O(1) avg; traps on missing key |
 | `dictionary_get_or` | `fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V` | O(h) | O(1) avg |
@@ -158,7 +190,7 @@ import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictiona
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 10, 100);
+  dictionary_insert(d, 10, 100);
   return dictionary_get(d, 10);
 }
 ```
@@ -168,7 +200,7 @@ import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictiona
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 10, 100);
+  dictionary_insert(d, 10, 100);
   return dictionary_get(d, 10);
 }
 ```
@@ -181,17 +213,17 @@ fn main() -> i32 {
 | --- | --- | --- | --- |
 | `set_new` | `fn set_new<T, I>(sample: T) -> Set<T, I>` | Empty tree; sample seeds type inference | Empty table (cap 8); sample seeds type inference |
 | `set_len` | `fn set_len<T, I>(s: Set<T, I>) -> i32` | O(1) | O(1) |
-| `set_insert` | `fn set_insert<T, I>(s: Set<T, I>, elem: T) -> Set<T, I>` | Idempotent insert; O(h) | Idempotent insert; O(1) avg |
+| `set_insert` | `fn set_insert<T, I>(s: Set<T, I>, elem: T) -> void` | Idempotent insert; O(h) | Idempotent insert; O(1) avg |
 | `set_contains` | `fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool` | O(h) | O(1) avg |
-| `set_remove` | `fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I>` | O(h); traps on missing element | O(1) avg; tombstone; traps on missing element |
+| `set_remove` | `fn set_remove<T, I>(s: Set<T, I>, elem: T) -> void` | O(h); traps on missing element | O(1) avg; tombstone; traps on missing element |
 
 ```noria
 import std::set::{Set, set_contains, set_insert, set_new, set_len};
 
 fn main() -> i32 {
   let s: Set<i32, hashmap> = set_new(0);
-  s = set_insert(s, 10);
-  s = set_insert(s, 10);
+  set_insert(s, 10);
+  set_insert(s, 10);
   if set_len(s) != 1 {
     return 1;
   }
@@ -205,9 +237,9 @@ fn main() -> i32 {
 
 | Operation | Signature | arr | list |
 | --- | --- | --- | --- |
-| `heappush` | `fn heappush<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I>` | O(log n) | O(n log n) |
+| `heappush` | `fn heappush<T, I>(s: Sequence<T, I>, value: T) -> void` | O(log n) | O(n log n) |
 | `heappop` | `fn heappop<T, I>(s: Sequence<T, I>) -> T` | O(log n); traps on empty | O(n log n); traps on empty |
-| `heapify` | `fn heapify<T, I>(s: Sequence<T, I>) -> Sequence<T, I>` | O(n) | O(n² log n) |
+| `heapify` | `fn heapify<T, I>(s: Sequence<T, I>) -> void` | O(n) | O(n² log n) |
 
 ```noria
 import std::heap::{heappop, heappush};
@@ -215,9 +247,9 @@ import std::sequence::{Sequence, sequence_new};
 
 fn main() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  s = heappush(s, 5);
-  s = heappush(s, 3);
-  s = heappush(s, 7);
+  heappush(s, 5);
+  heappush(s, 3);
+  heappush(s, 7);
   return heappop(s);
 }
 ```
@@ -228,12 +260,14 @@ import std::sequence::{Sequence, sequence_new};
 
 fn main() -> i32 {
   let s: Sequence<i32, list> = sequence_new(0);
-  s = heappush(s, 5);
-  s = heappush(s, 3);
-  s = heappush(s, 7);
+  heappush(s, 5);
+  heappush(s, 3);
+  heappush(s, 7);
   return heappop(s);
 }
 ```
+
+`Sequence<T, I>`, `Dictionary<K, V, I>`, and `Set<T, I>` follow the same ownership model as `str` and `[T]`. Container handles are uniquely owned: reassignment, scope exit, and `main` return drop the previous value. `let b = a` deep-copies into independent heap storage. Function parameters borrow the caller's handle; in-place mutators such as `sequence_push(s, x)` take `-> void` and update through the borrowed handle. Returning an owned local moves its handle; returning a borrowed parameter clones so the caller keeps a valid value. Element types remain scalars (`i32`, `f64`, `bool`, `str`); nested containers are unsupported.
 
 ## Functions
 
@@ -931,7 +965,7 @@ Noria currently does not support:
 - boxed recursive types (trees/graphs as user structs)
 - `Sequence<T>` elements that are structs
 - `[T]` arrays whose element type `T` is a struct
-- reclaiming `Sequence<T>`, `Dictionary<K, V>`, or `Set<T>` handles (leak-on-exit)
+- nested `Sequence`, `Dictionary`, or `Set` element types
 
 Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, failed `malloc`/`realloc`, and computed invalid integer division, remainder, or shift operations. Integer `+`, `-`, `*`, and valid shifts wrap on overflow; direct invalid integer literals are type errors.
 

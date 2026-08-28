@@ -354,15 +354,9 @@ namespace noria {
     const ContainerOperation operation = container == StandardContainer::Sequence
                                              ? ContainerOperation::Set
                                              : ContainerOperation::Insert;
-    const Value updated =
-        emitStandardContainerCall(container, operation, typeArgs, {base, indexValue, assigned},
+    (void)emitStandardContainerCall(container, operation, typeArgs, {base, indexValue, assigned},
                                   emitter, context);
-
-    if (destination.byteBuffer) {
-      emitBufferStore(destination.type, updated.text, destination.slot, emitter);
-    } else {
-      emitter.emitStore(destination.type, updated.text, destination.slot);
-    }
+    generator().emitReleaseIfOwned(assigned, emitter, context);
   }
 
 } // namespace noria

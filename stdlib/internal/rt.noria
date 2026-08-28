@@ -76,3 +76,12 @@ fn field_alignment(size: i32) -> i32 {
   }
   return size;
 }
+
+fn drop_at<T>(p: __rt_ptr, index: i32) -> i32 {
+  __rt_drop(p, index);
+  return 0;
+}
+
+fn drop_witness<T>(p: __rt_ptr, index: i32, witness: T) -> i32 {
+  return drop_at(p, index);
+}

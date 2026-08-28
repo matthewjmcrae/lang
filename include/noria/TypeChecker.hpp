@@ -168,6 +168,7 @@ namespace noria {
     Type checkRtHashBuiltin(const ast::CallExpression&);
     Type checkRtLoadBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkRtStoreBuiltin(const ast::CallExpression&, const BuiltinSignature&);
+    Type checkRtDropBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkAllArgumentsBuiltin(const ast::CallExpression&, const BuiltinSignature&);
     Type checkDeclaredBuiltinArguments(const ast::CallExpression&, const BuiltinSignature&);
     Type checkGenericFunctionCall(const ast::CallExpression&, const std::vector<std::size_t>&,
@@ -217,6 +218,7 @@ namespace noria {
     void recordImplicitContainerOperation(StandardContainer, ContainerOperation,
                                           const std::vector<Type>&, SourceLocation);
     void requireDefaultInitializable(const Type&, SourceLocation);
+    void requireContainerOwnershipOps(const Type&, SourceLocation);
 
     void pushScope();
     void popScope();

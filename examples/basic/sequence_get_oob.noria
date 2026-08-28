@@ -2,6 +2,6 @@ import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
 
 fn main() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  s = sequence_push(s, 10);
+  sequence_push(s, 10);
   return sequence_get(s, 5);
 }

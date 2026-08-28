@@ -162,7 +162,7 @@ namespace noria {
       return false;
     }
     if (standardContainerKindFromStructName(type.structName)) {
-      return false;
+      return true;
     }
 
     const StructLayout& layout = generator().lookupStructLayout(context, type);
@@ -241,7 +241,11 @@ namespace noria {
     }
 
     if (value.type.kind == TypeKind::Struct) {
-      if (standardContainerKindFromStructName(value.type.structName)) {
+      if (const std::optional<StandardContainer> container =
+              standardContainerKindFromStructName(value.type.structName)) {
+        const std::vector<Type> typeArgs = specializedStructTypeArgs(value.type, context);
+        (void)emitStandardContainerCall(*container, ContainerOperation::Drop, typeArgs, {value},
+                                        emitter, context);
         return;
       }
 
@@ -329,8 +333,13 @@ namespace noria {
     }
 
     if (value.type.kind == TypeKind::Struct) {
-      if (standardContainerKindFromStructName(value.type.structName)) {
-        return value;
+      if (const std::optional<StandardContainer> container =
+              standardContainerKindFromStructName(value.type.structName)) {
+        const std::vector<Type> typeArgs = specializedStructTypeArgs(value.type, context);
+        Value cloned = emitStandardContainerCall(*container, ContainerOperation::Clone, typeArgs,
+                                                 {value}, emitter, context);
+        cloned.owned = true;
+        return cloned;
       }
 
       const std::string slot = emitter.freshTemp();

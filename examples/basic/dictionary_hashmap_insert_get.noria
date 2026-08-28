@@ -6,9 +6,9 @@ fn main() -> i32 {
   if dictionary_len(d) != 0 {
     return 1;
   }
-  d = dictionary_insert(d, 10, 100);
-  d = dictionary_insert(d, 5, 50);
-  d = dictionary_insert(d, 20, 200);
+  dictionary_insert(d, 10, 100);
+  dictionary_insert(d, 5, 50);
+  dictionary_insert(d, 20, 200);
   if dictionary_len(d) != 3 {
     return 2;
   }
@@ -24,7 +24,7 @@ fn main() -> i32 {
   if dictionary_get(d, 20) != 200 {
     return 6;
   }
-  d = dictionary_insert(d, 10, 999);
+  dictionary_insert(d, 10, 999);
   if dictionary_len(d) != 3 {
     return 7;
   }

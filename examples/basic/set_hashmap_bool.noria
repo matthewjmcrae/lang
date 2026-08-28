@@ -2,9 +2,9 @@ import std::set::{Set, set_contains, set_insert, set_len, set_new};
 
 fn main() -> i32 {
   let s: Set<bool, hashset> = set_new(false);
-  s = set_insert(s, true);
-  s = set_insert(s, false);
-  s = set_insert(s, true);
+  set_insert(s, true);
+  set_insert(s, false);
+  set_insert(s, true);
   if set_len(s) != 2 {
     return 1;
   }

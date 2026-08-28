@@ -1,5 +1,6 @@
-import std::internal::rt::{alloc_bytes, load_at, load_i32_at, load_ptr_at, realloc_bytes,
-                           release_bytes, size_of, store_at, store_i32_at, store_ptr_at};
+import std::internal::rt::{alloc_bytes, drop_at, load_at, load_i32_at, load_ptr_at, ptr_eq,
+                           realloc_bytes, release_bytes, size_of, store_at, store_i32_at,
+                           store_ptr_at};
 
 struct Sequence<T, I> {
   private:
@@ -33,7 +34,7 @@ fn sequence_len<T, I>(s: Sequence<T, I>) -> i32 impl list {
   return load_i32_at(s.handle, 4);
 }
 
-fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl arr {
+fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> void impl arr {
   let len: i32 = load_i32_at(s.handle, 0);
   let cap: i32 = load_i32_at(s.handle, 1);
   if len >= cap {
@@ -47,10 +48,10 @@ fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl arr {
   let data: __rt_ptr = load_ptr_at(s.handle, 1);
   let push0: i32 = store_at(data, len, value);
   let push1: i32 = store_i32_at(s.handle, 0, len + 1);
-  return s;
+  return;
 }
 
-fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl list {
+fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> void impl list {
   let sentinel: __rt_ptr = s.handle;
   let node_bytes: i32 = 16 + size_of();
   let node: __rt_ptr = alloc_bytes(node_bytes);
@@ -63,7 +64,7 @@ fn sequence_push<T, I>(s: Sequence<T, I>, value: T) -> Sequence<T, I> impl list 
   let patch_sent: i32 = store_ptr_at(sentinel, 0, node);
   let len: i32 = load_i32_at(sentinel, 4);
   let new_len: i32 = store_i32_at(sentinel, 4, len + 1);
-  return s;
+  return;
 }
 
 fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T impl arr {
@@ -90,17 +91,18 @@ fn sequence_get<T, I>(s: Sequence<T, I>, index: i32) -> T impl list {
   return load_at(node, value_idx);
 }
 
-fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I> impl arr {
+fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void impl arr {
   let len: i32 = load_i32_at(s.handle, 0);
   if index < 0 || index >= len {
     __rt_trap("sequence_set: index out of bounds\n");
   }
   let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let drop0: i32 = drop_at(data, index);
   let set0: i32 = store_at(data, index, value);
-  return s;
+  return;
 }
 
-fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I> impl list {
+fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void impl list {
   let len: i32 = load_i32_at(s.handle, 4);
   if index < 0 || index >= len {
     __rt_trap("sequence_set: index out of bounds\n");
@@ -112,8 +114,9 @@ fn sequence_set<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I>
     node = load_ptr_at(node, 1);
     i = i + 1;
   }
+  let drop0: i32 = drop_at(node, value_idx);
   let set0: i32 = store_at(node, value_idx, value);
-  return s;
+  return;
 }
 
 fn sequence_pop<T, I>(s: Sequence<T, I>) -> T impl arr {
@@ -145,7 +148,7 @@ fn sequence_pop<T, I>(s: Sequence<T, I>) -> T impl list {
   return value;
 }
 
-fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I> impl arr {
+fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void impl arr {
   let len: i32 = load_i32_at(s.handle, 0);
   if index < 0 || index > len {
     __rt_trap("sequence_insert: index out of bounds\n");
@@ -163,7 +166,7 @@ fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T,
   let push0: i32 = store_at(data, len, value);
   let push1: i32 = store_i32_at(s.handle, 0, len + 1);
   if index == len {
-    return s;
+    return;
   }
   let new_len: i32 = len + 1;
   let i: i32 = new_len - 2;
@@ -173,7 +176,7 @@ fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T,
     i = i - 1;
   }
   let insert0: i32 = store_at(data, index, value);
-  return s;
+  return;
 }
 
 fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl arr {
@@ -193,7 +196,7 @@ fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl arr {
   return value;
 }
 
-fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T, I> impl list {
+fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void impl list {
   let sentinel: __rt_ptr = s.handle;
   let len: i32 = load_i32_at(sentinel, 4);
   if index < 0 || index > len {
@@ -210,7 +213,7 @@ fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T,
     let patch_last: i32 = store_ptr_at(last, 1, node);
     let patch_sent: i32 = store_ptr_at(sentinel, 0, node);
     let new_len: i32 = store_i32_at(sentinel, 4, len + 1);
-    return s;
+    return;
   }
   let node: __rt_ptr = load_ptr_at(sentinel, 1);
   let i: i32 = 0;
@@ -228,7 +231,7 @@ fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> Sequence<T,
   let patch_before: i32 = store_ptr_at(before, 1, new_node);
   let patch_node: i32 = store_ptr_at(node, 0, new_node);
   let new_len: i32 = store_i32_at(sentinel, 4, len + 1);
-  return s;
+  return;
 }
 
 fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl list {
@@ -252,4 +255,75 @@ fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl list {
   let dec: i32 = store_i32_at(sentinel, 4, len - 1);
   let free0: i32 = release_bytes(node);
   return value;
+}
+
+fn sequence_drop<T, I>(s: Sequence<T, I>) -> void impl arr {
+  let len: i32 = load_i32_at(s.handle, 0);
+  let data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let i: i32 = 0;
+  while i < len {
+    let drop0: i32 = drop_at(data, i);
+    i = i + 1;
+  }
+  let free_data: i32 = release_bytes(data);
+  let free_header: i32 = release_bytes(s.handle);
+  return;
+}
+
+fn sequence_drop<T, I>(s: Sequence<T, I>) -> void impl list {
+  let sentinel: __rt_ptr = s.handle;
+  let value_idx: i32 = 16 / size_of();
+  let node: __rt_ptr = load_ptr_at(sentinel, 1);
+  while !ptr_eq(node, sentinel) {
+    let next: __rt_ptr = load_ptr_at(node, 1);
+    let drop0: i32 = drop_at(node, value_idx);
+    let free0: i32 = release_bytes(node);
+    node = next;
+  }
+  let free_sent: i32 = release_bytes(sentinel);
+  return;
+}
+
+fn sequence_clone<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl arr {
+  let len: i32 = load_i32_at(s.handle, 0);
+  let cap: i32 = load_i32_at(s.handle, 1);
+  let header: __rt_ptr = alloc_bytes(16);
+  let bytes: i32 = cap * size_of();
+  let data: __rt_ptr = alloc_bytes(bytes);
+  let init0: i32 = store_i32_at(header, 0, len);
+  let init1: i32 = store_i32_at(header, 1, cap);
+  let init2: i32 = store_ptr_at(header, 1, data);
+  let old_data: __rt_ptr = load_ptr_at(s.handle, 1);
+  let i: i32 = 0;
+  while i < len {
+    let elem: T = load_at(old_data, i);
+    let copy0: i32 = store_at(data, i, elem);
+    i = i + 1;
+  }
+  return Sequence<T, I> { handle: header };
+}
+
+fn sequence_clone<T, I>(s: Sequence<T, I>) -> Sequence<T, I> impl list {
+  let sentinel: __rt_ptr = s.handle;
+  let new_sentinel: __rt_ptr = alloc_bytes(20);
+  let self0: i32 = store_ptr_at(new_sentinel, 0, new_sentinel);
+  let self1: i32 = store_ptr_at(new_sentinel, 1, new_sentinel);
+  let init_len: i32 = store_i32_at(new_sentinel, 4, 0);
+  let value_idx: i32 = 16 / size_of();
+  let node: __rt_ptr = load_ptr_at(sentinel, 1);
+  while !ptr_eq(node, sentinel) {
+    let elem: T = load_at(node, value_idx);
+    let node_bytes: i32 = 16 + size_of();
+    let new_node: __rt_ptr = alloc_bytes(node_bytes);
+    let store_val: i32 = store_at(new_node, value_idx, elem);
+    let last: __rt_ptr = load_ptr_at(new_sentinel, 0);
+    let link_prev: i32 = store_ptr_at(new_node, 0, last);
+    let link_next: i32 = store_ptr_at(new_node, 1, new_sentinel);
+    let patch_last: i32 = store_ptr_at(last, 1, new_node);
+    let patch_sent: i32 = store_ptr_at(new_sentinel, 0, new_node);
+    let cur_len: i32 = load_i32_at(new_sentinel, 4);
+    let new_len: i32 = store_i32_at(new_sentinel, 4, cur_len + 1);
+    node = load_ptr_at(node, 1);
+  }
+  return Sequence<T, I> { handle: new_sentinel };
 }

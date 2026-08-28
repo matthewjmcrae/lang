@@ -7,7 +7,7 @@ fn main() -> i32 {
   if sequence_len(numbers) != 0 {
     return 1;
   }
-  numbers = sequence_push(numbers, 42);
+  sequence_push(numbers, 42);
   if numbers[0] != 42 {
     return 2;
   }
@@ -16,7 +16,7 @@ fn main() -> i32 {
   if set_len(seen) != 0 {
     return 3;
   }
-  seen = set_insert(seen, 7);
+  set_insert(seen, 7);
   if !seen[7] || !set_contains(seen, 7) {
     return 4;
   }

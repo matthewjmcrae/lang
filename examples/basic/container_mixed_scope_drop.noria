@@ -1,0 +1,14 @@
+import std::dictionary::{Dictionary, dictionary_len, dictionary_new};
+import std::sequence::{Sequence, sequence_len, sequence_new};
+
+fn main() -> i32 {
+  let result: i32 = 0;
+  if true {
+    let label: str = "scope";
+    let nums: [i32] = [1, 2, 3];
+    let seq: Sequence<i32, arr> = sequence_new(0);
+    let map: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+    result = len(label) + len(nums) + sequence_len(seq) + dictionary_len(map);
+  }
+  return result;
+}

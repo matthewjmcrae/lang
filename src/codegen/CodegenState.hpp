@@ -209,6 +209,8 @@ namespace noria {
                             const std::vector<Scope>&) const;
     Value emitRtStoreBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,
                              const std::vector<Scope>&) const;
+    Value emitRtDropBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,
+                            const std::vector<Scope>&) const;
     Value emitRtLoadPtrBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,
                                const std::vector<Scope>&) const;
     Value emitRtStorePtrBuiltin(const ast::CallExpression&, IREmitter&, FunctionCodegenContext&,

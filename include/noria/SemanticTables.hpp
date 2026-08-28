@@ -89,6 +89,8 @@ namespace noria {
     Set,
     Contains,
     Insert,
+    Drop,
+    Clone,
   };
 
   struct StandardContainerInfo {
@@ -125,6 +127,8 @@ namespace noria {
       case ContainerOperation::New: return "sequence_new";
       case ContainerOperation::Get: return "sequence_get";
       case ContainerOperation::Set: return "sequence_set";
+      case ContainerOperation::Drop: return "sequence_drop";
+      case ContainerOperation::Clone: return "sequence_clone";
       default: return "";
       }
     case StandardContainer::Dictionary:
@@ -133,12 +137,16 @@ namespace noria {
       case ContainerOperation::Get: return "dictionary_get";
       case ContainerOperation::Contains: return "dictionary_contains";
       case ContainerOperation::Insert: return "dictionary_insert";
+      case ContainerOperation::Drop: return "dictionary_drop";
+      case ContainerOperation::Clone: return "dictionary_clone";
       default: return "";
       }
     case StandardContainer::Set:
       switch (operation) {
       case ContainerOperation::New: return "set_new";
       case ContainerOperation::Contains: return "set_contains";
+      case ContainerOperation::Drop: return "set_drop";
+      case ContainerOperation::Clone: return "set_clone";
       default: return "";
       }
     }
@@ -153,6 +161,8 @@ namespace noria {
       case ContainerOperation::New: return "__noria_sequence_new";
       case ContainerOperation::Get: return "__noria_sequence_get";
       case ContainerOperation::Set: return "__noria_sequence_set";
+      case ContainerOperation::Drop: return "__noria_sequence_drop";
+      case ContainerOperation::Clone: return "__noria_sequence_clone";
       default: return "";
       }
     case StandardContainer::Dictionary:
@@ -161,12 +171,16 @@ namespace noria {
       case ContainerOperation::Get: return "__noria_dictionary_get";
       case ContainerOperation::Contains: return "__noria_dictionary_contains";
       case ContainerOperation::Insert: return "__noria_dictionary_insert";
+      case ContainerOperation::Drop: return "__noria_dictionary_drop";
+      case ContainerOperation::Clone: return "__noria_dictionary_clone";
       default: return "";
       }
     case StandardContainer::Set:
       switch (operation) {
       case ContainerOperation::New: return "__noria_set_new";
       case ContainerOperation::Contains: return "__noria_set_contains";
+      case ContainerOperation::Drop: return "__noria_set_drop";
+      case ContainerOperation::Clone: return "__noria_set_clone";
       default: return "";
       }
     }

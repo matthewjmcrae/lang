@@ -9,7 +9,7 @@ fn two_sum(nums: [i32], target: i32) -> i32 {
     if dictionary_contains(seen, need) {
       return dictionary_get(seen, need) + i;
     }
-    seen = dictionary_insert(seen, nums[i], i);
+    dictionary_insert(seen, nums[i], i);
     i = i + 1;
   }
   return -1;

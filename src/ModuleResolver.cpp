@@ -548,6 +548,10 @@ namespace noria {
                                       ContainerOperation::Get, symbolOrigins);
         mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
                                       ContainerOperation::Set, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Drop, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Clone, symbolOrigins);
         return;
       case StandardContainer::Dictionary:
         mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
@@ -558,12 +562,20 @@ namespace noria {
                                       ContainerOperation::Contains, symbolOrigins);
         mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
                                       ContainerOperation::Insert, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Drop, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Clone, symbolOrigins);
         return;
       case StandardContainer::Set:
         mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
                                       ContainerOperation::New, symbolOrigins);
         mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
                                       ContainerOperation::Contains, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Drop, symbolOrigins);
+        mergeHiddenContainerOperation(merged, sourceModule, modulePath, info->kind,
+                                      ContainerOperation::Clone, symbolOrigins);
         return;
       }
     }

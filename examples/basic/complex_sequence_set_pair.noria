@@ -9,7 +9,7 @@ fn has_pair(nums: Sequence<i32, arr>, target: i32) -> bool {
     if set_contains(seen, need) {
       return true;
     }
-    seen = set_insert(seen, sequence_get(nums, i));
+    set_insert(seen, sequence_get(nums, i));
     i = i + 1;
   }
   return false;
@@ -17,10 +17,10 @@ fn has_pair(nums: Sequence<i32, arr>, target: i32) -> bool {
 
 fn main() -> i32 {
   let nums: Sequence<i32, arr> = sequence_new(0);
-  nums = sequence_push(nums, 3);
-  nums = sequence_push(nums, 1);
-  nums = sequence_push(nums, 8);
-  nums = sequence_push(nums, 4);
+  sequence_push(nums, 3);
+  sequence_push(nums, 1);
+  sequence_push(nums, 8);
+  sequence_push(nums, 4);
   if !has_pair(nums, 12) {
     return 1;
   }

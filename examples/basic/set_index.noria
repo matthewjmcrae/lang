@@ -5,7 +5,7 @@ fn main() -> i32 {
   if seen[1] {
     return 1;
   }
-  seen = set_insert(seen, 1);
+  set_insert(seen, 1);
   if !seen[1] {
     return 2;
   }

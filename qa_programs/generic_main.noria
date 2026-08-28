@@ -1,3 +1,0 @@
-fn main<T>() -> i32 {
-  return 0;
-}

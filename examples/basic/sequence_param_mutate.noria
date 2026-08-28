@@ -1,0 +1,19 @@
+import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push, sequence_set};
+
+fn mutate_first(s: Sequence<i32, arr>) -> i32 {
+  sequence_set(s, 0, 99);
+  return 0;
+}
+
+fn main() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  sequence_push(s, 1);
+  let code: i32 = mutate_first(s);
+  if code != 0 {
+    return code;
+  }
+  if sequence_get(s, 0) != 99 {
+    return 1;
+  }
+  return 0;
+}

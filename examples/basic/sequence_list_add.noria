@@ -2,12 +2,12 @@ import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, seque
 
 fn main() -> i32 {
   let left: Sequence<i32, list> = sequence_new(0);
-  left = sequence_push(left, 10);
-  left = sequence_push(left, 20);
+  sequence_push(left, 10);
+  sequence_push(left, 20);
 
   let right: Sequence<i32, list> = sequence_new(0);
-  right = sequence_push(right, 1);
-  right = sequence_push(right, 2);
+  sequence_push(right, 1);
+  sequence_push(right, 2);
 
   let sum: Sequence<i32, list> = left + right;
   if sequence_len(sum) != 2 {

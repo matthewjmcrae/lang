@@ -4,7 +4,7 @@ fn contains_duplicate(nums: [i32]) -> bool {
   let seen: Set<i32, hashmap> = set_new(0);
   let i: i32 = 0;
   while i < len(nums) {
-    seen = set_insert(seen, nums[i]);
+    set_insert(seen, nums[i]);
     i = i + 1;
   }
   return set_len(seen) != len(nums);

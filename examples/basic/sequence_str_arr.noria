@@ -2,8 +2,8 @@ import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, seque
 
 fn main() -> i32 {
   let s: Sequence<str, arr> = sequence_new("");
-  s = sequence_push(s, "hello");
-  s = sequence_push(s, "world");
+  sequence_push(s, "hello");
+  sequence_push(s, "world");
   if sequence_len(s) != 2 {
     return 1;
   }

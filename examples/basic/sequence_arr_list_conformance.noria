@@ -6,9 +6,9 @@ fn run_arr() -> i32 {
   if sequence_len(s) != 0 {
     return 1;
   }
-  s = sequence_push(s, 10);
-  s = sequence_push(s, 20);
-  s = sequence_push(s, 30);
+  sequence_push(s, 10);
+  sequence_push(s, 20);
+  sequence_push(s, 30);
   if sequence_len(s) != 3 {
     return 2;
   }
@@ -18,7 +18,7 @@ fn run_arr() -> i32 {
   if sequence_get(s, 2) != 30 {
     return 4;
   }
-  s = sequence_set(s, 1, 99);
+  sequence_set(s, 1, 99);
   if sequence_get(s, 1) != 99 {
     return 5;
   }
@@ -32,7 +32,7 @@ fn run_arr() -> i32 {
   if sequence_get(s, 0) + sequence_get(s, 1) != 109 {
     return 8;
   }
-  s = sequence_insert(s, 1, 50);
+  sequence_insert(s, 1, 50);
   if sequence_len(s) != 3 || sequence_get(s, 1) != 50 {
     return 9;
   }
@@ -48,9 +48,9 @@ fn run_list() -> i32 {
   if sequence_len(s) != 0 {
     return 1;
   }
-  s = sequence_push(s, 10);
-  s = sequence_push(s, 20);
-  s = sequence_push(s, 30);
+  sequence_push(s, 10);
+  sequence_push(s, 20);
+  sequence_push(s, 30);
   if sequence_len(s) != 3 {
     return 2;
   }
@@ -60,7 +60,7 @@ fn run_list() -> i32 {
   if sequence_get(s, 2) != 30 {
     return 4;
   }
-  s = sequence_set(s, 1, 99);
+  sequence_set(s, 1, 99);
   if sequence_get(s, 1) != 99 {
     return 5;
   }
@@ -74,7 +74,7 @@ fn run_list() -> i32 {
   if sequence_get(s, 0) + sequence_get(s, 1) != 109 {
     return 8;
   }
-  s = sequence_insert(s, 1, 50);
+  sequence_insert(s, 1, 50);
   if sequence_len(s) != 3 || sequence_get(s, 1) != 50 {
     return 9;
   }

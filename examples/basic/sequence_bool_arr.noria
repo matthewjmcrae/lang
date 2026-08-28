@@ -11,7 +11,7 @@ fn check(s: Sequence<bool, arr>) -> i32 {
   if sequence_get(s, 1) != false {
     return 3;
   }
-  s = sequence_set(s, 1, true);
+  sequence_set(s, 1, true);
   if sequence_get(s, 1) != true {
     return 4;
   }
@@ -20,8 +20,8 @@ fn check(s: Sequence<bool, arr>) -> i32 {
 
 fn main() -> i32 {
   let s: Sequence<bool, arr> = sequence_new(false);
-  s = sequence_push(s, true);
-  s = sequence_push(s, false);
-  s = sequence_push(s, true);
+  sequence_push(s, true);
+  sequence_push(s, false);
+  sequence_push(s, true);
   return check(s);
 }

@@ -3,11 +3,11 @@ import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictio
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 3, 30);
-  d = dictionary_insert(d, 1, 10);
-  d = dictionary_insert(d, 2, 20);
-  d = dictionary_insert(d, 5, 50);
-  d = dictionary_insert(d, 4, 40);
+  dictionary_insert(d, 3, 30);
+  dictionary_insert(d, 1, 10);
+  dictionary_insert(d, 2, 20);
+  dictionary_insert(d, 5, 50);
+  dictionary_insert(d, 4, 40);
   let removed: i32 = dictionary_remove(d, 3);
   if removed != 30 {
     return 1;

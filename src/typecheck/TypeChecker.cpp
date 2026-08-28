@@ -128,6 +128,7 @@ namespace noria {
     if (const std::optional<StandardContainer> container = standardContainerFor(canonical)) {
       recordImplicitContainerOperation(*container, ContainerOperation::New, canonical.typeArgs,
                                        location);
+      requireContainerOwnershipOps(canonical, location);
       return;
     }
 
@@ -138,6 +139,16 @@ namespace noria {
     const StructInfo info = resolveStructInfo(canonical, location);
     for (const StructFieldInfo& field : info.fields) {
       requireDefaultInitializable(field.type, location);
+    }
+  }
+
+  void TypeChecker::requireContainerOwnershipOps(const Type& type, SourceLocation location) {
+    const Type canonical = canonicalStructType(type);
+    if (const std::optional<StandardContainer> container = standardContainerFor(canonical)) {
+      recordImplicitContainerOperation(*container, ContainerOperation::Drop, canonical.typeArgs,
+                                       location);
+      recordImplicitContainerOperation(*container, ContainerOperation::Clone, canonical.typeArgs,
+                                       location);
     }
   }
 
@@ -316,6 +327,10 @@ namespace noria {
   Type TypeChecker::checkRtStoreBuiltin(const ast::CallExpression& call,
                                         const BuiltinSignature& signature) {
     return callsState_->checkRtStoreBuiltin(call, signature);
+  }
+  Type TypeChecker::checkRtDropBuiltin(const ast::CallExpression& call,
+                                       const BuiltinSignature& signature) {
+    return callsState_->checkRtDropBuiltin(call, signature);
   }
   Type TypeChecker::checkAllArgumentsBuiltin(const ast::CallExpression& call,
                                              const BuiltinSignature& signature) {

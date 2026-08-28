@@ -2,14 +2,14 @@ import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, seque
 
 fn main() -> i32 {
   let left: Sequence<i32> = sequence_new(0);
-  left = sequence_push(left, 1);
-  left = sequence_push(left, 2);
-  left = sequence_push(left, 3);
+  sequence_push(left, 1);
+  sequence_push(left, 2);
+  sequence_push(left, 3);
 
   let right: Sequence<i32> = sequence_new(0);
-  right = sequence_push(right, 4);
-  right = sequence_push(right, 5);
-  right = sequence_push(right, 6);
+  sequence_push(right, 4);
+  sequence_push(right, 5);
+  sequence_push(right, 6);
 
   let sum: Sequence<i32> = left + right;
   if sequence_len(sum) != 3 {

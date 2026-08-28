@@ -3,9 +3,9 @@ import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictio
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 30, 3);
-  d = dictionary_insert(d, 10, 1);
-  d = dictionary_insert(d, 20, 2);
+  dictionary_insert(d, 30, 3);
+  dictionary_insert(d, 10, 1);
+  dictionary_insert(d, 20, 2);
   if dictionary_len(d) != 3 {
     return 1;
   }

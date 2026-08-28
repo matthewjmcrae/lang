@@ -25,6 +25,7 @@ namespace noria {
     RtSizeof,
     RtLoad,
     RtStore,
+    RtDrop,
     RtLoadPtr,
     RtStorePtr,
     RtLoadI32,
@@ -50,7 +51,7 @@ namespace noria {
     MismatchStyle style;
   };
 
-  inline constexpr std::array<BuiltinSignature, 23> builtinSignatures{{
+  inline constexpr std::array<BuiltinSignature, 24> builtinSignatures{{
       {BuiltinId::Print,
        "print",
        Visibility::Public,
@@ -147,6 +148,13 @@ namespace noria {
        Visibility::Internal,
        3,
        {TypeKind::RawPtr, TypeKind::I32, TypeKind::TypeParam},
+       TypeKind::Void,
+       MismatchStyle::PerArgument},
+      {BuiltinId::RtDrop,
+       "__rt_drop",
+       Visibility::Internal,
+       2,
+       {TypeKind::RawPtr, TypeKind::I32, TypeKind::Void},
        TypeKind::Void,
        MismatchStyle::PerArgument},
       {BuiltinId::RtLoadPtr,

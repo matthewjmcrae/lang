@@ -3,14 +3,14 @@ import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, seque
 
 fn main() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  s = sequence_push(s, 1);
-  s = sequence_push(s, 2);
-  s = sequence_push(s, 3);
-  s = sequence_push(s, 4);
-  s = sequence_push(s, 5);
+  sequence_push(s, 1);
+  sequence_push(s, 2);
+  sequence_push(s, 3);
+  sequence_push(s, 4);
+  sequence_push(s, 5);
   if sequence_len(s) != 5 {
     return 1;
   }
-  s = sequence_set(s, 4, 50);
+  sequence_set(s, 4, 50);
   return sequence_get(s, 0) + sequence_get(s, 4);
 }

@@ -1,11 +1,15 @@
-import std::internal::dictionary_bst::{bst_contains_node, bst_find_node, bst_insert_node,
-                                         bst_load_key, bst_load_value, bst_min_node, bst_new_node,
-                                         bst_remove_node, bst_store_key, bst_store_value, key_offset,
-                                         node_bytes, type_size, value_offset};
-import std::internal::dictionary_hashmap::{hashmap_contains, hashmap_find_insert_slot, hashmap_find_slot,
-                                            hashmap_get_slot, hashmap_get_value, hashmap_init_table,
-                                            hashmap_insert_slot, hashmap_maybe_grow, hashmap_rehash,
-                                            hashmap_remove, probe_index, set_slot_key, set_slot_status,
+import std::internal::dictionary_bst::{bst_clone_keys, bst_clone_node, bst_contains_node,
+                                         bst_drop_keys, bst_drop_node, bst_find_node,
+                                         bst_insert_node, bst_load_key, bst_load_value,
+                                         bst_min_node, bst_new_node, bst_remove_node,
+                                         bst_store_key, bst_store_value, key_offset, node_bytes,
+                                         type_size, value_offset};
+import std::internal::dictionary_hashmap::{hashmap_contains, hashmap_drop_keys, hashmap_drop_table,
+                                            hashmap_find_insert_slot, hashmap_find_slot,
+                                            hashmap_get_slot, hashmap_get_value,
+                                            hashmap_init_table, hashmap_insert_slot,
+                                            hashmap_maybe_grow, hashmap_rehash, hashmap_remove,
+                                            probe_index, set_slot_key, set_slot_status,
                                             set_slot_value, slot_at, slot_bytes, slot_empty,
                                             slot_key, slot_key_offset, slot_occupied, slot_status,
                                             slot_tombstone, slot_value, slot_value_offset};
@@ -33,7 +37,7 @@ fn set_len<T, I>(s: Set<T, I>) -> i32 impl bst {
   return load_i32_at(s.handle, 0);
 }
 
-fn set_insert<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl bst {
+fn set_insert<T, I>(s: Set<T, I>, elem: T) -> void impl bst {
   let key_size: i32 = load_i32_at(s.handle, 1);
   let val_size: i32 = load_i32_at(s.handle, 2);
   let root: __rt_ptr = load_ptr_at(s.handle, 2);
@@ -44,7 +48,7 @@ fn set_insert<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl bst {
     let len: i32 = load_i32_at(s.handle, 0);
     let inc: i32 = store_i32_at(s.handle, 0, len + 1);
   }
-  return s;
+  return;
 }
 
 fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool impl bst {
@@ -53,7 +57,7 @@ fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool impl bst {
   return bst_contains_node(root, elem, key_size);
 }
 
-fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl bst {
+fn set_remove<T, I>(s: Set<T, I>, elem: T) -> void impl bst {
   let key_size: i32 = load_i32_at(s.handle, 1);
   let val_size: i32 = load_i32_at(s.handle, 2);
   let root: __rt_ptr = load_ptr_at(s.handle, 2);
@@ -65,7 +69,7 @@ fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl bst {
   let patch: i32 = store_ptr_at(s.handle, 2, new_root);
   let len: i32 = load_i32_at(s.handle, 0);
   let dec: i32 = store_i32_at(s.handle, 0, len - 1);
-  return s;
+  return;
 }
 
 fn set_new<T, I>(sample: T) -> Set<T, I> impl hashmap {
@@ -89,23 +93,92 @@ fn set_len<T, I>(s: Set<T, I>) -> i32 impl hashmap {
   return load_i32_at(s.handle, 0);
 }
 
-fn set_insert<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl hashmap {
+fn set_insert<T, I>(s: Set<T, I>, elem: T) -> void impl hashmap {
   let had_key: bool = hashmap_insert_slot(s.handle, elem, 0);
   if !had_key {
     let len: i32 = load_i32_at(s.handle, 0);
     let inc: i32 = store_i32_at(s.handle, 0, len + 1);
   }
-  return s;
+  return;
 }
 
 fn set_contains<T, I>(s: Set<T, I>, elem: T) -> bool impl hashmap {
   return hashmap_contains(s.handle, elem);
 }
 
-fn set_remove<T, I>(s: Set<T, I>, elem: T) -> Set<T, I> impl hashmap {
+fn set_remove<T, I>(s: Set<T, I>, elem: T) -> void impl hashmap {
   if !hashmap_contains(s.handle, elem) {
     __rt_trap("set_remove: key not found\n");
   }
   let _: i32 = hashmap_remove(s.handle, elem);
-  return s;
+  return;
+}
+
+fn set_drop<T, I>(s: Set<T, I>) -> void impl bst {
+  let key_size: i32 = load_i32_at(s.handle, 1);
+  let val_size: i32 = load_i32_at(s.handle, 2);
+  let root: __rt_ptr = load_ptr_at(s.handle, 2);
+  let drop_tree: i32 = bst_drop_keys(root, key_size, val_size);
+  let free_header: i32 = release_bytes(s.handle);
+  return;
+}
+
+fn set_drop<T, I>(s: Set<T, I>) -> void impl hashmap {
+  let key_size: i32 = load_i32_at(s.handle, 1);
+  let val_size: i32 = load_i32_at(s.handle, 2);
+  let cap: i32 = load_i32_at(s.handle, 3);
+  let table: __rt_ptr = load_ptr_at(s.handle, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let drop_table: i32 = hashmap_drop_keys(table, cap, key_size, stride);
+  let free_header: i32 = release_bytes(s.handle);
+  return;
+}
+
+fn set_clone<T, I>(s: Set<T, I>) -> Set<T, I> impl bst {
+  let len: i32 = load_i32_at(s.handle, 0);
+  let key_size: i32 = load_i32_at(s.handle, 1);
+  let val_size: i32 = load_i32_at(s.handle, 2);
+  let root: __rt_ptr = load_ptr_at(s.handle, 2);
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let init_key_size: i32 = store_i32_at(header, 1, key_size);
+  let init_val_size: i32 = store_i32_at(header, 2, val_size);
+  let init_root: i32 = store_ptr_at(header, 2, null_ptr());
+  let new_root: __rt_ptr = bst_clone_keys(root, key_size, val_size);
+  let patch_root: i32 = store_ptr_at(header, 2, new_root);
+  let patch_len: i32 = store_i32_at(header, 0, len);
+  return Set<T, I> { handle: header };
+}
+
+fn set_clone<T, I>(s: Set<T, I>) -> Set<T, I> impl hashmap {
+  let key_size: i32 = load_i32_at(s.handle, 1);
+  let val_size: i32 = load_i32_at(s.handle, 2);
+  let cap: i32 = load_i32_at(s.handle, 3);
+  let table: __rt_ptr = load_ptr_at(s.handle, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let init_key_size: i32 = store_i32_at(header, 1, key_size);
+  let init_val_size: i32 = store_i32_at(header, 2, val_size);
+  let init_cap: i32 = 8;
+  let init_cap_store: i32 = store_i32_at(header, 3, init_cap);
+  let table_bytes: i32 = init_cap * stride;
+  let new_table: __rt_ptr = alloc_bytes(table_bytes);
+  let init_table: i32 = hashmap_init_table(new_table, init_cap, stride);
+  let init_table_ptr: i32 = store_ptr_at(header, 2, new_table);
+  let result: Set<T, I> = Set<T, I> { handle: header };
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    if slot_status(slot) == slot_occupied() {
+      let elem: T = slot_key(slot, key_size);
+      let had_key: bool = hashmap_insert_slot(result.handle, elem, 0);
+      if !had_key {
+        let cur_len: i32 = load_i32_at(result.handle, 0);
+        let inc: i32 = store_i32_at(result.handle, 0, cur_len + 1);
+      }
+    }
+    i = i + 1;
+  }
+  return result;
 }

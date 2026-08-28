@@ -3,8 +3,8 @@ import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictio
 
 fn main() -> i32 {
   let d: Dictionary<str, i32, hashmap> = dictionary_new("", 0);
-  d = dictionary_insert(d, "alpha", 1);
-  d = dictionary_insert(d, "beta", 2);
+  dictionary_insert(d, "alpha", 1);
+  dictionary_insert(d, "beta", 2);
   if dictionary_len(d) != 2 {
     return 1;
   }

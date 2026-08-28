@@ -3,6 +3,6 @@ import std::sequence::{Sequence, sequence_new};
 
 fn main() -> i32 {
   let s: Sequence<str, arr> = sequence_new("key");
-  let _: Sequence<str, arr> = heappush(s, "other");
+  heappush(s, "other");
   return 0;
 }

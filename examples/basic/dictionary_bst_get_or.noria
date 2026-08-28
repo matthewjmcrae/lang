@@ -3,8 +3,8 @@ import std::dictionary::{Dictionary, dictionary_get, dictionary_get_or, dictiona
 
 fn main() -> i32 {
   let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
-  d = dictionary_insert(d, 1, 10);
-  d = dictionary_insert(d, 3, 30);
+  dictionary_insert(d, 1, 10);
+  dictionary_insert(d, 3, 30);
   if dictionary_get_or(d, 1, 0) != 10 {
     return 1;
   }

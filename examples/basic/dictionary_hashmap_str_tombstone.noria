@@ -3,13 +3,13 @@ import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictio
 
 fn main() -> i32 {
   let d: Dictionary<str, i32, hashmap> = dictionary_new("", 0);
-  d = dictionary_insert(d, "keep", 1);
-  d = dictionary_insert(d, "drop", 2);
+  dictionary_insert(d, "keep", 1);
+  dictionary_insert(d, "drop", 2);
   let removed: i32 = dictionary_remove(d, "drop");
   if removed != 2 {
     return 1;
   }
-  d = dictionary_insert(d, "drop", 3);
+  dictionary_insert(d, "drop", 3);
   if dictionary_len(d) != 2 {
     return 2;
   }

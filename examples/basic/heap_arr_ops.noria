@@ -3,18 +3,18 @@ import std::sequence::{Sequence, sequence_len, sequence_new, sequence_push};
 
 fn check_push_pop() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  let h: Sequence<i32, arr> = heappush(s, 5);
-  let h2: Sequence<i32, arr> = heappush(h, 3);
-  let h3: Sequence<i32, arr> = heappush(h2, 7);
-  let h4: Sequence<i32, arr> = heappush(h3, 1);
-  let a: i32 = heappop(h4);
-  let b: i32 = heappop(h4);
-  let c: i32 = heappop(h4);
-  let d: i32 = heappop(h4);
+  heappush(s, 5);
+  heappush(s, 3);
+  heappush(s, 7);
+  heappush(s, 1);
+  let a: i32 = heappop(s);
+  let b: i32 = heappop(s);
+  let c: i32 = heappop(s);
+  let d: i32 = heappop(s);
   if a != 1 || b != 3 || c != 5 || d != 7 {
     return 1;
   }
-  if sequence_len(h4) != 0 {
+  if sequence_len(s) != 0 {
     return 2;
   }
   return 0;
@@ -22,14 +22,14 @@ fn check_push_pop() -> i32 {
 
 fn check_heapify() -> i32 {
   let s: Sequence<i32, arr> = sequence_new(0);
-  s = sequence_push(s, 4);
-  s = sequence_push(s, 1);
-  s = sequence_push(s, 3);
-  s = sequence_push(s, 2);
-  s = sequence_push(s, 16);
-  s = sequence_push(s, 9);
-  s = sequence_push(s, 10);
-  s = heapify(s);
+  sequence_push(s, 4);
+  sequence_push(s, 1);
+  sequence_push(s, 3);
+  sequence_push(s, 2);
+  sequence_push(s, 16);
+  sequence_push(s, 9);
+  sequence_push(s, 10);
+  heapify(s);
   let a: i32 = heappop(s);
   let b: i32 = heappop(s);
   let c: i32 = heappop(s);
