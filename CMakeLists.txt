@@ -78,6 +78,10 @@ add_executable(noria
 target_include_directories(noria PRIVATE include)
 noria_configure_executable(noria)
 
+include(GNUInstallDirs)
+install(TARGETS noria RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY stdlib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noria/stdlib)
+
 add_executable(type_representation_test
   tests/type_representation_test.cpp
   src/Types.cpp

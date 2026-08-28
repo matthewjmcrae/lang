@@ -113,7 +113,9 @@ Current limitations:
 - Only names listed in the import braces are merged into the program; other symbols in the imported file remain unavailable.
 - Modules under `std::internal::` are available only to other standard-library modules, not to user programs.
 
-The bundled stdlib lives in `stdlib/` next to the project root. The compiler resolves `std::mathx` to `stdlib/mathx.noria` and nested paths such as `std::internal::rt` to `stdlib/internal/rt.noria`. Override the location with `--stdlib <dir>`.
+The bundled stdlib lives in `stdlib/` next to the project root. The compiler resolves `std::mathx` to `stdlib/mathx.noria` and nested paths such as `std::internal::rt` to `stdlib/internal/rt.noria`.
+
+The CLI finds that directory from the running executable: next to the binary, at `../stdlib` for in-tree `build/noria`, or at `../share/noria/stdlib` after `cmake --install`. Override with `--stdlib <dir>` or the `NORIA_STDLIB` environment variable.
 
 ## Private runtime ABI
 
@@ -970,6 +972,13 @@ Noria currently does not support:
 Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, failed `malloc`/`realloc`, and computed invalid integer division, remainder, or shift operations. Integer `+`, `-`, `*`, and valid shifts wrap on overflow; direct invalid integer literals are type errors.
 
 ## Commands
+
+Install into a prefix, then invoke `noria` from `PATH`:
+
+```bash
+cmake --install build --prefix /usr/local
+noria --help
+```
 
 Emit LLVM IR:
 

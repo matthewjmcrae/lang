@@ -54,7 +54,7 @@ host clang ──► native executable
 | Type checker | Collect declarations, infer returns/type arguments, enforce visibility and constraints | Every concrete function has a return type and every expression/place use is valid |
 | Monomorphizer | Materialize reachable generic functions/structs and rewrite applications | No generic template reaches code generation; specializations are deterministic and deduplicated |
 | Code generator | Lower checked AST, runtime checks, ownership, and layouts to LLVM | Emitted functions have explicit terminators and managed paths carry correct clone/drop behavior |
-| CLI/toolchain | File I/O, `opt`, target selection, native linking | Front-end logic remains callable without subprocesses through `compileSource()` |
+| CLI/toolchain | File I/O, executable/stdlib discovery, `opt`, native linking | Front-end logic remains callable without subprocesses through `compileSource()` |
 
 The compiler facade in `include/noria/Compiler.hpp` exposes `StopAfter::Tokens`, `StopAfter::Ast`, `StopAfter::Typed`, and `StopAfter::Ir` checkpoints. This separation is useful in two ways: the CLI is a thin integration layer, and C++ tests can exercise the compiler in memory without writing files or launching the binary.
 
@@ -298,7 +298,8 @@ The 13 unit targets cover canonical types, builtin and semantic registries, AST 
 - runtime-failure cases assert status 70 and diagnostic text;
 - emitted IR is inspected for bounds checks, drops, layouts, mangled specializations, and deduplication;
 - safety-sensitive programs are rerun through optimized native builds;
-- ADT operations are exercised across every supported implementation tag.
+- ADT operations are exercised across every supported implementation tag;
+- `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`.
 
 ASan/UBSan run through `just sanitize`. Valgrind can wrap compiler invocations and a generated string stress executable. CI builds and tests on both macOS and Ubuntu, requires LLVM tools, uses read-only repository permissions, and cancels superseded runs.
 

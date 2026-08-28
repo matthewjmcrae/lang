@@ -120,6 +120,19 @@ run_noria() {
   fi
 }
 
+# Invoke as `noria` from PATH so argv[0] is not a filesystem path.
+invoke_noria_on_path() {
+  local bin_dir="$1"
+  shift
+  local -a cmd=()
+  if [[ -n "${NORIA_PREFIX}" ]]; then
+    cmd+=("${NORIA_PREFIX_ARGS[@]}")
+  fi
+  cmd+=(noria)
+  cmd+=("$@")
+  env -u NORIA_STDLIB PATH="${bin_dir}${PATH:+:${PATH}}" "${cmd[@]}"
+}
+
 compile_example() {
   local source="$1"
   local name
@@ -384,6 +397,113 @@ expect_entry_point_failure() {
   grep -Fq "typecheck: ${expected}" "${native_stderr}"
 }
 
+phase "cli installed-user journeys"
+build_bin_dir="$(cd "$(dirname "${NORIA}")" && pwd)"
+
+set_case "noria --help via PATH"
+cli_help_stdout="${TEST_OUT_DIR}/cli-path-help.stdout"
+cli_help_stderr="${TEST_OUT_DIR}/cli-path-help.stderr"
+(
+  cd "${TEST_OUT_DIR}"
+  invoke_noria_on_path "${build_bin_dir}" --help
+) >"${cli_help_stdout}" 2>"${cli_help_stderr}"
+grep -q "Usage:" "${cli_help_stdout}" || fail "noria --help via PATH did not print usage on stdout"
+if grep -qi "filesystem_error" "${cli_help_stderr}"; then
+  fail "noria --help via PATH raised filesystem_error"
+fi
+if grep -q "noria: error:" "${cli_help_stderr}"; then
+  fail "noria --help via PATH reported an error"
+fi
+
+set_case "noria with no arguments via PATH"
+cli_noargs_stderr="${TEST_OUT_DIR}/cli-path-noargs.stderr"
+if (
+  cd "${TEST_OUT_DIR}"
+  invoke_noria_on_path "${build_bin_dir}"
+) >/dev/null 2>"${cli_noargs_stderr}"; then
+  fail "noria with no arguments exited 0"
+fi
+if grep -qi "filesystem_error" "${cli_noargs_stderr}"; then
+  fail "noria with no arguments via PATH raised filesystem_error"
+fi
+grep -q "missing input file" "${cli_noargs_stderr}" ||
+  fail "noria with no arguments did not report missing input"
+
+set_case "compile via PATH from another directory"
+cli_path_ir="${TEST_OUT_DIR}/cli-path-import_math.ll"
+rm -f "${cli_path_ir}"
+(
+  cd /
+  invoke_noria_on_path "${build_bin_dir}" "${ROOT_DIR}/examples/basic/import_math.noria" \
+    -o "${cli_path_ir}"
+)
+[[ -s "${cli_path_ir}" ]] || fail "PATH-invoked noria did not emit IR using the in-tree stdlib"
+
+set_case "cmake --install prefix"
+cli_prefix="${TEST_OUT_DIR}/install-prefix"
+rm -rf "${cli_prefix}"
+cmake --install "${BUILD_DIR}" --prefix "${cli_prefix}" \
+  >"${TEST_OUT_DIR}/cmake-install.log"
+[[ -x "${cli_prefix}/bin/noria" ]] || fail "cmake --install did not install bin/noria"
+[[ -f "${cli_prefix}/share/noria/stdlib/mathx.noria" ]] ||
+  fail "cmake --install did not install share/noria/stdlib"
+
+set_case "noria --help from install prefix via PATH"
+cli_install_help_stdout="${TEST_OUT_DIR}/cli-install-help.stdout"
+cli_install_help_stderr="${TEST_OUT_DIR}/cli-install-help.stderr"
+(
+  cd "${TEST_OUT_DIR}"
+  invoke_noria_on_path "${cli_prefix}/bin" --help
+) >"${cli_install_help_stdout}" 2>"${cli_install_help_stderr}"
+grep -q "Usage:" "${cli_install_help_stdout}" || fail "installed noria --help did not print usage"
+if grep -qi "filesystem_error" "${cli_install_help_stderr}"; then
+  fail "installed noria --help raised filesystem_error"
+fi
+
+set_case "compile from install prefix via PATH"
+cli_install_ir="${TEST_OUT_DIR}/cli-install-import_math.ll"
+rm -f "${cli_install_ir}"
+(
+  cd /
+  invoke_noria_on_path "${cli_prefix}/bin" "${ROOT_DIR}/examples/basic/import_math.noria" \
+    -o "${cli_install_ir}"
+)
+[[ -s "${cli_install_ir}" ]] || fail "installed noria did not find share/noria/stdlib via PATH"
+
+set_case "compile through a PATH symlink to the installed compiler"
+cli_symlink_bin="${TEST_OUT_DIR}/cli-symlink-bin"
+rm -rf "${cli_symlink_bin}"
+mkdir -p "${cli_symlink_bin}"
+ln -s "${cli_prefix}/bin/noria" "${cli_symlink_bin}/noria"
+cli_symlink_ir="${TEST_OUT_DIR}/cli-symlink-import_math.ll"
+rm -f "${cli_symlink_ir}"
+(
+  cd /
+  invoke_noria_on_path "${cli_symlink_bin}" "${ROOT_DIR}/examples/basic/import_math.noria" \
+    -o "${cli_symlink_ir}"
+)
+[[ -s "${cli_symlink_ir}" ]] ||
+  fail "noria invoked through a PATH symlink did not find the installed stdlib"
+
+set_case "orphan compiler reports a stdlib error"
+cli_orphan_bin="${TEST_OUT_DIR}/cli-orphan-bin"
+rm -rf "${cli_orphan_bin}"
+mkdir -p "${cli_orphan_bin}"
+cp "${NORIA}" "${cli_orphan_bin}/noria"
+chmod +x "${cli_orphan_bin}/noria"
+cli_orphan_stderr="${TEST_OUT_DIR}/cli-orphan.stderr"
+if (
+  cd /
+  invoke_noria_on_path "${cli_orphan_bin}" "${ROOT_DIR}/examples/basic/import_math.noria"
+) >/dev/null 2>"${cli_orphan_stderr}"; then
+  fail "orphan noria compiled an import without a stdlib"
+fi
+if grep -qi "filesystem_error" "${cli_orphan_stderr}"; then
+  fail "orphan noria raised filesystem_error instead of a compile diagnostic"
+fi
+grep -q "stdlib root does not exist" "${cli_orphan_stderr}" ||
+  fail "orphan noria did not report a missing stdlib"
+
 phase "compile basic examples"
 for source in "${ROOT_DIR}"/examples/basic/*.noria; do
   compile_example "${source}"
@@ -464,17 +584,17 @@ for name in void_parameter void_local void_struct_field void_array void_generic_
 done
 
 phase "entry-point diagnostics"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_signature.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/invalid_main_signature.noria" \
   "entry point 'main' must accept no parameters; expected 'fn main() -> i32'"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/invalid_main_return_type.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/invalid_main_return_type.noria" \
   "entry point 'main' must return i32, got bool"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/void_main.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/void_main.noria" \
   "entry point 'main' must return i32, got void"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/str_main.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/str_main.noria" \
   "entry point 'main' must return i32, got str"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/generic_main.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/generic_main.noria" \
   "entry point 'main' must not be generic; expected 'fn main() -> i32'"
-expect_entry_point_failure "${ROOT_DIR}/qa_programs/missing_main.noria" \
+expect_entry_point_failure "${ROOT_DIR}/examples/invalid/missing_main.noria" \
   "missing entry point; expected 'fn main() -> i32'"
 
 phase "future type name() diagnostics"

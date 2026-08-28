@@ -131,6 +131,14 @@ cmake -S . -B build
 cmake --build build
 ```
 
+Install the compiler and bundled standard library into a prefix:
+
+```bash
+cmake --install build --prefix /usr/local
+```
+
+`noria` can then be invoked from `PATH`. It locates `stdlib` next to the executable, at `../stdlib` (in-tree builds), or at `../share/noria/stdlib` (the CMake install layout). Override with `--stdlib <dir>` or `NORIA_STDLIB`.
+
 Emit LLVM IR:
 
 ```bash
@@ -170,7 +178,7 @@ just sanitize   # ASan + UBSan in a separate build directory
 just valgrind   # compiler invocations and generated string stress test
 ```
 
-The end-to-end harness validates more than successful compilation. It checks located diagnostic text, emitted IR patterns, native exit codes and stdout, optimization-sensitive safety behavior, runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. GitHub Actions runs the suite on macOS and Ubuntu with LLVM tooling required.
+The end-to-end harness validates more than successful compilation. It checks located diagnostic text, emitted IR patterns, native exit codes and stdout, optimization-sensitive safety behavior, runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. It also exercises the installed CLI: `noria --help` and stdlib discovery when the compiler is invoked through `PATH` from another directory, including after `cmake --install`. GitHub Actions runs the suite on macOS and Ubuntu with LLVM tooling required.
 
 The same full-suite compilation workload serves as the compiler performance benchmark. Profiling across 19,600 compilation runs identified repeated reconstruction of reusable AST components; bounded LFU caches reduced the recorded workload from 27.7 seconds to 7.1 seconds. The raw timings are environment-specific; the comparable-workload result is a 20.6-second / 74.4% reduction, or roughly 3.9× faster.
 
