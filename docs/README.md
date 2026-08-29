@@ -127,9 +127,9 @@ Key directories:
 | Path | Responsibility |
 | --- | --- |
 | [`include/noria/`](../include/noria/) | AST, canonical types, public compiler facade, shared semantic metadata, runtime definitions |
-| [`src/typecheck/`](../src/typecheck/) | `TypeChecker` Pimpl façade; context-owned declarations, scopes, sessions, specialization registry, and focused checking components |
+| [`src/typecheck/`](../src/typecheck/) | `TypeChecker` Pimpl facade; context-owned declarations, scopes, sessions, specialization registry, and focused checking components |
 | [`src/monomorphize/`](../src/monomorphize/) | Specialization discovery, cloning, rewriting, caching, cycle and expansion guards |
-| [`src/codegen/`](../src/codegen/) | `LLVMGenerator` Pimpl façade; module/function contexts and focused emitters for expressions, statements, places, builtins, structs, memory, and ownership |
+| [`src/codegen/`](../src/codegen/) | `LLVMGenerator` Pimpl facade; module/function contexts and focused emitters for expressions, statements, places, builtins, structs, memory, and ownership |
 | [`stdlib/`](../stdlib/) | Public Noria ADTs and private implementation/runtime modules |
 | [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, and corpus seeds |
 | [`examples/`](../examples/) | Passing programs, semantic failures, syntax failures, and clearly separated future sketches |
