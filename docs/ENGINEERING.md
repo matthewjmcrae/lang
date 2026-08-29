@@ -314,7 +314,7 @@ The 13 C++ test executables cover canonical types, builtin and semantic registri
 - a named high-risk `-O2` manifest re-runs ownership and container programs after optimization;
 - `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`.
 
-ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1` so generated LLVM IR is instrumented before native link. Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind.
+ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1`. Linux instruments generated IR with LLVM ASan passes and clang-links that IR. Darwin one-step compiles the original IR with Apple clang `-fsanitize=address -c` (Homebrew `opt` IR that Apple clang cannot parse falls back to `llc` without ASan hooks). Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind.
 
 ### Fuzzing (WIP)
 

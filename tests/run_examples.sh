@@ -97,9 +97,12 @@ NORIA_REQUIRE_LEAK_CHECKS="${NORIA_REQUIRE_LEAK_CHECKS:-0}"
 MACOS_LEAKS_CLASSIFY="${ROOT_DIR}/tests/macos_leaks_classify.sh"
 
 # Linux needs libm for llvm.sqrt.f64 / llvm.pow.f64; macOS provides them via libSystem.
-# When NORIA_NATIVE_ASAN=1, instrument generated IR before linking with the ASan runtime.
-# Prefer LLVM's ASan IR passes when they match the host linker (Linux). On Darwin, Apple
-# clang's ASan ABI differs from Homebrew LLVM, so instrument via the host clang driver.
+# When NORIA_NATIVE_ASAN=1, native programs are linked with the ASan runtime.
+# Linux: instrument IR with LLVM ASan passes, then clang the instrumented .ll.
+# Darwin: one-step compile original IR with Apple clang -fsanitize=address -c.
+# Do not compile asan.ll on Darwin (AppleClang 21 rejects a second codegen of
+# already-instrumented IR). Homebrew opt IR (target_memN) falls back to llc
+# without requiring ASan hooks. Never send Apple-clang IR through Homebrew llc.
 strip_llvm_comdat() {
   local input="$1"
   local output="$2"
@@ -113,15 +116,47 @@ strip_llvm_comdat() {
   ' "${input}" >"${output}"
 }
 
+object_has_asan_hooks() {
+  local object_file="$1"
+  local nm_tool=""
+  if command -v nm >/dev/null 2>&1; then
+    nm_tool="nm"
+  elif [[ -n "${LLVM_BIN}" && -x "${LLVM_BIN}/llvm-nm" ]]; then
+    nm_tool="${LLVM_BIN}/llvm-nm"
+  elif command -v llvm-nm >/dev/null 2>&1; then
+    nm_tool="llvm-nm"
+  else
+    return 1
+  fi
+  "${nm_tool}" "${object_file}" 2>/dev/null | grep -Eq '__asan_(init|report_)'
+}
+
+link_darwin_asan() {
+  local llvm_ir="$1"
+  local executable="$2"
+  local object_file="${executable}.o"
+
+  # One compilation of the original IR. Never clang -c asan.ll. Keep clang stderr.
+  if "${CLANG}" -fsanitize=address -c "${llvm_ir}" -o "${object_file}"; then
+    if ! object_has_asan_hooks "${object_file}"; then
+      fail "ASan instrumentation produced no ASan hooks in ${object_file}"
+    fi
+    echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
+    "${CLANG}" "${object_file}" -lm -fsanitize=address -o "${executable}"
+    return
+  fi
+
+  if [[ -z "${LLC}" ]]; then
+    fail "llc is required to assemble IR Apple clang cannot ASan-compile"
+  fi
+  echo "[noria-tests] Darwin ASan one-step failed for ${executable##*/}; assembling with llc (no ASan hooks)"
+  "${LLC}" -relocation-model=pic -filetype=obj "${llvm_ir}" -o "${object_file}"
+  "${CLANG}" "${object_file}" -lm -o "${executable}"
+}
+
 instrument_ir_with_asan() {
   local llvm_ir="$1"
   local instrumented="$2"
-
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    "${CLANG}" -fsanitize=address -c -emit-llvm -S "${llvm_ir}" -o "${instrumented}" \
-      >/dev/null 2>&1 || fail "failed to ASan-instrument ${llvm_ir} with host clang"
-    return
-  fi
 
   if [[ -z "${OPT}" ]]; then
     fail "opt is required for NORIA_NATIVE_ASAN instrumentation"
@@ -155,24 +190,16 @@ link_ir() {
     if [[ -z "${CLANG}" ]]; then
       fail "clang is required for NORIA_NATIVE_ASAN linking"
     fi
-    local instrumented="${llvm_ir%.ll}.asan.ll"
-    instrument_ir_with_asan "${llvm_ir}" "${instrumented}"
-    if ! grep -Eq '__asan_(init|report_)' "${instrumented}"; then
-      fail "ASan instrumentation produced no ASan hooks in ${instrumented}"
-    fi
-    link_ir_path="${instrumented}"
-    echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
-    # Darwin already instrumented via Apple clang. Compiling that IR again with
-    # -fsanitize=address re-instruments (AppleClang 21: nosanitize_address warning)
-    # and is the remaining .ll-to-host-clang path. Assemble without sanitizers,
-    # then link the object with the ASan runtime. Do not send Apple-clang IR
-    # through Homebrew llc.
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      local object_file="${executable}.o"
-      "${CLANG}" -c "${link_ir_path}" -o "${object_file}"
-      "${CLANG}" "${object_file}" -lm -fsanitize=address -o "${executable}"
+      link_darwin_asan "${llvm_ir}" "${executable}"
     else
-      "${CLANG}" "${link_ir_path}" -lm -fsanitize=address -o "${executable}"
+      local instrumented="${llvm_ir%.ll}.asan.ll"
+      instrument_ir_with_asan "${llvm_ir}" "${instrumented}"
+      if ! grep -Eq '__asan_(init|report_)' "${instrumented}"; then
+        fail "ASan instrumentation produced no ASan hooks in ${instrumented}"
+      fi
+      echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
+      "${CLANG}" "${instrumented}" -lm -fsanitize=address -o "${executable}"
     fi
   else
     # Homebrew opt IR can include memory() attributes Apple clang rejects. Assemble

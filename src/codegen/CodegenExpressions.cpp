@@ -270,10 +270,11 @@ namespace noria::codegen_detail {
           memory_.emitArrayElementPointer(base, indexValue, elementType, emitter, context);
       const std::string result = memory_.emitBufferLoad(elementType, pointer, emitter);
       Value loaded{result, elementType, false};
-      if (ownership == LLVMGenerator::OwnershipMode::Own &&
-          ownership_.typeNeedsDrop(elementType, context)) {
-        return ownership_.emitCloneValue(loaded, emitter, context);
+      if (ownership_.typeNeedsDrop(elementType, context) &&
+          (ownership == LLVMGenerator::OwnershipMode::Own || base.owned)) {
+        loaded = ownership_.emitCloneValue(loaded, emitter, context);
       }
+      ownership_.emitReleaseIfOwned(base, emitter, context);
       return loaded;
     }
 
@@ -288,6 +289,7 @@ namespace noria::codegen_detail {
     emitter.line(byte + " = load i8, ptr " + pointer);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = zext i8 " + byte + " to i32");
+    ownership_.emitReleaseIfOwned(base, emitter, context);
     return Value{result, Type::i32()};
   }
 

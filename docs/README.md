@@ -203,7 +203,7 @@ just valgrind   # wrap compiler invocations under Valgrind
 | Workflow | What it checks |
 | --- | --- |
 | `just test` | All 16 CTest entries: the end-to-end corpus, 13 C++ executables, a macOS leak-output classifier test, and a documentation/corpus-count guard |
-| `just sanitize` | ASan/UBSan on the compiler and ASan instrumentation of generated LLVM IR before native linking |
+| `just sanitize` | ASan/UBSan on the compiler and generated-code ASan (Linux: instrument IR then clang-link; Darwin: one-step `-fsanitize=address -c` of original IR) |
 | `just leak` | Container-focused leak fixtures using Valgrind when available, otherwise Linux ASan/LSan or macOS `leaks`; fails if no checker can run |
 
 The end-to-end harness validates more than successful compilation. It checks located diagnostics, emitted IR patterns, native exit codes and stdout, stable runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. A named high-risk manifest reruns ownership and container cases at `-O2`. Container fixtures cover both Sequence implementations, both Dictionary/Set representations, mixed scalar widths, heap-allocated strings, arrays, and heap-over-Sequence. Four generated-but-checked-in reference models each replay a deterministic 300-operation trace against expected state, including clone divergence, resize/tombstone behavior, and alternate representations.
