@@ -974,7 +974,7 @@ Noria currently does not support:
 
 ## Commands
 
-See the [project overview](README.md#build-and-run) for prerequisites, installation, test, sanitizer, leak, and fuzz workflows. The compiler-facing commands are summarized here for reference.
+See the [project overview](README.md#build-and-run) for prerequisites, installation, test, sanitizer, leak, and WIP fuzzing workflows. The compiler-facing commands are summarized here for reference.
 
 Install into a prefix, then invoke `noria` from `PATH`:
 

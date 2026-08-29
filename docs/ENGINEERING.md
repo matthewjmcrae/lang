@@ -20,7 +20,7 @@ The current tree contains approximately 15,700 lines of compiler/header code and
 | Ownership and lowering | [`src/codegen/`](../src/codegen/) | Native copy/move/drop cases, leak fixtures, generated-code ASan, and optimized regression cases |
 | Source-written ADTs | [`stdlib/`](../stdlib/) and the private ABI in [`Builtins.hpp`](../include/noria/Builtins.hpp) | Cross-tag conformance cases and deterministic container model traces |
 | Compiler throughput | [`CompilerCache.cpp`](../src/CompilerCache.cpp), [`LfuCache.hpp`](../include/noria/LfuCache.hpp), frontier monomorphization | Focused cache tests and the documented historical [performance experiment](PERFORMANCE.md) |
-| Robustness | [`run_examples.sh`](../tests/run_examples.sh), [`compile_fuzzer.cpp`](../tests/fuzz/compile_fuzzer.cpp) | Cross-platform CI, sanitizers, leak tools, weekly fuzzing, and crash artifact upload |
+| Robustness | [`run_examples.sh`](../tests/run_examples.sh), [`compile_fuzzer.cpp`](../tests/fuzz/compile_fuzzer.cpp) | Cross-platform CI, sanitizers, leak tools, and WIP weekly fuzzing with crash artifact upload |
 
 ## End-to-end architecture
 
@@ -308,11 +308,13 @@ The 13 C++ test executables cover canonical types, builtin and semantic registri
 
 ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1` so generated LLVM IR is instrumented before native link. Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind.
 
-### Fuzzing and CI
+### Fuzzing (WIP)
 
-`noria_compile_fuzzer` sends arbitrary byte strings through `compileSource(..., StopAfter::Ir)` and clears the process cache between inputs. Located `CompileError` failures are expected for invalid programs; unexpected standard or non-standard exceptions cause a fuzzer finding. The target is built with Clang libFuzzer and ASan, has a small seed corpus spanning valid, generic, container, ownership, lexer-invalid, and parser-invalid inputs, and is available locally through `just fuzz`.
+`noria_compile_fuzzer` sends arbitrary byte strings through `compileSource(..., StopAfter::Ir)` and clears the process cache between inputs. Located `CompileError` failures are expected for invalid programs; unexpected standard or non-standard exceptions cause a fuzzer finding. The target is built with Clang libFuzzer and ASan and has a small seed corpus spanning valid, generic, container, ownership, lexer-invalid, and parser-invalid inputs.
 
-The main CI matrix builds and tests on macOS and Ubuntu with LLVM tools required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs. A separate scheduled Ubuntu workflow runs the compile fuzzer weekly for 120 seconds and uploads crash artifacts when the job fails.
+Fuzzing is WIP, not part of the canonical test suite, and not a benchmark. It is currently exercised only by a separate scheduled Ubuntu workflow, which runs the compile fuzzer weekly for 120 seconds and uploads crash artifacts when the job fails.
+
+The main CI matrix builds and tests on macOS and Ubuntu with LLVM tools required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs.
 
 ## Notable engineering challenges
 

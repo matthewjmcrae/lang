@@ -19,7 +19,7 @@ This repository is deliberately scoped as a focused language implementation rath
 - **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector.
 - **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—about **74.5% less time** or **3.9× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
 - **Failure behavior is part of the contract.** The current regression suite compiles 277 accepted programs, rejects 148 semantic failures and 22 lexer/parser failures, runs native exit/stdout/trap checks, and includes 13 focused C++ test executables.
-- **Memory safety and resilience get dedicated workflows.** Compiler and generated-code sanitizers, portable leak checks, deterministic container reference models, and a weekly libFuzzer job exercise risks that success-only examples miss.
+- **Memory safety and resilience get dedicated workflows.** Compiler and generated-code sanitizers, portable leak checks, deterministic container reference models, and a weekly WIP libFuzzer job exercise risks that success-only examples miss.
 
 ## Current snapshot
 
@@ -30,7 +30,7 @@ This repository is deliberately scoped as a focused language implementation rath
 | Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift                                                                     |
 | Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade                                                |
 | End-to-end checks | IR assertions, native exit/stdout/trap behavior, `-O2` regression cases, install/stdlib discovery, sanitizer instrumentation, leak checking, and four checked-in 300-operation container model traces |
-| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes; scheduled Clang/libFuzzer coverage of the in-memory compiler facade                                                                        |
+| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes; scheduled WIP Clang/libFuzzer coverage of the in-memory compiler facade                                                                    |
 
 `examples/basic`, `examples/invalid`, and `examples/invalid_syntax` are the implemented executable contract. Files under `examples/future` are design sketches and are intentionally excluded from current feature claims and regression counts.
 
@@ -130,7 +130,7 @@ Key directories:
 | [`src/monomorphize/`](../src/monomorphize/) | Specialization discovery, cloning, rewriting, caching, cycle and expansion guards |
 | [`src/codegen/`](../src/codegen/) | Module/function contexts, expressions, statements, places, builtins, structs, ownership/drop emission |
 | [`stdlib/`](../stdlib/) | Public Noria ADTs and private implementation/runtime modules |
-| [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, fuzz target, and corpus seeds |
+| [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, WIP fuzz target, and corpus seeds |
 | [`examples/`](../examples/) | Passing programs, semantic failures, syntax failures, and clearly separated future sketches |
 
 ## Build and run
@@ -193,7 +193,6 @@ Or use the repository workflows:
 just test       # build + C++ tests + end-to-end compiler suite (no leak checkers)
 just sanitize   # ASan + UBSan for the compiler, plus generated-code ASan on native checks
 just leak       # required portable leak checks on the container corpus only
-just fuzz       # build the Clang/libFuzzer target and run it for 120 seconds
 just full       # normal + sanitizer + required leak suites
 just valgrind   # wrap compiler invocations under Valgrind
 ```
@@ -203,11 +202,12 @@ just valgrind   # wrap compiler invocations under Valgrind
 | `just test` | All 16 CTest entries: the end-to-end corpus, 13 C++ executables, a macOS leak-output classifier test, and a documentation/corpus-count guard |
 | `just sanitize` | ASan/UBSan on the compiler and ASan instrumentation of generated LLVM IR before native linking |
 | `just leak` | Container-focused leak fixtures using Valgrind when available, otherwise Linux ASan/LSan or macOS `leaks`; fails if no checker can run |
-| `just fuzz` | `compileSource(..., StopAfter::Ir)` under Clang/libFuzzer + ASan, with invalid-input exceptions treated as expected and unexpected exceptions/traps retained as findings |
 
 The end-to-end harness validates more than successful compilation. It checks located diagnostics, emitted IR patterns, native exit codes and stdout, stable runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. A named high-risk manifest reruns ownership and container cases at `-O2`. Container fixtures cover both Sequence implementations, both Dictionary/Set representations, mixed scalar widths, heap-allocated strings, arrays, and heap-over-Sequence. Four generated-but-checked-in reference models each replay a deterministic 300-operation trace against expected state, including clone divergence, resize/tombstone behavior, and alternate representations.
 
-The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, and the `cmake --install` layout. GitHub Actions runs normal, sanitizer, and required leak lanes on macOS and Ubuntu. A separate scheduled workflow runs the fuzzer weekly and uploads crash artifacts on failure.
+The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, and the `cmake --install` layout. GitHub Actions runs normal, sanitizer, and required leak lanes on macOS and Ubuntu.
+
+Fuzzing is WIP and is not part of the canonical test suite or a benchmark. A separate scheduled workflow currently runs the Clang/libFuzzer target weekly and uploads crash artifacts on failure.
 
 See [PERFORMANCE.md](PERFORMANCE.md) for the historical 19,600-run measurement. It is documented separately because the repository does not currently ship a benchmark target or enforce performance thresholds in CI.
 
