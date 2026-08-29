@@ -65,7 +65,7 @@ fn main() {
 Several choices are intentionally unusual:
 
 - The public abstraction is the **ADT name** (`Sequence`, `Dictionary`, or `Set`), not the backing-container name. `arr`, `list`, `bst`, `hashmap`, and `hashset` are compile-time implementation tags: changing a tag changes representation and complexity, not the API.
-- The last implementation argument has an ADT-specific default from the shared container registry: `Sequence<T>` uses `arr`; `Dictionary<K, V>` and `Set<T>` use `hashmap` (`hashset` is an alias for Set).
+- The last implementation argument has an ADT-specific default from the shared container registry: `Sequence<T>` uses `arr`; `Dictionary<K, V>` and `Set<T>` use `hashmap` (`hashset` is an alias used for Set).
 - Typed declarations can put the name or type first: `value: i32` and `i32: value` are equivalent.
 - `fn`, `helper`, `util`, and `recfn` are function declaration keywords used to describe behaviour from the function body in the function header.
 - A trailing `-> Type` is optional in function declarations when returns provide enough information, but can still be best practice to include to make function headers more descriptive.
