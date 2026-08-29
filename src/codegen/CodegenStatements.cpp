@@ -55,7 +55,10 @@ namespace noria::codegen_detail {
       }
       state_.ownership_.emitStoreManagedLocal(local, stored, emitter_, context_);
     } else {
-      const Value defaultValue = state_.module().emitDefaultValue(localType, emitter_, context_);
+      Value defaultValue = state_.module().emitDefaultValue(localType, emitter_, context_);
+      if (state_.ownership_.typeNeedsDrop(localType, context_) && !defaultValue.owned) {
+        defaultValue.owned = true;
+      }
       state_.ownership_.emitStoreManagedLocal(local, defaultValue, emitter_, context_);
     }
     returned_ = false;

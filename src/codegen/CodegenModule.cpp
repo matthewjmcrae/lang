@@ -76,17 +76,14 @@ namespace noria::codegen_detail {
 
   Value ModuleEmitter::emitDefaultValue(const Type& type, IREmitter& emitter,
                                         FunctionCodegenContext& context) const {
+    Value value;
     if (type.kind() == TypeKind::Str) {
-      return Value{memory_.emitCStringPointer("", emitter, context), Type::str(), false};
-    }
-
-    if (type.kind() == TypeKind::Array) {
+      value = Value{memory_.emitCStringPointer("", emitter, context), Type::str(), false};
+    } else if (type.kind() == TypeKind::Array) {
       const std::string base = memory_.emitCheckedMalloc("8", emitter, context);
       emitter.line("store i64 0, ptr " + base);
-      return Value{base, type, true};
-    }
-
-    if (type.kind() == TypeKind::Struct) {
+      value = Value{base, type, true};
+    } else if (type.kind() == TypeKind::Struct) {
       if (const std::optional<StandardContainer> container =
               standardContainerKindFromStructName(type.structName())) {
         const std::vector<Type> typeArgs = specializedStructTypeArgs(type, context);
@@ -103,19 +100,22 @@ namespace noria::codegen_detail {
           }
           samples.push_back(emitDefaultValue(typeArgs[0], emitter, context));
         }
-        return emitStandardContainerCall(*container, ContainerOperation::New, typeArgs, samples,
-                                         emitter, context);
+        value = emitStandardContainerCall(*container, ContainerOperation::New, typeArgs, samples,
+                                          emitter, context);
+      } else {
+        const std::string slot = emitter.freshTemp();
+        emitter.emitAlloca(type, slot);
+        emitDefaultStore(type, slot, emitter, context);
+        const std::string result = emitter.freshTemp();
+        emitter.emitLoad(type, slot, result);
+        value = Value{result, type};
       }
-
-      const std::string slot = emitter.freshTemp();
-      emitter.emitAlloca(type, slot);
-      emitDefaultStore(type, slot, emitter, context);
-      const std::string result = emitter.freshTemp();
-      emitter.emitLoad(type, slot, result);
-      return Value{result, type};
+    } else {
+      value = Value{defaultIRValue(type), type};
     }
 
-    return Value{defaultIRValue(type), type};
+    value.owned = ownership_.typeNeedsDrop(type, context);
+    return value;
   }
 
   void ModuleEmitter::emitDefaultStore(const Type& type, const std::string& slot,

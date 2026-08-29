@@ -747,7 +747,9 @@ namespace noria::codegen_detail {
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = insertvalue " + LLVMType(left.type) + " undef, ptr " + resultHandle +
                  ", 0");
-    return Value{result, left.type};
+    ownership_.emitReleaseIfOwned(left, emitter, context);
+    ownership_.emitReleaseIfOwned(right, emitter, context);
+    return Value{result, left.type, true};
   }
 
   Value ExpressionEmitter::generateElementAddExpression(const Value& left, const Value& right,

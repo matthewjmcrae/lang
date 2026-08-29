@@ -128,7 +128,14 @@ namespace noria {
       }
       call += ")";
       emitter.line(call);
-      return Value{result, function->second.returnType};
+      Value value{result, function->second.returnType};
+      if (operation == ContainerOperation::New || operation == ContainerOperation::Clone) {
+        value.owned = true;
+      } else if (operation == ContainerOperation::Get &&
+                 function->second.returnType == Type::str()) {
+        value.owned = true;
+      }
+      return value;
     }
 
     std::vector<Type> specializedStructTypeArgs(const Type& type,
