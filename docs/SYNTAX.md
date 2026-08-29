@@ -1,6 +1,8 @@
 # Noria language reference
 
-This document is the complete reference for Noria's implemented syntax and semantics. It includes the language's deliberate quirks, generic ADTs, ownership behavior, runtime traps, and current limitations. For a project-level introduction, start with the [README](README.md); for compiler internals and design rationale, see [engineering.md](engineering.md).
+This document is the reference for Noria's implemented syntax and semantics. It includes the language's deliberate quirks, generic ADTs, ownership behavior, runtime traps, and current limitations. For project status and build instructions, start with the [README](README.md); for compiler internals and design rationale, see [ENGINEERING.md](ENGINEERING.md); for the optimization case study, see [PERFORMANCE.md](PERFORMANCE.md).
+
+The executable language contract is the checked-in corpus under `examples/basic`, `examples/invalid`, and `examples/invalid_syntax`. Files under `examples/future` are design sketches, are not included in regression counts, and must not be read as implemented syntax. Where this reference and a test disagree, that disagreement is a documentation or implementation bug rather than an intentional undocumented feature.
 
 ## Syntax that is intentionally different
 
@@ -969,9 +971,13 @@ Noria currently does not support:
 - `[T]` arrays whose element type `T` is a struct
 - nested `Sequence`, `Dictionary`, or `Set` element types
 
+These are implementation boundaries, not promises of a particular roadmap. The compiler also does not provide a package manager, separately compiled user modules, a debugger metadata format, or a stable external ABI.
+
 Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, failed `malloc`/`realloc`, and computed invalid integer division, remainder, or shift operations. Integer `+`, `-`, `*`, and valid shifts wrap on overflow; direct invalid integer literals are type errors.
 
 ## Commands
+
+See the [project overview](README.md#build-and-run) for prerequisites, installation, test, sanitizer, leak, and fuzz workflows. The compiler-facing commands are summarized here for reference.
 
 Install into a prefix, then invoke `noria` from `PATH`:
 

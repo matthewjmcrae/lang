@@ -1,0 +1,54 @@
+name: Fuzz compileSource
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Ubuntu compile fuzzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang just llvm
+
+      - name: Configure LLVM tools
+        run: |
+          llvm_bin="$(llvm-config --bindir)"
+          echo "LLVM_BIN=${llvm_bin}" >> "$GITHUB_ENV"
+          echo "${llvm_bin}" >> "$GITHUB_PATH"
+
+      - name: Build and run fuzzer
+        run: |
+          cmake -S . -B build-fuzz -DNORIA_BUILD_FUZZER=ON -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-fuzz --target noria_compile_fuzzer
+          mkdir -p fuzz-artifacts
+          ./build-fuzz/noria_compile_fuzzer \
+            -max_total_time=120 \
+            -timeout=5 \
+            -max_len=65536 \
+            -artifact_prefix=fuzz-artifacts/ \
+            tests/fuzz/corpus
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noria-fuzz-artifacts
+          path: fuzz-artifacts/
+          if-no-files-found: ignore

@@ -1,0 +1,6 @@
+fn id<T>(x: T) -> T {
+  return x;
+}
+fn main() -> i32 {
+  return id(7);
+}

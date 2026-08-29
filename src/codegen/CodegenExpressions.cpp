@@ -390,8 +390,10 @@ namespace noria {
       return generateShortCircuitBinaryExpression(binary, emitter, context, scopes);
     }
 
-    const Value left = generateRvalue(*binary.left, emitter, context, scopes);
-    const Value right = generateRvalue(*binary.right, emitter, context, scopes);
+    const Value left = generateRvalue(*binary.left, emitter, context, scopes, std::nullopt,
+                                      LLVMGenerator::OwnershipMode::Borrow);
+    const Value right = generateRvalue(*binary.right, emitter, context, scopes, std::nullopt,
+                                       LLVMGenerator::OwnershipMode::Borrow);
 
     if (binary.op == ast::BinaryOperator::Add && left.type == Type::str() &&
         right.type == Type::str()) {
@@ -405,10 +407,16 @@ namespace noria {
     }
 
     if (info->comparison) {
-      return generateComparisonExpression(binary, left, right, emitter);
+      const Value result = generateComparisonExpression(binary, left, right, emitter);
+      generator().emitReleaseIfOwned(left, emitter, context);
+      generator().emitReleaseIfOwned(right, emitter, context);
+      return result;
     }
 
-    return generateNumericBinaryExpression(binary, left, right, emitter, context);
+    const Value result = generateNumericBinaryExpression(binary, left, right, emitter, context);
+    generator().emitReleaseIfOwned(left, emitter, context);
+    generator().emitReleaseIfOwned(right, emitter, context);
+    return result;
   }
 
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateShortCircuitBinaryExpression(

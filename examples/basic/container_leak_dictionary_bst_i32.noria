@@ -1,0 +1,46 @@
+import std::dictionary::{Dictionary, dictionary_insert, dictionary_len, dictionary_new,
+                         dictionary_remove};
+
+fn heap_n(n: i32) -> str {
+  let s: str = "";
+  let i: i32 = 0;
+  while i < n {
+    s = s + ".";
+    i = i + 1;
+  }
+  return s;
+}
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, bst> = dictionary_new(0, 0);
+  dictionary_insert(d, 3, 30);
+  dictionary_insert(d, 1, 10);
+  dictionary_insert(d, 2, 20);
+  dictionary_insert(d, 5, 50);
+  dictionary_insert(d, 4, 40);
+  dictionary_insert(d, 3, 33);
+  let removed: i32 = dictionary_remove(d, 3);
+  let copy: Dictionary<i32, i32, bst> = d;
+  dictionary_insert(copy, 9, 90);
+  d = dictionary_new(0, 0);
+  if removed != 33 || dictionary_len(copy) != 5 {
+    return 1;
+  }
+
+  let ds: Dictionary<i32, str, bst> = dictionary_new(0, "");
+  dictionary_insert(ds, 3, heap_n(3));
+  dictionary_insert(ds, 1, heap_n(1));
+  dictionary_insert(ds, 2, heap_n(2));
+  dictionary_insert(ds, 5, heap_n(5));
+  dictionary_insert(ds, 4, heap_n(4));
+  dictionary_insert(ds, 3, heap_n(30));
+  let removed_s: str = dictionary_remove(ds, 3);
+  let leftmost: str = dictionary_remove(ds, 1);
+  let copy_s: Dictionary<i32, str, bst> = ds;
+  dictionary_insert(copy_s, 9, heap_n(9));
+  ds = dictionary_new(0, "");
+  if len(removed_s) != 30 || len(leftmost) != 1 || dictionary_len(copy_s) != 4 {
+    return 2;
+  }
+  return 0;
+}

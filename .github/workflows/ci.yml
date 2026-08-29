@@ -16,6 +16,7 @@ jobs:
   build-and-test:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
 
     strategy:
       fail-fast: false
@@ -26,15 +27,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Install LLVM (macOS)
+      - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install llvm
+        run: brew install just llvm
 
-      - name: Install LLVM (Linux)
+      - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm
+          sudo apt-get install -y clang just llvm valgrind
 
       - name: Configure LLVM tools (macOS)
         if: runner.os == 'macOS'
@@ -54,12 +55,13 @@ jobs:
         run: |
           clang --version
           opt --version
-
-      - name: Configure CMake
-        run: cmake -S . -B build
-
-      - name: Build compiler
-        run: cmake --build build --parallel
+          just --version
 
       - name: Run compiler test suite
-        run: NORIA_REQUIRE_LLVM_TOOLS=1 ctest --test-dir build --output-on-failure --no-tests=error
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just test
+
+      - name: Run sanitizer test suite
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just sanitize
+
+      - name: Run Noria program leak tests
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just leak

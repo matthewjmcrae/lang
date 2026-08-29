@@ -127,16 +127,31 @@ fn bst_remove_node<K, V>(node: __rt_ptr, key: K, key_size: i32, val_size: i32) -
   let left: __rt_ptr = load_ptr_at(node, 0);
   let right: __rt_ptr = load_ptr_at(node, 1);
   if ptr_eq(left, null_ptr()) {
+    let key_ptr: __rt_ptr = byte_offset(node, key_offset());
+    let drop_key: i32 = drop_witness(key_ptr, 0, node_key);
+    let leaf_value: V = bst_load_value(node, key_size, val_size);
+    let val_ptr: __rt_ptr = byte_offset(node, value_offset(key_size, val_size));
+    let drop_val: i32 = drop_witness(val_ptr, 0, leaf_value);
     let free0: i32 = release_bytes(node);
     return right;
   }
   if ptr_eq(right, null_ptr()) {
-    let free0: i32 = release_bytes(node);
+    let key_ptr_r: __rt_ptr = byte_offset(node, key_offset());
+    let drop_key_r: i32 = drop_witness(key_ptr_r, 0, node_key);
+    let one_child_value: V = bst_load_value(node, key_size, val_size);
+    let val_ptr_r: __rt_ptr = byte_offset(node, value_offset(key_size, val_size));
+    let drop_val_r: i32 = drop_witness(val_ptr_r, 0, one_child_value);
+    let free1: i32 = release_bytes(node);
     return left;
   }
   let successor: __rt_ptr = bst_min_node(right);
   let succ_key: K = bst_load_key(successor);
   let succ_val: V = bst_load_value(successor, key_size, val_size);
+  let key_ptr_s: __rt_ptr = byte_offset(node, key_offset());
+  let drop_key_s: i32 = drop_witness(key_ptr_s, 0, node_key);
+  let replaced_value: V = bst_load_value(node, key_size, val_size);
+  let val_ptr_s: __rt_ptr = byte_offset(node, value_offset(key_size, val_size));
+  let drop_val_s: i32 = drop_witness(val_ptr_s, 0, replaced_value);
   let copy_key: i32 = bst_store_key(node, succ_key);
   let copy_val: i32 = bst_store_value(node, key_size, val_size, succ_val);
   let new_right: __rt_ptr = bst_remove_node(right, succ_key, key_size, val_size);

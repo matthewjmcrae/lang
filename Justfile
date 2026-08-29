@@ -22,9 +22,24 @@ sanitize:
     cmake --build {{sanitize_build_dir}}
     ctest --test-dir {{sanitize_build_dir}} --output-on-failure
 
+leak: build
+    NORIA_RUN_LEAK_CHECKS=1 NORIA_REQUIRE_LEAK_CHECKS=1 ctest --test-dir {{build_dir}} --output-on-failure -L e2e
+
 valgrind: build
     command -v valgrind >/dev/null
     NORIA_PREFIX="valgrind --leak-check=full --error-exitcode=1" ctest --test-dir {{build_dir}} --output-on-failure
+
+fuzz_build_dir := env_var_or_default("FUZZ_BUILD_DIR", "build-fuzz")
+fuzz_cxx := env_var_or_default("FUZZ_CXX", "clang++")
+fuzz_cc := env_var_or_default("FUZZ_CC", "clang")
+
+fuzz:
+    cmake -S . -B {{fuzz_build_dir}} -DNORIA_BUILD_FUZZER=ON \
+      -DCMAKE_CXX_COMPILER={{fuzz_cxx}} -DCMAKE_C_COMPILER={{fuzz_cc}}
+    cmake --build {{fuzz_build_dir}} --target noria_compile_fuzzer
+    {{fuzz_build_dir}}/noria_compile_fuzzer -max_total_time=120 -timeout=5 -max_len=65536 tests/fuzz/corpus
+
+full: test sanitize leak
 
 ctest: build
     ctest --test-dir {{build_dir}} --output-on-failure
@@ -58,6 +73,9 @@ help:
     @echo "  just build"
     @echo "  just test"
     @echo "  just sanitize"
+    @echo "  just leak"
+    @echo "  just fuzz"
+    @echo "  just full"
     @echo "  just valgrind"
     @echo "  just tokens examples/basic/lexer_smoke.noria"
     @echo "  just ast examples/basic/factorial.noria"

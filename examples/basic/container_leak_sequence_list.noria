@@ -1,0 +1,86 @@
+import std::sequence::{Sequence, sequence_get, sequence_insert, sequence_len, sequence_new,
+                       sequence_pop, sequence_push, sequence_remove, sequence_set};
+
+fn heap_n(n: i32) -> str {
+  let s: str = "";
+  let i: i32 = 0;
+  while i < n {
+    s = s + ".";
+    i = i + 1;
+  }
+  return s;
+}
+
+fn check_i32() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  sequence_push(s, 1);
+  sequence_push(s, 2);
+  sequence_push(s, 3);
+  sequence_set(s, 1, 20);
+  sequence_insert(s, 1, 10);
+  let removed: i32 = sequence_remove(s, 0);
+  let popped: i32 = sequence_pop(s);
+  let copy: Sequence<i32, list> = s;
+  sequence_push(copy, 99);
+  s = sequence_new(0);
+  if removed != 1 || popped != 3 || sequence_len(copy) != 3 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_f64() -> i32 {
+  let s: Sequence<f64, list> = sequence_new(0.0);
+  sequence_push(s, 1.5);
+  sequence_push(s, 2.5);
+  let popped: f64 = sequence_pop(s);
+  if sequence_get(s, 0) != 1.5 || popped != 2.5 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_bool() -> i32 {
+  let s: Sequence<bool, list> = sequence_new(false);
+  sequence_push(s, true);
+  sequence_push(s, false);
+  let popped: bool = sequence_pop(s);
+  if !sequence_get(s, 0) || popped {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_str() -> i32 {
+  let s: Sequence<str, list> = sequence_new("");
+  sequence_push(s, heap_n(1));
+  sequence_push(s, heap_n(2));
+  sequence_push(s, heap_n(3));
+  sequence_set(s, 1, heap_n(4));
+  sequence_insert(s, 1, heap_n(5));
+  let removed: str = sequence_remove(s, 0);
+  let popped: str = sequence_pop(s);
+  let copy: Sequence<str, list> = s;
+  sequence_push(copy, heap_n(6));
+  s = sequence_new("");
+  if len(removed) != 1 || len(popped) != 3 || sequence_len(copy) != 3 {
+    return 1;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  if check_i32() != 0 {
+    return 1;
+  }
+  if check_f64() != 0 {
+    return 2;
+  }
+  if check_bool() != 0 {
+    return 3;
+  }
+  if check_str() != 0 {
+    return 4;
+  }
+  return 0;
+}

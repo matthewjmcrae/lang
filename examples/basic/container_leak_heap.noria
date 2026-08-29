@@ -1,0 +1,75 @@
+import std::heap::{heappop, heappush};
+import std::sequence::{Sequence, sequence_len, sequence_new};
+
+fn check_arr_i32() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  heappush(s, 5);
+  heappush(s, 3);
+  heappush(s, 7);
+  heappush(s, 1);
+  let a: i32 = heappop(s);
+  let b: i32 = heappop(s);
+  let copy: Sequence<i32, arr> = s;
+  heappush(copy, 0);
+  s = sequence_new(0);
+  if a != 1 || b != 3 || sequence_len(copy) != 3 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_arr_f64() -> i32 {
+  let s: Sequence<f64, arr> = sequence_new(0.0);
+  heappush(s, 5.5);
+  heappush(s, 3.5);
+  heappush(s, 7.5);
+  let a: f64 = heappop(s);
+  let b: f64 = heappop(s);
+  if a != 3.5 || b != 5.5 || sequence_len(s) != 1 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_list_i32() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  heappush(s, 5);
+  heappush(s, 3);
+  heappush(s, 7);
+  heappush(s, 1);
+  let a: i32 = heappop(s);
+  let b: i32 = heappop(s);
+  if a != 1 || b != 3 || sequence_len(s) != 2 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_list_f64() -> i32 {
+  let s: Sequence<f64, list> = sequence_new(0.0);
+  heappush(s, 5.5);
+  heappush(s, 3.5);
+  heappush(s, 7.5);
+  let a: f64 = heappop(s);
+  let b: f64 = heappop(s);
+  if a != 3.5 || b != 5.5 || sequence_len(s) != 1 {
+    return 1;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  if check_arr_i32() != 0 {
+    return 1;
+  }
+  if check_arr_f64() != 0 {
+    return 2;
+  }
+  if check_list_i32() != 0 {
+    return 3;
+  }
+  if check_list_f64() != 0 {
+    return 4;
+  }
+  return 0;
+}

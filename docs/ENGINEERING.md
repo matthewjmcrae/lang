@@ -2,15 +2,27 @@
 
 This document explains how Noria is built: the compiler architecture, the invariants carried between stages, the design patterns used to keep features coherent, the performance model, the difficult implementation problems, and the tradeoffs that define the current scope.
 
-It is intentionally about decisions visible in the code. The language reference lives in [SYNTAX.md](SYNTAX.md); build and usage instructions live in the [README](README.md).
+It is intentionally about decisions visible in the code. Start with the [project overview](README.md) for build and usage instructions, use the [language reference](SYNTAX.md) for source semantics, and see the [performance case study](PERFORMANCE.md) for measurement details.
 
 ## Engineering profile
 
-Noria is an ahead-of-time compiler written in C++20. It owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, and delegates native linking to the host Clang driver. The standard data-structure library is implemented in Noria source over a deliberately small private runtime ABI.
+Noria is an ahead-of-time compiler written in C++20. It owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, and delegates native linking to the host Clang driver. The standard data-structure library is implemented in Noria source over a deliberately small private runtime ABI; the compiler does not link against LLVM libraries.
 
-The repository currently contains approximately 15,000 lines of compiler/header code and 1,500 lines of Noria standard-library code. Its validation corpus includes 255 accepted programs, 164 negative programs split between semantic and syntax failures, and 13 focused C++ test executables. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, and ADT conformance are all exercised.
+The current tree contains approximately 15,700 lines of compiler/header code and 1,600 lines of Noria standard-library code. Its validation corpus includes 277 accepted programs and 170 negative programs split between 148 semantic and 22 syntax failures. CTest registers 16 checks: one end-to-end language harness, 13 focused C++ test executables, and two shell contract tests. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, ADT conformance, install layout, and documented corpus counts are all exercised.
 
 The central engineering goal is to keep the project small enough to understand end to end while still making the hard semantics explicit. Noria does not hide container behavior behind C++ builtins, outsource the front end to a parser generator, or rely on a garbage collector to defer ownership questions.
+
+### Evidence map
+
+| Engineering concern | Primary implementation | Contract/evidence |
+| --- | --- | --- |
+| Pipeline composition | [`Compiler.cpp`](../src/Compiler.cpp), [`Compiler.hpp`](../include/noria/Compiler.hpp) | [`compiler_facade_test.cpp`](../tests/compiler_facade_test.cpp) |
+| Type rules and inference | [`src/typecheck/`](../src/typecheck/), [`Types.hpp`](../include/noria/Types.hpp), [`SemanticTables.hpp`](../include/noria/SemanticTables.hpp) | Negative corpus plus type, constraint, semantic-table, and generic tests |
+| Generic specialization | [`src/monomorphize/`](../src/monomorphize/) | [`generics_test.cpp`](../tests/generics_test.cpp) and IR/dedup assertions in the end-to-end harness |
+| Ownership and lowering | [`src/codegen/`](../src/codegen/) | Native copy/move/drop cases, leak fixtures, generated-code ASan, and optimized regression cases |
+| Source-written ADTs | [`stdlib/`](../stdlib/) and the private ABI in [`Builtins.hpp`](../include/noria/Builtins.hpp) | Cross-tag conformance cases and deterministic container model traces |
+| Compiler throughput | [`CompilerCache.cpp`](../src/CompilerCache.cpp), [`LfuCache.hpp`](../include/noria/LfuCache.hpp), frontier monomorphization | Focused cache tests and the documented historical [performance experiment](PERFORMANCE.md) |
+| Robustness | [`run_examples.sh`](../tests/run_examples.sh), [`compile_fuzzer.cpp`](../tests/fuzz/compile_fuzzer.cpp) | Cross-platform CI, sanitizers, leak tools, weekly fuzzing, and crash artifact upload |
 
 ## End-to-end architecture
 
@@ -185,7 +197,7 @@ Noria is AOT and has no garbage collector. Managed values use value semantics at
 | Reassignment | Drop the previous owned value, then store/move or clone the replacement |
 | Scope exit / early return | Drop every still-owned local in exited scopes |
 
-Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields.
+Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields.
 
 The same model covers:
 
@@ -246,17 +258,7 @@ Runtime failures use a stable trap path with exit status 70 and diagnostic text.
 
 ## Performance engineering
 
-The full compilation test suite doubles as an end-to-end compiler macrobenchmark. This workload is intentionally broader than a parser or single-file microbenchmark: it repeatedly exercises module loading, AST construction, semantic checking, generic specialization, and LLVM IR emission across the accepted and rejected language corpus. Profiling covered 19,600 compilation runs, providing enough repetition to identify reconstruction of reusable AST components as a material cost rather than optimizing from a single trace.
-
-Process-level caching of reusable AST components—parsed stdlib modules and eligible cloned stdlib specializations—produced the following result in the same benchmark environment:
-
-| Full-suite compilation benchmark | Time |
-| --- | ---: |
-| Before AST-component caching | 27.7s |
-| After AST-component caching | 7.1s |
-| Improvement | 20.6s / 74.4% reduction / ~3.9× faster |
-
-The absolute times are machine- and environment-specific. The engineering signal is the controlled before/after result on the same real project workload, not a claim that every machine will complete the suite in 7.1 seconds.
+A historical in-process macrobenchmark ran 196 Noria inputs for 100 rounds and timed compiler phases through LLVM IR generation. It reduced aggregate phase time from 27.69s to 7.05s (74.5%, about 3.9×) across the full optimization sequence. Importantly, the initial module/specialization cache accounted for a 27% improvement; the final result also includes selective admission and frontier-only generic checking/rewriting. [PERFORMANCE.md](PERFORMANCE.md) records the phase breakdown, methodology, attribution, and limitations. The repository does not currently ship the timing harness or gate CI on performance, so the number is a historical controlled result rather than a claim about current wall time on arbitrary hardware.
 
 ### Compile-time work
 
@@ -265,10 +267,10 @@ The absolute times are machine- and environment-specific. The engineering signal
 - **Requests are sorted.** Deterministic output improves reproducibility and makes IR assertions stable.
 - **Stdlib parsing/specialization is cached.** A process-local, mutex-protected LFU cache retains up to 64 parsed modules and 256 specializations.
 - **Cache boundaries clone ASTs.** Reuse does not leak mutations from type inference or rewrite phases into later compilations.
-- **Admission is selective.** Small function/struct specializations are cheaper to regenerate than retain, so only sufficiently weighted entries enter the specialization cache.
+- **Admission is selective.** Function specializations below a computed 1 KiB AST weight and structs below eight fields are regenerated rather than retained.
 - **The cache uses project data structures.** `LFUCache` uses frequency buckets plus direct key/frequency indexes; those indexes use the repository's contiguous open-addressed `HashTable` with double hashing and tombstones.
 
-The process cache assumes stdlib contents under a given canonical root stay stable during the process lifetime; `clear()` is available for explicit invalidation. That is reasonable for the one-shot CLI and tests, but a long-running language server would need content/mtime-aware keys.
+The process cache assumes stdlib contents under a given canonical root stay stable during the process lifetime; `clear()` is available for explicit invalidation. That is reasonable for the one-shot CLI and in-process tests, but a long-running language server would need content- or metadata-aware keys.
 
 ### Generated-code work
 
@@ -281,11 +283,11 @@ The main performance tradeoff is deliberate: deep-copy value semantics can be ex
 
 ## Testing and quality strategy
 
-CTest combines focused host-language tests with an end-to-end shell harness.
+CTest combines focused host-language tests with an end-to-end shell harness and two repository-contract checks. The normal configured build currently exposes 16 CTest entries.
 
 ### Focused C++ tests
 
-The 13 unit targets cover canonical types, builtin and semantic registries, AST visitation/cloning, constraints, module resolution, compiler facade stages, diagnostics, generics, the custom hash table, LFU behavior, compiler caching, and semantic tables.
+The 13 C++ test executables cover canonical types, builtin and semantic registries, AST visitation/cloning, constraints, module resolution, compiler facade stages, diagnostics, generics, the custom hash table, LFU behavior, compiler caching, and semantic tables. Two additional shell checks validate macOS `leaks` output classification and fail when the checked-in corpus counts drift from the claims in this documentation.
 
 ### Language corpus
 
@@ -299,9 +301,18 @@ The 13 unit targets cover canonical types, builtin and semantic registries, AST 
 - emitted IR is inspected for bounds checks, drops, layouts, mangled specializations, and deduplication;
 - safety-sensitive programs are rerun through optimized native builds;
 - ADT operations are exercised across every supported implementation tag;
+- container leak programs cover every supported Sequence/Dictionary/Set backing tag plus representative scalar layouts, mixed key/value widths, heap-over-Sequence, `[T]`, and heap-allocated strings created by concatenation;
+- checked-in reference-model fixtures (`container_model_*.noria`) replay 300 deterministic operations against Python oracles for Sequence, Dictionary, Set, and heap;
+- a named high-risk `-O2` manifest re-runs ownership and container programs after optimization;
 - `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`.
 
-ASan/UBSan run through `just sanitize`. Valgrind can wrap compiler invocations and a generated string stress executable. CI builds and tests on both macOS and Ubuntu, requires LLVM tools, uses read-only repository permissions, and cancels superseded runs.
+ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1` so generated LLVM IR is instrumented before native link. Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind.
+
+### Fuzzing and CI
+
+`noria_compile_fuzzer` sends arbitrary byte strings through `compileSource(..., StopAfter::Ir)` and clears the process cache between inputs. Located `CompileError` failures are expected for invalid programs; unexpected standard or non-standard exceptions cause a fuzzer finding. The target is built with Clang libFuzzer and ASan, has a small seed corpus spanning valid, generic, container, ownership, lexer-invalid, and parser-invalid inputs, and is available locally through `just fuzz`.
+
+The main CI matrix builds and tests on macOS and Ubuntu with LLVM tools required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs. A separate scheduled Ubuntu workflow runs the compile fuzzer weekly for 120 seconds and uploads crash artifacts when the job fails.
 
 ## Notable engineering challenges
 
@@ -348,7 +359,7 @@ Source-written containers need allocation and typed access, but a public pointer
 
 ## Known boundaries and extension points
 
-The current architecture is intentionally not a production compiler framework. There is no user module search path, separate compilation, incremental dependency invalidation, user-defined trait system, semantic IR, general borrow checker, package manager, or debugger metadata. The benchmark is an end-to-end compilation macrobenchmark rather than a granular suite of per-stage or runtime benchmarks.
+The current architecture is intentionally not a production compiler framework. There is no user module search path, separate compilation, incremental dependency invalidation, user-defined trait system, semantic IR, general borrow checker, package manager, or debugger metadata. The recorded performance experiment is an in-process compiler macrobenchmark rather than a maintained benchmark suite, and there are no runtime ADT benchmarks or CI regression thresholds yet.
 
 The existing seams make the likely next work concrete:
 
@@ -356,7 +367,7 @@ The existing seams make the likely next work concrete:
 - broader generics can replace closed constraint tables while retaining substitution and worklist specialization;
 - a semantic IR can be inserted between checked AST and `LLVMGenerator` if optimization needs outgrow direct lowering;
 - content-addressed cache keys can extend the current clone-safe cache for a long-running compiler service;
-- the compilation benchmark can be extended with cold/warm-cache splits, per-stage timings, scaling curves, managed-copy costs, and runtime ADT constants;
+- a checked-in benchmark target can make the historical phase experiment reproducible and add cold/warm-cache splits, distributions, scaling curves, managed-copy costs, and runtime ADT constants;
 - richer control flow can reuse lexical scopes, return-flow analysis, and place lowering.
 
 The important constraint is that future features should preserve the current stage invariants and verification style: one canonical semantic definition, located failures, deterministic output, positive and negative language cases, and native behavior checks where code generation is involved.

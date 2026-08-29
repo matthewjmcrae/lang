@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  let s: str = "a" + "b";
+  return len(s);
+}

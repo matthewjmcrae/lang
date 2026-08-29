@@ -5,30 +5,13 @@ project(noria_lang LANGUAGES CXX)
 enable_testing()
 
 option(NORIA_ENABLE_SANITIZERS "Build Noria with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(NORIA_BUILD_FUZZER "Build libFuzzer target for compileSource (Clang only)" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-function(noria_configure_compile target)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-    if(NORIA_ENABLE_SANITIZERS)
-      target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-    endif()
-  elseif(NORIA_ENABLE_SANITIZERS)
-    message(FATAL_ERROR "NORIA_ENABLE_SANITIZERS requires Clang or GCC")
-  endif()
-endfunction()
-
-function(noria_configure_executable target)
-  noria_configure_compile(${target})
-  if(NORIA_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_link_options(${target} PRIVATE -fsanitize=address,undefined)
-  endif()
-endfunction()
-
-add_library(noria_core OBJECT
+set(NORIA_CORE_SOURCES
   src/AstClone.cpp
   src/AstPrinter.cpp
   src/AstVisitor.cpp
@@ -66,6 +49,26 @@ add_library(noria_core OBJECT
   src/typecheck/TypeRelations.cpp
   src/Types.cpp
 )
+
+function(noria_configure_compile target)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    if(NORIA_ENABLE_SANITIZERS)
+      target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    endif()
+  elseif(NORIA_ENABLE_SANITIZERS)
+    message(FATAL_ERROR "NORIA_ENABLE_SANITIZERS requires Clang or GCC")
+  endif()
+endfunction()
+
+function(noria_configure_executable target)
+  noria_configure_compile(${target})
+  if(NORIA_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+  endif()
+endfunction()
+
+add_library(noria_core OBJECT ${NORIA_CORE_SOURCES})
 
 target_include_directories(noria_core PUBLIC include)
 noria_configure_compile(noria_core)
@@ -187,9 +190,17 @@ add_executable(semantic_tables_test
 target_include_directories(semantic_tables_test PRIVATE include)
 noria_configure_executable(semantic_tables_test)
 
+if(NORIA_ENABLE_SANITIZERS)
+  set(NORIA_EXAMPLES_NATIVE_ASAN "1")
+else()
+  set(NORIA_EXAMPLES_NATIVE_ASAN "0")
+endif()
+
 add_test(
   NAME examples
-  COMMAND ${CMAKE_COMMAND} -E env "BUILD_DIR=${CMAKE_BINARY_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E env
+          "BUILD_DIR=${CMAKE_BINARY_DIR}"
+          "NORIA_NATIVE_ASAN=${NORIA_EXAMPLES_NATIVE_ASAN}"
           ${CMAKE_SOURCE_DIR}/tests/run_examples.sh
 )
 add_test(NAME type_representation COMMAND type_representation_test)
@@ -205,8 +216,16 @@ add_test(NAME diagnostic_location COMMAND diagnostic_location_test)
 add_test(NAME generics COMMAND generics_test)
 add_test(NAME constraints COMMAND constraints_test)
 add_test(NAME semantic_tables COMMAND semantic_tables_test)
+add_test(
+  NAME macos_leaks_classify
+  COMMAND ${CMAKE_SOURCE_DIR}/tests/macos_leaks_classify_test.sh
+)
+add_test(
+  NAME corpus_count
+  COMMAND ${CMAKE_SOURCE_DIR}/tests/corpus_count_check.sh
+)
 
-set_tests_properties(examples PROPERTIES LABELS "e2e")
+set_tests_properties(examples PROPERTIES LABELS "e2e" TIMEOUT 1200)
 
 set(NORIA_UNIT_TESTS
   type_representation
@@ -222,5 +241,33 @@ set(NORIA_UNIT_TESTS
   generics
   constraints
   semantic_tables
+  macos_leaks_classify
+  corpus_count
 )
-set_tests_properties(${NORIA_UNIT_TESTS} PROPERTIES LABELS "unit")
+set_tests_properties(${NORIA_UNIT_TESTS} PROPERTIES LABELS "unit" TIMEOUT 60)
+
+if(NORIA_BUILD_FUZZER)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "NORIA_BUILD_FUZZER requires Clang (libFuzzer)")
+  endif()
+
+  add_library(noria_core_fuzz OBJECT ${NORIA_CORE_SOURCES})
+  target_include_directories(noria_core_fuzz PUBLIC include)
+  target_compile_options(noria_core_fuzz PRIVATE
+    -Wall -Wextra -Wpedantic
+    -fsanitize=address,fuzzer-no-link
+    -fno-omit-frame-pointer
+  )
+
+  add_executable(noria_compile_fuzzer
+    tests/fuzz/compile_fuzzer.cpp
+    $<TARGET_OBJECTS:noria_core_fuzz>
+  )
+  target_include_directories(noria_compile_fuzzer PRIVATE include)
+  target_compile_options(noria_compile_fuzzer PRIVATE
+    -Wall -Wextra -Wpedantic
+    -fsanitize=address,fuzzer
+    -fno-omit-frame-pointer
+  )
+  target_link_options(noria_compile_fuzzer PRIVATE -fsanitize=address,fuzzer)
+endif()

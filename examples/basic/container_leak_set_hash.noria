@@ -1,0 +1,21 @@
+import std::set::{Set, set_contains, set_insert, set_len, set_new, set_remove};
+
+fn main() -> i32 {
+  let s: Set<i32, hashmap> = set_new(0);
+  set_insert(s, 1);
+  set_insert(s, 2);
+  set_insert(s, 1);
+  set_remove(s, 1);
+  set_insert(s, 1);
+  if set_len(s) != 2 || !set_contains(s, 1) {
+    return 1;
+  }
+  let b: Set<bool, hashmap> = set_new(false);
+  set_insert(b, true);
+  set_insert(b, false);
+  set_remove(b, true);
+  if set_len(b) != 1 || set_contains(b, true) {
+    return 2;
+  }
+  return 0;
+}

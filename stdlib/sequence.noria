@@ -127,6 +127,7 @@ fn sequence_pop<T, I>(s: Sequence<T, I>) -> T impl arr {
   let data: __rt_ptr = load_ptr_at(s.handle, 1);
   let last_index: i32 = len - 1;
   let value: T = load_at(data, last_index);
+  let drop0: i32 = drop_at(data, last_index);
   let pop0: i32 = store_i32_at(s.handle, 0, len - 1);
   return value;
 }
@@ -140,6 +141,7 @@ fn sequence_pop<T, I>(s: Sequence<T, I>) -> T impl list {
   let last: __rt_ptr = load_ptr_at(sentinel, 0);
   let value_idx: i32 = 16 / size_of();
   let value: T = load_at(last, value_idx);
+  let drop0: i32 = drop_at(last, value_idx);
   let prev: __rt_ptr = load_ptr_at(last, 0);
   let patch_sent: i32 = store_ptr_at(sentinel, 0, prev);
   let patch_prev: i32 = store_ptr_at(prev, 1, sentinel);
@@ -172,9 +174,11 @@ fn sequence_insert<T, I>(s: Sequence<T, I>, index: i32, value: T) -> void impl a
   let i: i32 = new_len - 2;
   while i >= index {
     let elem: T = load_at(data, i);
+    let drop_dst: i32 = drop_at(data, i + 1);
     let shift0: i32 = store_at(data, i + 1, elem);
     i = i - 1;
   }
+  let drop_idx: i32 = drop_at(data, index);
   let insert0: i32 = store_at(data, index, value);
   return;
 }
@@ -189,9 +193,11 @@ fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl arr {
   let i: i32 = index + 1;
   while i < len {
     let elem: T = load_at(data, i);
+    let drop_dst: i32 = drop_at(data, i - 1);
     let shift0: i32 = store_at(data, i - 1, elem);
     i = i + 1;
   }
+  let drop_end: i32 = drop_at(data, len - 1);
   let remove0: i32 = store_i32_at(s.handle, 0, len - 1);
   return value;
 }
@@ -248,6 +254,7 @@ fn sequence_remove<T, I>(s: Sequence<T, I>, index: i32) -> T impl list {
     i = i + 1;
   }
   let value: T = load_at(node, value_idx);
+  let drop0: i32 = drop_at(node, value_idx);
   let prev: __rt_ptr = load_ptr_at(node, 0);
   let next: __rt_ptr = load_ptr_at(node, 1);
   let patch_prev: i32 = store_ptr_at(prev, 1, next);

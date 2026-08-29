@@ -35,14 +35,15 @@ namespace noria {
 
     const Type localType =
         letStatement.declaredType ? *letStatement.declaredType : initializer->type;
+    const int localId = emitter_.freshTempCounter();
     const std::string slot =
-        "%" + letStatement.name + ".slot" + std::to_string(emitter_.freshTempCounter());
+        "%" + letStatement.name + ".slot" + std::to_string(localId);
 
     emitter_.emitAlloca(localType, slot);
 
     LocalBinding binding{slot, localType, false, {}};
     if (state_.generator().typeNeedsDrop(localType, context_)) {
-      binding.ownedSlot = "%" + letStatement.name + ".owned";
+      binding.ownedSlot = "%" + letStatement.name + ".owned" + std::to_string(localId);
       emitter_.emitAlloca(Type::boolean(), binding.ownedSlot);
     }
 
@@ -54,15 +55,16 @@ namespace noria {
     if (initializer) {
       Value stored = *initializer;
       if (letStatement.initializer &&
-          dynamic_cast<const ast::IdentifierExpression*>(letStatement.initializer.get()) !=
-              nullptr &&
+          (dynamic_cast<const ast::IdentifierExpression*>(letStatement.initializer.get()) !=
+               nullptr ||
+           dynamic_cast<const ast::FieldAccessExpression*>(letStatement.initializer.get()) !=
+               nullptr) &&
           state_.generator().typeNeedsDrop(localType, context_)) {
-        stored = state_.generator().emitCloneValue(stored, emitter_, context_);
-      } else if (letStatement.initializer &&
-                 dynamic_cast<const ast::FieldAccessExpression*>(letStatement.initializer.get()) !=
-                     nullptr &&
-                 state_.generator().typeNeedsDrop(localType, context_)) {
-        stored = state_.generator().emitCloneValue(stored, emitter_, context_);
+        // Own-mode rvalue already deep-clones managed identifiers/fields; only clone
+        // when the loaded value is still borrowed.
+        if (!stored.owned) {
+          stored = state_.generator().emitCloneValue(stored, emitter_, context_);
+        }
       } else if (state_.generator().typeNeedsDrop(localType, context_) && !stored.owned) {
         stored.owned = true;
       }
@@ -175,7 +177,10 @@ namespace noria {
               nullptr ||
           dynamic_cast<const ast::FieldAccessExpression*>(assignmentStatement.rhs.get()) !=
               nullptr) {
-        rvalue = state_.generator().emitCloneValue(rvalue, emitter_, context_);
+        // Own-mode rvalue already deep-clones managed identifiers/fields.
+        if (!rvalue.owned) {
+          rvalue = state_.generator().emitCloneValue(rvalue, emitter_, context_);
+        }
       } else if (!rvalue.owned) {
         rvalue.owned = true;
       }

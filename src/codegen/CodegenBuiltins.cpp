@@ -150,12 +150,15 @@ namespace noria {
   LLVMGenerator::BuiltinsState::emitLenBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                       FunctionCodegenContext& context,
                                       const std::vector<Scope>& scopes) const {
-    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument =
+        generator().generateRvalue(*call.arguments[0], emitter, context, scopes, std::nullopt,
+                                   LLVMGenerator::OwnershipMode::Borrow);
     if (argument.type == Type::str()) {
       const std::string length = emitter.freshTemp();
       emitter.line(length + " = call i64 @strlen(ptr " + argument.text + ")");
       const std::string result = emitter.freshTemp();
       emitter.line(result + " = trunc i64 " + length + " to i32");
+      generator().emitReleaseIfOwned(argument, emitter, context);
       return Value{result, Type::i32()};
     }
 
@@ -163,6 +166,7 @@ namespace noria {
     emitter.line(length + " = load i64, ptr " + argument.text);
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = trunc i64 " + length + " to i32");
+    generator().emitReleaseIfOwned(argument, emitter, context);
     return Value{result, Type::i32()};
   }
 
@@ -354,21 +358,27 @@ namespace noria {
                                          const std::vector<Scope>& scopes) const {
     const Type witness =
         resolveWitnessType(context.functionSpecializationTypeArgs, context.currentFunctionName);
-    const Value key = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    // Borrow: hashing must not clone managed keys (str), or each probe leaks.
+    const Value key =
+        generator().generateRvalue(*call.arguments[0], emitter, context, scopes, std::nullopt,
+                                   LLVMGenerator::OwnershipMode::Borrow);
     const std::string result = emitter.freshTemp();
     if (witness == Type::i32()) {
       const std::string mixed = emitter.freshTemp();
       emitter.line(mixed + " = mul i32 " + key.text + ", 2654435761");
       const std::string masked = emitter.freshTemp();
       emitter.line(masked + " = and i32 " + mixed + ", 2147483647");
+      generator().emitReleaseIfOwned(key, emitter, context);
       return Value{masked, Type::i32()};
     }
     if (witness == Type::boolean()) {
       emitter.line(result + " = zext i1 " + key.text + " to i32");
+      generator().emitReleaseIfOwned(key, emitter, context);
       return Value{result, Type::i32()};
     }
     if (witness == Type::str()) {
       emitter.line(result + " = call i32 @noria_hash_str(ptr " + key.text + ")");
+      generator().emitReleaseIfOwned(key, emitter, context);
       return Value{result, Type::i32()};
     }
     throw CompileError("codegen: __rt_hash unsupported witness type " + witness.name());

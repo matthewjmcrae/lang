@@ -90,12 +90,99 @@ resolve_host_clang() {
 
 CLANG="$(resolve_host_clang)"
 OPT="$(resolve_tool opt)"
+NORIA_NATIVE_ASAN="${NORIA_NATIVE_ASAN:-0}"
+NORIA_RUN_LEAK_CHECKS="${NORIA_RUN_LEAK_CHECKS:-0}"
+NORIA_REQUIRE_LEAK_CHECKS="${NORIA_REQUIRE_LEAK_CHECKS:-0}"
+MACOS_LEAKS_CLASSIFY="${ROOT_DIR}/tests/macos_leaks_classify.sh"
 
 # Linux needs libm for llvm.sqrt.f64 / llvm.pow.f64; macOS provides them via libSystem.
+# When NORIA_NATIVE_ASAN=1, instrument generated IR before linking with the ASan runtime.
+# Prefer LLVM's ASan IR passes when they match the host linker (Linux). On Darwin, Apple
+# clang's ASan ABI differs from Homebrew LLVM, so instrument via the host clang driver.
+strip_llvm_comdat() {
+  local input="$1"
+  local output="$2"
+  awk '
+    /^\$/ && /comdat/ { next }
+    {
+      gsub(/ comdat any/, "")
+      gsub(/ comdat/, "")
+      print
+    }
+  ' "${input}" >"${output}"
+}
+
+instrument_ir_with_asan() {
+  local llvm_ir="$1"
+  local instrumented="$2"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    "${CLANG}" -fsanitize=address -c -emit-llvm -S "${llvm_ir}" -o "${instrumented}" \
+      >/dev/null 2>&1 || fail "failed to ASan-instrument ${llvm_ir} with host clang"
+    return
+  fi
+
+  if [[ -z "${OPT}" ]]; then
+    fail "opt is required for NORIA_NATIVE_ASAN instrumentation"
+  fi
+
+  local tmp="${instrumented}.tmp.ll"
+  if "${OPT}" -passes=asan -S "${llvm_ir}" -o "${tmp}" 2>/dev/null; then
+    :
+  elif "${OPT}" -passes='module(asan-module),function(asan)' -S "${llvm_ir}" -o "${tmp}" 2>/dev/null; then
+    :
+  elif "${OPT}" -passes=asan-module -S "${llvm_ir}" -o "${tmp}" 2>/dev/null; then
+    :
+  else
+    fail "failed to instrument ${llvm_ir} with LLVM AddressSanitizer passes"
+  fi
+  mv "${tmp}" "${instrumented}"
+}
+
 link_ir() {
   local llvm_ir="$1"
   local executable="$2"
-  "${CLANG}" "${llvm_ir}" -lm -o "${executable}"
+  local force_asan="${3:-0}"
+  local link_ir_path="${llvm_ir}"
+  local use_asan=0
+
+  if [[ "${NORIA_NATIVE_ASAN}" != "0" || "${force_asan}" != "0" ]]; then
+    use_asan=1
+  fi
+
+  if [[ "${use_asan}" -eq 1 ]]; then
+    if [[ -z "${CLANG}" ]]; then
+      fail "clang is required for NORIA_NATIVE_ASAN linking"
+    fi
+    local instrumented="${llvm_ir%.ll}.asan.ll"
+    instrument_ir_with_asan "${llvm_ir}" "${instrumented}"
+    if ! grep -Eq '__asan_(init|report_)' "${instrumented}"; then
+      fail "ASan instrumentation produced no ASan hooks in ${instrumented}"
+    fi
+    link_ir_path="${instrumented}"
+    echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
+    "${CLANG}" "${link_ir_path}" -lm -fsanitize=address -o "${executable}"
+  else
+    "${CLANG}" "${link_ir_path}" -lm -o "${executable}"
+  fi
+}
+
+asan_run_env() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    printf 'detect_leaks=0:halt_on_error=1'
+  else
+    printf 'detect_leaks=1:halt_on_error=1'
+  fi
+}
+
+run_linked_executable() {
+  local executable="$1"
+  shift
+  if [[ "${NORIA_NATIVE_ASAN}" != "0" ]]; then
+    ASAN_OPTIONS="$(asan_run_env)" "${executable}" "$@"
+  else
+    "${executable}" "$@"
+  fi
 }
 
 if [[ ! -x "${NORIA}" ]]; then
@@ -143,6 +230,43 @@ compile_example() {
   echo "[noria-tests] compile ${source#${ROOT_DIR}/}"
   run_noria "${source}" -o "${llvm_ir}"
   test -s "${llvm_ir}"
+  assert_unique_instruction_names "${llvm_ir}"
+}
+
+assert_unique_instruction_names() {
+  local llvm_ir="$1"
+  awk '
+    BEGIN { in_fn = 0; depth = 0 }
+    /^define / {
+      delete names
+      in_fn = 1
+      depth = 0
+    }
+    in_fn {
+      for (i = 1; i <= length($0); ++i) {
+        ch = substr($0, i, 1)
+        if (ch == "{") depth++
+        else if (ch == "}") {
+          depth--
+          if (depth == 0) {
+            in_fn = 0
+            next
+          }
+        }
+      }
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (line ~ /^%[^=]+ = /) {
+        name = line
+        sub(/ = .*/, "", name)
+        if (name in names) {
+          print "duplicate instruction name " name " in " FILENAME > "/dev/stderr"
+          exit 1
+        }
+        names[name] = 1
+      }
+    }
+  ' "${llvm_ir}"
 }
 
 run_native_exit_test() {
@@ -163,7 +287,7 @@ run_native_exit_test() {
   link_ir "${llvm_ir}" "${executable}"
 
   local actual_exit
-  if "${executable}"; then
+  if run_linked_executable "${executable}"; then
     actual_exit=0
   else
     actual_exit="$?"
@@ -172,6 +296,124 @@ run_native_exit_test() {
   if [[ "${actual_exit}" != "${expected_exit}" ]]; then
     fail "expected exit ${expected_exit}, got ${actual_exit} for ${source}"
   fi
+}
+
+resolve_leak_checker() {
+  if command -v valgrind >/dev/null 2>&1; then
+    printf 'valgrind\n'
+    return
+  fi
+  if [[ "$(uname -s)" == "Linux" && -n "${CLANG}" ]]; then
+    printf 'asan\n'
+    return
+  fi
+  if [[ "$(uname -s)" == "Darwin" && -x /usr/bin/leaks ]]; then
+    printf 'leaks\n'
+    return
+  fi
+  printf 'none\n'
+}
+
+run_leak_check() {
+  local source="$1"
+  local name
+  name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}.ll"
+  local executable="${TEST_OUT_DIR}/${name}_leak"
+  local report="${TEST_OUT_DIR}/${name}.leak.txt"
+  local checker
+
+  set_case "leak ${source#${ROOT_DIR}/}"
+  if [[ "${NORIA_RUN_LEAK_CHECKS}" == "0" ]]; then
+    return
+  fi
+
+  checker="$(resolve_leak_checker)"
+
+  if [[ -z "${CLANG}" ]]; then
+    if [[ "${NORIA_REQUIRE_LEAK_CHECKS}" != "0" ]]; then
+      fail "clang is required for leak checks"
+    fi
+    echo "[noria-tests] skip leak ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+
+  if [[ ! -f "${llvm_ir}" ]]; then
+    fail "missing LLVM IR for leak check: ${llvm_ir}"
+  fi
+
+  if [[ "${checker}" == "none" ]]; then
+    if [[ "${NORIA_REQUIRE_LEAK_CHECKS}" != "0" ]]; then
+      fail "no leak checker available (need valgrind, ASan, or /usr/bin/leaks)"
+    fi
+    echo "[noria-tests] skip leak ${source#${ROOT_DIR}/}: no leak checker available"
+    return
+  fi
+
+  echo "[noria-tests] leak ${source#${ROOT_DIR}/} (${checker})"
+  case "${checker}" in
+  valgrind)
+    link_ir "${llvm_ir}" "${executable}"
+    valgrind --leak-check=full --show-leak-kinds=definite --error-exitcode=1 \
+      "${executable}" >/dev/null
+    ;;
+  asan)
+    # Force ASan instrumentation of generated IR (do not rely on the runtime alone).
+    link_ir "${llvm_ir}" "${executable}" 1
+    ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 "${executable}" >/dev/null
+    ;;
+  leaks)
+    link_ir "${llvm_ir}" "${executable}"
+    # Modern macOS requires get-task-allow for /usr/bin/leaks to attach.
+    local entitlements="${TEST_OUT_DIR}/leaks.entitlements.plist"
+    if [[ ! -f "${entitlements}" ]]; then
+      cat >"${entitlements}" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.get-task-allow</key>
+  <true/>
+</dict>
+</plist>
+EOF
+    fi
+    if command -v codesign >/dev/null 2>&1; then
+      codesign -s - -f --entitlements "${entitlements}" "${executable}" >/dev/null 2>&1 ||
+        fail "failed to codesign ${executable} for macOS leaks inspection"
+    fi
+    # macOS `leaks` often exits 0 even when leaks are reported; parse the summary.
+    # Capture status immediately; never read $? after `!`.
+    local status=0
+    MallocStackLogging=1 /usr/bin/leaks --atExit -- "${executable}" \
+      >"${report}" 2>&1 || status=$?
+    local classification
+    classification="$("${MACOS_LEAKS_CLASSIFY}" "${status}" "${report}")"
+    case "${classification}" in
+    pass)
+      ;;
+    program_leak)
+      fail "leak check failed for ${source} (see ${report})"
+      ;;
+    checker_unavailable)
+      if [[ "${NORIA_REQUIRE_LEAK_CHECKS}" != "0" ]]; then
+        fail "macOS leaks could not inspect ${source} (exit 255)"
+      fi
+      echo "[noria-tests] skip leak ${source#${ROOT_DIR}/}: leaks inspect failed"
+      return
+      ;;
+    checker_error)
+      fail "macOS leaks invocation failed for ${source} (exit ${status}; see ${report})"
+      ;;
+    *)
+      fail "unknown macOS leaks classification: ${classification}"
+      ;;
+    esac
+    ;;
+  *)
+    fail "unknown leak checker: ${checker}"
+    ;;
+  esac
 }
 
 run_native_failure_test() {
@@ -195,13 +437,13 @@ run_native_failure_test() {
 
   local actual_exit
   if [[ -n "${expected_stderr}" ]]; then
-    if "${executable}" >/dev/null 2>"${stderr_file}"; then
+    if run_linked_executable "${executable}" >/dev/null 2>"${stderr_file}"; then
       actual_exit=0
     else
       actual_exit="$?"
     fi
   else
-    if "${executable}"; then
+    if run_linked_executable "${executable}"; then
       actual_exit=0
     else
       actual_exit="$?"
@@ -217,21 +459,39 @@ run_native_failure_test() {
   fi
 }
 
+compile_optimized_ir() {
+  local source="$1"
+  local llvm_ir="$2"
+  run_noria -O2 "${source}" -o "${llvm_ir}"
+  test -s "${llvm_ir}"
+}
+
 run_optimized_native_failure_test() {
   local source="$1"
   local expected_exit="$2"
   local expected_stderr="$3"
   local name
   name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}_optimized.ll"
   local executable="${TEST_OUT_DIR}/${name}_optimized"
   local stderr_file="${TEST_OUT_DIR}/${name}.optimized.runtime.stderr"
 
   set_case "optimized native failure ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
+    echo "[noria-tests] skip optimized native failure ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+  if [[ -z "${OPT}" ]]; then
+    echo "[noria-tests] skip optimized native failure ${source#${ROOT_DIR}/}: opt not found"
+    return
+  fi
+
   echo "[noria-tests] optimized native failure ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  run_noria build -O2 "${source}" -o "${executable}"
+  compile_optimized_ir "${source}" "${llvm_ir}"
+  link_ir "${llvm_ir}" "${executable}"
 
   local actual_exit
-  if "${executable}" >/dev/null 2>"${stderr_file}"; then
+  if run_linked_executable "${executable}" >/dev/null 2>"${stderr_file}"; then
     actual_exit=0
   else
     actual_exit="$?"
@@ -249,14 +509,25 @@ run_optimized_native_exit_test() {
   local expected_exit="$2"
   local name
   name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}_optimized.ll"
   local executable="${TEST_OUT_DIR}/${name}_optimized"
 
   set_case "optimized native ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
+    echo "[noria-tests] skip optimized native ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+  if [[ -z "${OPT}" ]]; then
+    echo "[noria-tests] skip optimized native ${source#${ROOT_DIR}/}: opt not found"
+    return
+  fi
+
   echo "[noria-tests] optimized native ${source#${ROOT_DIR}/} -> exit ${expected_exit}"
-  run_noria build -O2 "${source}" -o "${executable}"
+  compile_optimized_ir "${source}" "${llvm_ir}"
+  link_ir "${llvm_ir}" "${executable}"
 
   local actual_exit
-  if "${executable}"; then
+  if run_linked_executable "${executable}"; then
     actual_exit=0
   else
     actual_exit="$?"
@@ -272,13 +543,24 @@ run_optimized_native_stdout_test() {
   local expected_file="$2"
   local name
   name="$(basename "${source}" .noria)"
+  local llvm_ir="${TEST_OUT_DIR}/${name}_optimized_stdout.ll"
   local executable="${TEST_OUT_DIR}/${name}_optimized_stdout"
   local actual_file="${TEST_OUT_DIR}/${name}.optimized.stdout"
 
   set_case "optimized native stdout ${source#${ROOT_DIR}/}"
+  if [[ -z "${CLANG}" ]]; then
+    echo "[noria-tests] skip optimized native stdout ${source#${ROOT_DIR}/}: clang not found"
+    return
+  fi
+  if [[ -z "${OPT}" ]]; then
+    echo "[noria-tests] skip optimized native stdout ${source#${ROOT_DIR}/}: opt not found"
+    return
+  fi
+
   echo "[noria-tests] optimized native stdout ${source#${ROOT_DIR}/}"
-  run_noria build -O2 "${source}" -o "${executable}"
-  "${executable}" >"${actual_file}"
+  compile_optimized_ir "${source}" "${llvm_ir}"
+  link_ir "${llvm_ir}" "${executable}"
+  run_linked_executable "${executable}" >"${actual_file}"
 
   if ! diff -u "${expected_file}" "${actual_file}"; then
     fail "optimized stdout mismatch for ${source}"
@@ -302,7 +584,7 @@ run_native_stdout_test() {
 
   echo "[noria-tests] stdout ${source#${ROOT_DIR}/}"
   link_ir "${llvm_ir}" "${executable}"
-  "${executable}" >"${actual_file}"
+  run_linked_executable "${executable}" >"${actual_file}"
 
   if ! diff -u "${expected_file}" "${actual_file}"; then
     fail "stdout mismatch for ${source}"
@@ -1033,6 +1315,7 @@ fi
 
 phase "managed str and array auto-free acceptance programs"
 run_native_exit_test "${ROOT_DIR}/examples/basic/string_concat_loop.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/managed_sibling_lets.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_if_scope.noria" 20
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_copy_independence.noria" 0
 run_native_exit_test "${ROOT_DIR}/examples/basic/array_param_mutation.noria" 0
@@ -1044,18 +1327,24 @@ grep -q "call void @__noria.rt.drop_str" "${TEST_OUT_DIR}/string_concat_loop.ll"
 grep -q "call void @free" "${TEST_OUT_DIR}/string_concat_loop.ll"
 grep -q "call void @free" "${TEST_OUT_DIR}/array_if_scope.ll"
 grep -q "call void @free" "${TEST_OUT_DIR}/array_copy_independence.ll"
-if command -v valgrind >/dev/null 2>&1 && [[ -n "${CLANG}" ]]; then
-  set_case "valgrind examples/basic/string_concat_loop.noria"
-  echo "[noria-tests] valgrind examples/basic/string_concat_loop.noria"
-  link_ir "${TEST_OUT_DIR}/string_concat_loop.ll" "${TEST_OUT_DIR}/string_concat_loop_valgrind"
-  valgrind --leak-check=full --error-exitcode=1 \
-    "${TEST_OUT_DIR}/string_concat_loop_valgrind" >/dev/null
-  set_case "valgrind examples/basic/sequence_push_loop.noria"
-  echo "[noria-tests] valgrind examples/basic/sequence_push_loop.noria"
-  link_ir "${TEST_OUT_DIR}/sequence_push_loop.ll" "${TEST_OUT_DIR}/sequence_push_loop_valgrind"
-  valgrind --leak-check=full --error-exitcode=1 \
-    "${TEST_OUT_DIR}/sequence_push_loop_valgrind" >/dev/null
+# Sibling managed locals must use uniquified owned flags (stdlib params may keep bare %s.owned).
+if grep -Eq '%(inferred|empty|values|state)\.owned = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll"; then
+  fail "managed_sibling_lets.noria emitted bare owned flags for sibling locals"
 fi
+grep -cE '%inferred\.owned[0-9]+ = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll" | grep -q '^2$'
+grep -cE '%empty\.owned[0-9]+ = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll" | grep -q '^2$'
+grep -cE '%values\.owned[0-9]+ = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll" | grep -q '^2$'
+grep -cE '%state\.owned[0-9]+ = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll" | grep -q '^6$'
+grep -cE '%s\.owned[0-9]+ = alloca i1' \
+  "${TEST_OUT_DIR}/managed_sibling_lets.ll" | grep -Eq '^[1-9][0-9]*$'
+run_leak_check "${ROOT_DIR}/examples/basic/string_concat_loop.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/sequence_push_loop.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/managed_sibling_lets.noria"
 
 phase "phase 3 string concat diagnostics"
 grep -q "typecheck: string concatenation requires str operands, got str and i32" \
@@ -1305,6 +1594,52 @@ run_native_failure_test "${ROOT_DIR}/examples/basic/heap_pop_empty.noria" 70 \
 grep -c 'define i32 @heappop$s.i32$tag.arr' "${TEST_OUT_DIR}/heap_arr_ops.ll" | grep -q "^1$"
 grep -c 'define i32 @heappop$s.i32$tag.list' "${TEST_OUT_DIR}/heap_list_ops.ll" | grep -q "^1$"
 
+phase "container leak checks"
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_sequence_arr.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_sequence_list.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_i32.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_f64.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_scalars.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_f64_scalars.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_resize.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_scalars.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_misc.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_str_scalars.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_set_bst.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_set_hash.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_set_str.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_heap.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_leak_array.noria" 0
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_sequence_arr.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_sequence_list.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_i32.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_f64.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_scalars.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_bst_f64_scalars.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_str.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_resize.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_scalars.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_misc.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_dictionary_hash_str_scalars.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_set_bst.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_set_hash.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_set_str.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_heap.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_leak_array.noria"
+
+phase "container reference-model programs"
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_model_sequence.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_model_dictionary.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_model_set.noria" 0
+run_native_exit_test "${ROOT_DIR}/examples/basic/container_model_heap.noria" 0
+run_leak_check "${ROOT_DIR}/examples/basic/container_model_sequence.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_model_dictionary.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_model_set.noria"
+run_leak_check "${ROOT_DIR}/examples/basic/container_model_heap.noria"
+
 phase "phase 7 sequence diagnostics"
 grep -q "typecheck: no implementation of 'sequence_new' for tag 'bst'" \
   "${TEST_OUT_DIR}/sequence_bst_unsupported.stderr"
@@ -1533,6 +1868,38 @@ if [[ -n "${CLANG}" ]]; then
       70 "invalid f64 to i32 cast"
     run_optimized_native_stdout_test "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.noria" \
       "${ROOT_DIR}/examples/basic/cast_f64_to_i32_valid.expected"
+
+    phase "optimized high-risk ownership and container programs"
+    # Pairs: relative path under examples/basic, expected exit (match unoptimized native checks).
+    HIGH_RISK_OPTIMIZED=(
+      "managed_sibling_lets.noria:0"
+      "return_owned_str.noria:0"
+      "return_owned_array.noria:6"
+      "str_array_reassign_scope.noria:0"
+      "sequence_str_reassign_scope.noria:0"
+      "struct_array_field.noria:3"
+      "struct_sequence_field.noria:0"
+      "container_mixed_scope_drop.noria:8"
+      "dictionary_copy_independence.noria:0"
+      "set_copy_independence.noria:0"
+      "sequence_insert_remove.noria:55"
+      "sequence_list_insert_remove.noria:55"
+      "dictionary_bst_sorted_delete.noria:0"
+      "dictionary_hashmap_resize.noria:0"
+      "dictionary_hashmap_tombstone.noria:0"
+      "container_model_sequence.noria:0"
+      "container_model_dictionary.noria:0"
+      "container_model_set.noria:0"
+      "container_model_heap.noria:0"
+    )
+    for source in "${ROOT_DIR}"/examples/basic/container_leak_*.noria; do
+      HIGH_RISK_OPTIMIZED+=("$(basename "${source}"):0")
+    done
+    for entry in "${HIGH_RISK_OPTIMIZED[@]}"; do
+      local_name="${entry%%:*}"
+      expected_exit="${entry##*:}"
+      run_optimized_native_exit_test "${ROOT_DIR}/examples/basic/${local_name}" "${expected_exit}"
+    done
   else
     echo "[noria-tests] skip optimizer checks: opt not found; set LLVM_BIN or add opt to PATH" >&2
   fi

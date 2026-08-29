@@ -1,0 +1,21 @@
+import std::dictionary::{Dictionary, dictionary_insert, dictionary_new, dictionary_remove};
+
+fn main() -> i32 {
+  let dbi: Dictionary<bool, i32, hashmap> = dictionary_new(false, 0);
+  dictionary_insert(dbi, true, 1);
+  dictionary_insert(dbi, false, 0);
+  let rbi: i32 = dictionary_remove(dbi, true);
+
+  let dbf: Dictionary<bool, f64, hashmap> = dictionary_new(false, 0.0);
+  dictionary_insert(dbf, true, 1.5);
+  let rbf: f64 = dictionary_remove(dbf, true);
+
+  let dbb: Dictionary<bool, bool, hashmap> = dictionary_new(false, false);
+  dictionary_insert(dbb, true, true);
+  let rbb: bool = dictionary_remove(dbb, true);
+
+  if rbi != 1 || rbf != 1.5 || !rbb {
+    return 1;
+  }
+  return 0;
+}

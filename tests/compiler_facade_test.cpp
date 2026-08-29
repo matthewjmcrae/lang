@@ -7,10 +7,13 @@
 #include "noria/TypeChecker.hpp"
 
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -41,6 +44,79 @@ namespace {
     } catch (const noria::CompileError& error) {
       expect(error.what() == expected, message);
     }
+  }
+
+  bool instructionNamesAreUnique(std::string_view llvmIr) {
+    std::size_t position = 0;
+    while ((position = llvmIr.find("define ", position)) != std::string_view::npos) {
+      const std::size_t bodyStart = llvmIr.find('{', position);
+      if (bodyStart == std::string_view::npos) {
+        return false;
+      }
+
+      std::size_t bodyEnd = bodyStart + 1;
+      int depth = 1;
+      while (bodyEnd < llvmIr.size() && depth > 0) {
+        if (llvmIr[bodyEnd] == '{') {
+          ++depth;
+        } else if (llvmIr[bodyEnd] == '}') {
+          --depth;
+        }
+        ++bodyEnd;
+      }
+      if (depth != 0) {
+        return false;
+      }
+
+      const std::string_view body = llvmIr.substr(bodyStart, bodyEnd - bodyStart);
+      std::unordered_set<std::string> names;
+      std::size_t lineStart = 0;
+      while (lineStart < body.size()) {
+        std::size_t lineEnd = body.find('\n', lineStart);
+        if (lineEnd == std::string_view::npos) {
+          lineEnd = body.size();
+        }
+        std::string_view line = body.substr(lineStart, lineEnd - lineStart);
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+          line.remove_prefix(1);
+        }
+        if (!line.empty() && line.front() == '%') {
+          const std::size_t equals = line.find(" = ");
+          if (equals != std::string_view::npos) {
+            const std::string name(line.substr(0, equals));
+            if (!names.insert(name).second) {
+              return false;
+            }
+          }
+        }
+        lineStart = lineEnd + 1;
+      }
+
+      position = bodyEnd;
+    }
+    return true;
+  }
+
+  std::size_t countOwnedAlloca(std::string_view llvmIr, std::string_view localName,
+                               bool bareOnly) {
+    const std::string prefix = "%" + std::string(localName) + ".owned";
+    std::size_t count = 0;
+    std::size_t position = 0;
+    while ((position = llvmIr.find(prefix, position)) != std::string_view::npos) {
+      std::size_t cursor = position + prefix.size();
+      bool digits = false;
+      while (cursor < llvmIr.size() &&
+             std::isdigit(static_cast<unsigned char>(llvmIr[cursor])) != 0) {
+        digits = true;
+        ++cursor;
+      }
+      const bool matchesForm = bareOnly ? !digits : digits;
+      if (matchesForm && llvmIr.compare(cursor, 9, " = alloca") == 0) {
+        ++count;
+      }
+      position = cursor;
+    }
+    return count;
   }
 
 } // namespace
@@ -359,6 +435,201 @@ fn main() -> i32 {
          "string reassignment emits drop_str for the previous value");
   expect(managedAutoFreeOutput.LLVM.find("call void @free") != std::string::npos,
          "managed array copies emit free on reassignment or scope exit");
+
+  constexpr std::string_view siblingManagedStrSource = R"(
+fn main() -> i32 {
+  if true {
+    let s = "a" + "b";
+    return len(s);
+  } else {
+    s: str = "c" + "d";
+    return len(s);
+  }
+}
+)";
+  const noria::PipelineOutput siblingManagedStrOutput =
+      noria::compileSource(siblingManagedStrSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingManagedStrOutput.LLVM),
+         "sibling managed str locals emit unique instruction names");
+  expect(countOwnedAlloca(siblingManagedStrOutput.LLVM, "s", true) == 0,
+         "sibling managed str locals do not emit bare %s.owned");
+  expect(countOwnedAlloca(siblingManagedStrOutput.LLVM, "s", false) == 2,
+         "sibling managed str locals emit two uniquified %s.ownedN flags");
+
+  constexpr std::string_view siblingDefaultManagedSource = R"(
+fn main() -> i32 {
+  if true {
+    let s: str;
+    return len(s);
+  } else {
+    str: s;
+    return len(s);
+  }
+}
+)";
+  const noria::PipelineOutput siblingDefaultManagedOutput =
+      noria::compileSource(siblingDefaultManagedSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingDefaultManagedOutput.LLVM),
+         "default-initialized sibling managed locals emit unique instruction names");
+  expect(countOwnedAlloca(siblingDefaultManagedOutput.LLVM, "s", true) == 0,
+         "default-initialized sibling managed locals do not emit bare %s.owned");
+  expect(countOwnedAlloca(siblingDefaultManagedOutput.LLVM, "s", false) == 2,
+         "default-initialized sibling managed locals emit two uniquified flags");
+
+  constexpr std::string_view nestedManagedShadowSource = R"(
+fn main() -> i32 {
+  let s = "a" + "b";
+  if true {
+    let s = "c" + "d" + "e";
+    return len(s);
+  }
+  return len(s);
+}
+)";
+  const noria::PipelineOutput nestedManagedShadowOutput =
+      noria::compileSource(nestedManagedShadowSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(nestedManagedShadowOutput.LLVM),
+         "nested inferred managed shadow emits unique instruction names");
+  expect(countOwnedAlloca(nestedManagedShadowOutput.LLVM, "s", true) == 0,
+         "nested inferred managed shadow does not emit bare %s.owned");
+  expect(countOwnedAlloca(nestedManagedShadowOutput.LLVM, "s", false) == 2,
+         "nested inferred managed shadow emits two uniquified flags");
+
+  constexpr std::string_view siblingManagedArraySource = R"(
+fn main() -> i32 {
+  if true {
+    let a: [i32] = [1, 2];
+    return len(a);
+  } else {
+    [i32]: a = [3, 4, 5];
+    return len(a);
+  }
+}
+)";
+  const noria::PipelineOutput siblingManagedArrayOutput =
+      noria::compileSource(siblingManagedArraySource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingManagedArrayOutput.LLVM),
+         "sibling managed array locals emit unique instruction names");
+  expect(countOwnedAlloca(siblingManagedArrayOutput.LLVM, "a", true) == 0,
+         "sibling managed array locals do not emit bare %a.owned");
+  expect(countOwnedAlloca(siblingManagedArrayOutput.LLVM, "a", false) == 2,
+         "sibling managed array locals emit two uniquified %a.ownedN flags");
+
+  constexpr std::string_view siblingManagedStructSource = R"(
+struct Holder {
+  text: str;
+}
+
+fn main() -> i32 {
+  if true {
+    let h: Holder = Holder { text: "a" + "b" };
+    return len(h.text);
+  } else {
+    h: Holder = Holder { text: "c" + "d" };
+    return len(h.text);
+  }
+}
+)";
+  const noria::PipelineOutput siblingManagedStructOutput =
+      noria::compileSource(siblingManagedStructSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingManagedStructOutput.LLVM),
+         "sibling managed struct locals emit unique instruction names");
+  expect(countOwnedAlloca(siblingManagedStructOutput.LLVM, "h", true) == 0,
+         "sibling managed struct locals do not emit bare %h.owned");
+  expect(countOwnedAlloca(siblingManagedStructOutput.LLVM, "h", false) == 2,
+         "sibling managed struct locals emit two uniquified %h.ownedN flags");
+
+  constexpr std::string_view siblingManagedGenericSource = R"(
+fn id<T>(value: T) -> T {
+  return value;
+}
+
+fn main() -> i32 {
+  if true {
+    let s: str = id("a" + "b");
+    return len(s);
+  } else {
+    str: s = id("c" + "d");
+    return len(s);
+  }
+}
+)";
+  const noria::PipelineOutput siblingManagedGenericOutput =
+      noria::compileSource(siblingManagedGenericSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingManagedGenericOutput.LLVM),
+         "sibling generic-managed locals emit unique instruction names");
+  expect(countOwnedAlloca(siblingManagedGenericOutput.LLVM, "s", true) == 0,
+         "sibling generic-managed locals do not emit bare %s.owned");
+  expect(countOwnedAlloca(siblingManagedGenericOutput.LLVM, "s", false) == 2,
+         "sibling generic-managed locals emit two uniquified %s.ownedN flags");
+
+  constexpr std::string_view sequentialSiblingManagedSource = R"(
+fn main() -> i32 {
+  let total: i32 = 0;
+  if true {
+    let s: str = "a" + "b";
+    total = total + len(s);
+  }
+  while false {
+    s: str = "c" + "d";
+    total = total + len(s);
+  }
+  if true {
+    str: s = "e" + "f";
+    total = total + len(s);
+  }
+  return total;
+}
+)";
+  const noria::PipelineOutput sequentialSiblingManagedOutput =
+      noria::compileSource(sequentialSiblingManagedSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(sequentialSiblingManagedOutput.LLVM),
+         "sequential if/while managed siblings emit unique instruction names");
+  expect(countOwnedAlloca(sequentialSiblingManagedOutput.LLVM, "s", true) == 0,
+         "sequential managed siblings do not emit bare %s.owned");
+  expect(countOwnedAlloca(sequentialSiblingManagedOutput.LLVM, "s", false) == 3,
+         "sequential managed siblings emit three uniquified %s.ownedN flags");
+
+  constexpr std::string_view shadowManagedParamSource = R"(
+fn length(s: str) -> i32 {
+  if true {
+    let s: str = "a" + "b";
+    return len(s);
+  }
+  return len(s);
+}
+
+fn main() -> i32 {
+  return length("x");
+}
+)";
+  const noria::PipelineOutput shadowManagedParamOutput =
+      noria::compileSource(shadowManagedParamSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(shadowManagedParamOutput.LLVM),
+         "managed parameter shadowing emits unique instruction names");
+  expect(countOwnedAlloca(shadowManagedParamOutput.LLVM, "s", true) == 1,
+         "managed parameters keep a bare %s.owned flag");
+  expect(countOwnedAlloca(shadowManagedParamOutput.LLVM, "s", false) == 1,
+         "shadowing managed locals emit one uniquified %s.ownedN flag");
+
+  constexpr std::string_view siblingUnmanagedSource = R"(
+fn main() -> i32 {
+  if true {
+    let n: i32 = 1;
+    return n;
+  } else {
+    n: i32 = 2;
+    return n;
+  }
+}
+)";
+  const noria::PipelineOutput siblingUnmanagedOutput =
+      noria::compileSource(siblingUnmanagedSource, noria::StopAfter::Ir);
+  expect(instructionNamesAreUnique(siblingUnmanagedOutput.LLVM),
+         "sibling unmanaged locals still emit unique instruction names");
+  expect(countOwnedAlloca(siblingUnmanagedOutput.LLVM, "n", true) == 0 &&
+             countOwnedAlloca(siblingUnmanagedOutput.LLVM, "n", false) == 0,
+         "sibling unmanaged locals do not emit ownership flags");
 
   expectCompileError(noria::StopAfter::Typed, typeInvalidSource, "Typed stop throws on type error");
   expectCompileError(noria::StopAfter::Ast, syntaxInvalidSource, "Ast stop throws on syntax error");
