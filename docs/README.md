@@ -30,7 +30,7 @@ This repository is deliberately scoped as a focused language implementation rath
 | Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift                                                                     |
 | Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade                                                |
 | End-to-end checks | IR assertions, native exit/stdout/trap behavior, `-O2` regression cases, install/stdlib discovery, sanitizer instrumentation, leak checking, and four checked-in 300-operation container model traces |
-| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes; scheduled WIP Clang/libFuzzer coverage of the in-memory compiler facade                                                                    |
+| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes                                                                    |
 
 `examples/basic`, `examples/invalid`, and `examples/invalid_syntax` are the implemented executable contract. Files under `examples/future` are design sketches and are intentionally excluded from current feature claims and regression counts.
 
@@ -131,7 +131,7 @@ Key directories:
 | [`src/monomorphize/`](../src/monomorphize/) | Specialization discovery, cloning, rewriting, caching, cycle and expansion guards |
 | [`src/codegen/`](../src/codegen/) | `LLVMGenerator` Pimpl façade; module/function contexts and focused emitters for expressions, statements, places, builtins, structs, memory, and ownership |
 | [`stdlib/`](../stdlib/) | Public Noria ADTs and private implementation/runtime modules |
-| [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, WIP fuzz target, and corpus seeds |
+| [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, and corpus seeds |
 | [`examples/`](../examples/) | Passing programs, semantic failures, syntax failures, and clearly separated future sketches |
 
 ## Build and run
