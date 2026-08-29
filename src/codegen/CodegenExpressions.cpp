@@ -185,8 +185,8 @@ namespace noria {
       const ast::ArrayLiteral& literal, IREmitter& emitter, FunctionCodegenContext& context,
       const std::vector<Scope>& scopes, const std::optional<Type>& expectedType) const {
     std::optional<Type> expectedElementType;
-    if (expectedType && expectedType->kind == TypeKind::Array && expectedType->element) {
-      expectedElementType = *expectedType->element;
+    if (expectedType && expectedType->kind() == TypeKind::Array) {
+      expectedElementType = expectedType->elementType();
     }
 
     std::vector<Value> elements;
@@ -236,7 +236,7 @@ namespace noria {
 
     if (index.standardContainer) {
       const StandardContainer container = index.standardContainer->first;
-      const std::vector<Type>& typeArgs = index.standardContainer->second.typeArgs;
+      const std::vector<Type>& typeArgs = index.standardContainer->second.typeArguments();
       if (container == StandardContainer::Sequence) {
         return emitStandardContainerCall(container, ContainerOperation::Get, typeArgs,
                                          {base, indexValue}, emitter, context);
@@ -268,11 +268,8 @@ namespace noria {
                                        {base, indexValue}, emitter, context);
     }
 
-    if (base.type.kind == TypeKind::Array) {
-      if (!base.type.element)
-        throw CompileError("codegen: array type missing element type");
-
-      const Type elementType = *base.type.element;
+    if (base.type.kind() == TypeKind::Array) {
+      const Type elementType = base.type.elementType();
       const std::string pointer =
           emitArrayElementPointer(base, indexValue, elementType, emitter, context);
       const std::string result = emitBufferLoad(elementType, pointer, emitter);
@@ -401,8 +398,8 @@ namespace noria {
     }
 
     if (binary.op == ast::BinaryOperator::Add &&
-        (left.type.kind == TypeKind::Array || right.type.kind == TypeKind::Array ||
-         left.type.kind == TypeKind::Struct || right.type.kind == TypeKind::Struct)) {
+        (left.type.kind() == TypeKind::Array || right.type.kind() == TypeKind::Array ||
+         left.type.kind() == TypeKind::Struct || right.type.kind() == TypeKind::Struct)) {
       return generateCollectionAddExpression(left, right, emitter, context);
     }
 
@@ -486,10 +483,10 @@ namespace noria {
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateCollectionAddExpression(
       const Value& left, const Value& right, IREmitter& emitter,
       FunctionCodegenContext& context) const {
-    if (left.type.kind == TypeKind::Array && right.type.kind == TypeKind::Array) {
+    if (left.type.kind() == TypeKind::Array && right.type.kind() == TypeKind::Array) {
       return generateArrayAddExpression(left, right, emitter, context);
     }
-    if (left.type.kind == TypeKind::Struct && right.type.kind == TypeKind::Struct) {
+    if (left.type.kind() == TypeKind::Struct && right.type.kind() == TypeKind::Struct) {
       return generateSequenceAddExpression(left, right, emitter, context);
     }
     throw CompileError("codegen: internal error: invalid collection addition operands");
@@ -498,11 +495,11 @@ namespace noria {
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayAddExpression(
       const Value& left, const Value& right, IREmitter& emitter,
       FunctionCodegenContext& context) const {
-    if (!left.type.element || !right.type.element || left.type != right.type) {
+    if (left.type != right.type) {
       throw CompileError("codegen: internal error: invalid array addition operands");
     }
 
-    const Type elementType = *left.type.element;
+    const Type elementType = left.type.elementType();
     const std::string leftLength = emitter.freshTemp();
     emitter.line(leftLength + " = load i64, ptr " + left.text);
     const std::string rightLength = emitter.freshTemp();
@@ -572,14 +569,14 @@ namespace noria {
   LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateSequenceAddExpression(
       const Value& left, const Value& right, IREmitter& emitter,
       FunctionCodegenContext& context) const {
-    const auto specialization = context.module.structSpecializationTypeArgs.find(left.type.structName);
+    const auto specialization = context.module.structSpecializationTypeArgs.find(left.type.structName());
     if (left.type != right.type || specialization == context.module.structSpecializationTypeArgs.end() ||
-        specialization->second.size() != 2 || specialization->second[1].kind != TypeKind::ImplTag) {
+        specialization->second.size() != 2 || specialization->second[1].kind() != TypeKind::ImplTag) {
       throw CompileError("codegen: internal error: invalid sequence addition operands");
     }
 
     const Type elementType = specialization->second[0];
-    const ImplementationTag tag = specialization->second[1].implTag;
+    const ImplementationTag tag = specialization->second[1].implementationTagValue();
     if (tag != ImplementationTag::Arr && tag != ImplementationTag::List) {
       throw CompileError("codegen: internal error: unsupported sequence implementation");
     }
@@ -764,7 +761,7 @@ namespace noria {
     if (left.type != right.type) {
       throw CompileError("codegen: internal error: mismatched collection element types");
     }
-    if (left.type.kind == TypeKind::Array) {
+    if (left.type.kind() == TypeKind::Array) {
       return generateArrayAddExpression(left, right, emitter, context);
     }
     if (left.type == Type::str()) {

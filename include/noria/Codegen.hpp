@@ -16,6 +16,7 @@
 
 namespace noria {
 
+  //REVIEW: god class refactor
   class LLVMGenerator {
   public:
     LLVMGenerator();
@@ -163,6 +164,46 @@ namespace noria {
 
     std::unordered_map<std::string, std::vector<Type>> functionSpecializationTypeArgs_;
     std::unordered_map<std::string, std::vector<Type>> structSpecializationTypeArgs_;
+
+    //REVIEW: Wrong not state pattern, should have 1 unique ptr with an injected state. Internal state transitions are handled by states themselves.
+    //REVIEW: do not just call everything "state" while not following the design pattern
+    //REVIEW: sample of state pattern
+    /* class holder{
+     *
+     * public:
+     *
+     * void doAction(){
+     * //only interact with the interface
+     *   internalstate_->do();
+     * }
+     *
+     * private:
+     * unique_ptr<State> internalstate_
+     *
+     *};
+     * inteface defined
+     * class State{
+     *    public:
+     *     virtual void do() = 0;
+     *
+     *    private:
+     *    transitions
+     *
+     * }
+     *
+     * class RealState : State{
+     *    public:
+     *    void do() override{
+     *      stuff
+     *    }
+     *
+     *    private:
+     *    transitions
+     * }
+     *
+     */
+    //REVIEW: the individual state class/file should own its methods, avoid this god class in one file.
+    //
     std::unique_ptr<ModuleState> moduleState_;
     std::unique_ptr<BuiltinsState> builtinsState_;
     std::unique_ptr<ExpressionsState> expressionsState_;

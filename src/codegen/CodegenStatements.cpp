@@ -353,7 +353,7 @@ namespace noria {
     const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
 
     const StandardContainer container = index.standardContainer->first;
-    const std::vector<Type>& typeArgs = index.standardContainer->second.typeArgs;
+    const std::vector<Type>& typeArgs = index.standardContainer->second.typeArguments();
     const Type expected = container == StandardContainer::Sequence ? typeArgs[0] : typeArgs[1];
     const Value assigned = generateRvalue(rhs, emitter, context, scopes, expected);
     const ContainerOperation operation = container == StandardContainer::Sequence

@@ -64,19 +64,19 @@ namespace noria {
     }
 
     std::size_t elementSizeInBytes(const Type& type) {
-      if (type.kind == TypeKind::Struct) {
+      if (type.kind() == TypeKind::Struct) {
         throw CompileError("codegen: struct element size is not supported");
       }
 
-      if (type.kind == TypeKind::ImplTag) {
+      if (type.kind() == TypeKind::ImplTag) {
         throw CompileError("codegen: internal: implementation tag is not a runtime type");
       }
 
-      if (type.kind == TypeKind::TypeParam) {
+      if (type.kind() == TypeKind::TypeParam) {
         throw CompileError("internal: unsubstituted type parameter");
       }
 
-      if (const TypeKindInfo* info = typeKindInfo(type.kind); info && info->runtimeElementSize) {
+      if (const TypeKindInfo* info = typeKindInfo(type.kind()); info && info->runtimeElementSize) {
         return *info->runtimeElementSize;
       }
 

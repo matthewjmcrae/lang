@@ -14,7 +14,6 @@ The final historical experiment processed 196 Noria inputs for 100 rounds: 19,60
 | Parsed-module and stdlib-specialization cache | 20.15s | 27.2% reduction |
 | Selective admission + frontier-only specialization work | 7.05s | 74.5% reduction; 3.93× faster |
 
-The full 3.93× result should not be attributed to LFU caching alone. Caching delivered the first 27.2%; the larger final change also stopped admitting cheap-to-recompute specializations and avoided rechecking/reworking the entire specialized AST on every monomorphization round.
 
 The final phase totals were:
 
@@ -28,18 +27,6 @@ The final phase totals were:
 | **Total** | **7.05s** | **100%** | — |
 
 Import resolution has fewer invocations because only inputs with imports enter that phase.
-
-## Measurement method
-
-The experiment used a `RelWithDebInfo` compiler build and an in-process phase-timing harness over the example corpus. Each input was compiled repeatedly through LLVM IR generation so the workload included lexing, parsing, module loading, semantic checking, monomorphization, and code generation rather than isolating a parser microbenchmark.
-
-macOS process sampling was attempted first, but the development environment denied process inspection without elevated privileges. The investigation therefore used explicit phase timers. Repetition was used to make the import-resolution and monomorphization costs large enough to distinguish from single-run noise.
-
-Three controls matter when interpreting the result:
-
-- the before/after totals were captured in one development environment on the same workload;
-- all reported values are aggregate phase time for a repeated in-process workload, not a promise about a user's single-file latency;
-- the process-local cache is warm across calls, so the workload is closer to a long-lived consumer of `compileSource()` than to unrelated CLI processes.
 
 ## What changed
 
@@ -69,37 +56,3 @@ LFU was chosen because frequently reused stdlib components should survive one-of
 Monomorphization is a worklist, not a whole-module retry loop. Each round sorts and deduplicates pending requests, emits only unseen concrete functions/structs, type-checks the newly emitted frontier, and discovers requests reachable from that frontier. Generic templates are stripped only after the worklist closes.
 
 This changes the scaling variable from "all specializations emitted so far × number of rounds" toward "new specializations in this round." Deterministic sorting and mangling also make cache keys stable and emitted IR reproducible. Cycle links plus round/expansion limits bound pathological generic growth.
-
-## Generated-code performance choices
-
-Noria does not yet have a maintained runtime benchmark suite, so the statements below are design-level complexity claims backed by implementation and behavior tests rather than measured throughput claims.
-
-- Implementation tags are erased by monomorphization; choosing `arr`, `list`, `bst`, or `hashmap` adds no runtime dispatch.
-- Array-backed Sequence append uses geometric growth for amortized O(1) push; indexed access is O(1).
-- List-backed Sequence append is O(1), while indexed access is O(n).
-- Hashmap uses open addressing, tombstones, and resize at 75% load for expected O(1) lookup.
-- BST is deliberately unbalanced, so operations are O(h) and degrade to O(n) on adversarial insertion order.
-- Heap is implemented over Sequence. Array backing gives the expected logarithmic push/pop; list backing preserves semantics but makes repeated indexed access expensive.
-- Scalar-only lexical scopes are marked so code generation can skip managed-value drop traversal for those scopes.
-
-The largest accepted runtime tradeoff is deep-copy value semantics for managed aggregates. Borrowed parameters and moved owned returns avoid some copies, but copying a large array, string-owning container, or managed struct remains O(n). There is no reference counting, copy-on-write, or borrow checker.
-
-## Reproducibility status
-
-The 27.69s → 7.05s result is useful evidence of the optimization decision, but it is not a regression-grade benchmark in the current repository:
-
-- the original timing harness is not checked in;
-- machine model, OS version, compiler version, and run-to-run distributions were not recorded with the result;
-- the language corpus has grown since the measurement;
-- current CI validates cache correctness but does not enforce latency, throughput, or memory thresholds.
-
-Accordingly, the result should be cited as a historical controlled in-process measurement, not as a reproducible current benchmark or a single-compile speedup. The most valuable next measurement work is a checked-in benchmark target that records toolchain/hardware metadata, separates cold and warm caches, reports median and tail distributions over multiple processes, and measures peak retained memory alongside time. Runtime follow-up should benchmark managed copies and each ADT implementation across input sizes rather than relying only on asymptotic analysis.
-
-## Verification pointers
-
-| Concern | Code | Tests |
-| --- | --- | --- |
-| Cache capacity, admission, clone isolation, keys | [`CompilerCache.cpp`](../src/CompilerCache.cpp) | [`compiler_cache_test.cpp`](../tests/compiler_cache_test.cpp) |
-| LFU eviction and index integrity | [`LfuCache.hpp`](../include/noria/LfuCache.hpp), [`HashTable.hpp`](../include/noria/HashTable.hpp) | [`lfu_cache_test.cpp`](../tests/lfu_cache_test.cpp), [`hash_table_test.cpp`](../tests/hash_table_test.cpp) |
-| Frontier specialization and deduplication | [`src/monomorphize/`](../src/monomorphize/) | [`generics_test.cpp`](../tests/generics_test.cpp) and end-to-end IR assertions |
-| ADT behavior across representations | [`stdlib/`](../stdlib/) | `sequence_arr_list_conformance.noria`, container reference-model fixtures, and native checks in [`run_examples.sh`](../tests/run_examples.sh) |

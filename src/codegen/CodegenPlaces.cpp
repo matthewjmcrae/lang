@@ -65,14 +65,10 @@ namespace noria {
                                                          LLVMGenerator::OwnershipMode::Borrow);
     const Value indexValue = state_.generator().generateRvalue(*index.index, emitter_, context_, scopes_);
 
-    if (base.type.kind != TypeKind::Array) {
+    if (base.type.kind() != TypeKind::Array) {
       throw CompileError("codegen: invalid assignment target");
     }
-    if (!base.type.element) {
-      throw CompileError("codegen: array type missing element type");
-    }
-
-    const Type elementType = *base.type.element;
+    const Type elementType = base.type.elementType();
     const std::string pointer =
         state_.emitArrayElementPointer(base, indexValue, elementType, emitter_, context_);
     result_ = LocalBinding{pointer, elementType, true};
@@ -80,14 +76,14 @@ namespace noria {
 
   void LLVMGenerator::PlacesState::PlaceVisitor::visit(const ast::FieldAccessExpression& access) {
     const LocalBinding base = state_.generatePlace(*access.base, emitter_, context_, scopes_);
-    if (base.type.kind != TypeKind::Struct) {
+    if (base.type.kind() != TypeKind::Struct) {
       throw CompileError("codegen: field access requires struct base");
     }
 
     const StructLayout& layout = state_.generator().lookupStructLayout(context_, base.type);
     const auto field = layout.fieldIndex.find(access.fieldName);
     if (field == layout.fieldIndex.end()) {
-      throw CompileError("codegen: struct '" + base.type.structName + "' has no field '" +
+      throw CompileError("codegen: struct '" + base.type.structName() + "' has no field '" +
                          access.fieldName + "'");
     }
 
@@ -155,13 +151,13 @@ namespace noria {
 
   bool LLVMGenerator::PlacesState::typeNeedsDrop(const Type& type,
                                                   const FunctionCodegenContext& context) const {
-    if (type.kind == TypeKind::Str || type.kind == TypeKind::Array) {
+    if (type.kind() == TypeKind::Str || type.kind() == TypeKind::Array) {
       return true;
     }
-    if (type.kind != TypeKind::Struct) {
+    if (type.kind() != TypeKind::Struct) {
       return false;
     }
-    if (standardContainerKindFromStructName(type.structName)) {
+    if (standardContainerKindFromStructName(type.structName())) {
       return true;
     }
 
@@ -193,12 +189,8 @@ namespace noria {
       return;
     }
 
-    if (value.type.kind == TypeKind::Array) {
-      if (!value.type.element) {
-        throw CompileError("codegen: array type missing element type");
-      }
-
-      const Type elementType = *value.type.element;
+    if (value.type.kind() == TypeKind::Array) {
+      const Type elementType = value.type.elementType();
       const std::string length = emitter.freshTemp();
       emitter.line(length + " = load i64, ptr " + value.text);
 
@@ -240,9 +232,9 @@ namespace noria {
       return;
     }
 
-    if (value.type.kind == TypeKind::Struct) {
+    if (value.type.kind() == TypeKind::Struct) {
       if (const std::optional<StandardContainer> container =
-              standardContainerKindFromStructName(value.type.structName)) {
+              standardContainerKindFromStructName(value.type.structName())) {
         const std::vector<Type> typeArgs = specializedStructTypeArgs(value.type, context);
         (void)emitStandardContainerCall(*container, ContainerOperation::Drop, typeArgs, {value},
                                         emitter, context);
@@ -275,12 +267,8 @@ namespace noria {
       return Value{cloned, Type::str(), true};
     }
 
-    if (value.type.kind == TypeKind::Array) {
-      if (!value.type.element) {
-        throw CompileError("codegen: array type missing element type");
-      }
-
-      const Type elementType = *value.type.element;
+    if (value.type.kind() == TypeKind::Array) {
+      const Type elementType = value.type.elementType();
       const std::string length = emitter.freshTemp();
       emitter.line(length + " = load i64, ptr " + value.text);
       const std::string payloadBytes = emitter.freshTemp();
@@ -332,9 +320,9 @@ namespace noria {
       return Value{cloneBase, value.type, true};
     }
 
-    if (value.type.kind == TypeKind::Struct) {
+    if (value.type.kind() == TypeKind::Struct) {
       if (const std::optional<StandardContainer> container =
-              standardContainerKindFromStructName(value.type.structName)) {
+              standardContainerKindFromStructName(value.type.structName())) {
         const std::vector<Type> typeArgs = specializedStructTypeArgs(value.type, context);
         Value cloned = emitStandardContainerCall(*container, ContainerOperation::Clone, typeArgs,
                                                  {value}, emitter, context);
@@ -483,7 +471,7 @@ namespace noria {
 
   std::string LLVMGenerator::PlacesState::emitBufferLoad(const Type& type, const std::string& pointer,
                                                   IREmitter& emitter) const {
-    if (type.kind == TypeKind::Bool) {
+    if (type.kind() == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();
       emitter.line(packed + " = load i8, ptr " + pointer);
       const std::string result = emitter.freshTemp();
@@ -498,7 +486,7 @@ namespace noria {
 
   void LLVMGenerator::PlacesState::emitBufferStore(const Type& type, const std::string& value,
                                             const std::string& pointer, IREmitter& emitter) const {
-    if (type.kind == TypeKind::Bool) {
+    if (type.kind() == TypeKind::Bool) {
       const std::string packed = emitter.freshTemp();
       emitter.line(packed + " = zext i1 " + value + " to i8");
       emitter.line("store i8 " + packed + ", ptr " + pointer);

@@ -39,6 +39,7 @@ set(NORIA_CORE_SOURCES
   src/Parser.cpp
   src/typecheck/TypeChecker.cpp
   src/typecheck/TypeCheckerCalls.cpp
+  src/typecheck/TypeCheckerContext.cpp
   src/typecheck/TypeCheckerDeclarations.cpp
   src/typecheck/TypeCheckerDriver.cpp
   src/typecheck/TypeCheckerExpressions.cpp

@@ -39,6 +39,31 @@ int main() {
   expect(noria::implementationTagTable().size() == 4, "all implementation tags have metadata");
   expect(noria::requiredOperationTable().size() == 3, "all required operations have metadata");
 
+  const noria::StandardContainerInfo* sequenceInfo =
+      noria::standardContainerInfo("std::sequence", "sequence");
+  expect(sequenceInfo != nullptr, "sequence container info exists");
+  if (sequenceInfo != nullptr) {
+    expect(sequenceInfo->typeArgumentCount == 2, "sequence total type argument count");
+    expect(sequenceInfo->defaultImplementation == ImplementationTag::Arr,
+           "sequence default implementation");
+  }
+
+  const noria::StandardContainerInfo* dictionaryInfo =
+      noria::standardContainerInfo("std::dictionary", "dictionary");
+  expect(dictionaryInfo != nullptr, "dictionary container info exists");
+  if (dictionaryInfo != nullptr) {
+    expect(dictionaryInfo->defaultImplementation == ImplementationTag::Hashmap,
+           "dictionary default implementation");
+  }
+
+  const noria::StandardContainerInfo* setInfo =
+      noria::standardContainerInfo("std::set", "set");
+  expect(setInfo != nullptr, "set container info exists");
+  if (setInfo != nullptr) {
+    expect(setInfo->defaultImplementation == ImplementationTag::Hashmap,
+           "set default implementation");
+  }
+
   const std::optional<ImplementationTag> hashmapTag =
       noria::implementationTagFromName("hashmap");
   const std::optional<ImplementationTag> hashsetTag =

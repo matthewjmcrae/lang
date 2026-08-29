@@ -1,5 +1,4 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,7 +19,7 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::TypeRelations::requireKnownType(
+  void TypeRelations::requireKnownType(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowImplTags,
       bool allowInternalTypes) const {
@@ -33,27 +32,27 @@ namespace noria {
                                           "void is only valid as a function return type"));
     }
 
-    if (type.kind == TypeKind::RawPtr) {
+    if (type.kind() == TypeKind::RawPtr) {
       requireRawPtrUsable(type, location, allowInternalTypes);
       return;
     }
 
-    if (type.kind == TypeKind::ImplTag) {
+    if (type.kind() == TypeKind::ImplTag) {
       requireImplTagUsable(type, location, allowImplTags);
       return;
     }
 
-    if (type.kind == TypeKind::TypeParam) {
+    if (type.kind() == TypeKind::TypeParam) {
       requireTypeParamKnown(type, location, allowedTypeParams);
       return;
     }
 
-    if (type.kind == TypeKind::Array) {
+    if (type.kind() == TypeKind::Array) {
       requireArrayTypeKnown(type, location, allowedTypeParams, allowImplTags, allowInternalTypes);
       return;
     }
 
-    if (type.kind == TypeKind::Struct) {
+    if (type.kind() == TypeKind::Struct) {
       requireStructTypeKnown(type, location, allowedTypeParams, allowInternalTypes);
       return;
     }
@@ -62,7 +61,7 @@ namespace noria {
                                         "unknown type '" + type.name() + "'"));
   }
 
-  void TypeChecker::TypeRelations::requireRawPtrUsable(const Type&, SourceLocation location,
+  void TypeRelations::requireRawPtrUsable(const Type&, SourceLocation location,
                                                              bool allowInternalTypes) const {
     if (!allowInternalTypes) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
@@ -70,7 +69,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::TypeRelations::requireImplTagUsable(const Type& type,
+  void TypeRelations::requireImplTagUsable(const Type& type,
                                                               SourceLocation location,
                                                               bool allowImplTags) const {
     if (allowImplTags) {
@@ -78,39 +77,36 @@ namespace noria {
     }
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                         "implementation tag '" +
-                                            std::string(implementationTagName(type.implTag)) +
+                                            std::string(implementationTagName(type.implementationTagValue())) +
                                             "' cannot be used as a type"));
   }
 
-  void TypeChecker::TypeRelations::requireTypeParamKnown(
+  void TypeRelations::requireTypeParamKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams) const {
-    if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParamName)) {
+    if (allowedTypeParams != nullptr && allowedTypeParams->contains(type.typeParameterName())) {
       return;
     }
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                        "unresolved type parameter '" + type.typeParamName + "'"));
+                                        "unresolved type parameter '" + type.typeParameterName() + "'"));
   }
 
-  void TypeChecker::TypeRelations::requireArrayTypeKnown(
+  void TypeRelations::requireArrayTypeKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowImplTags,
       bool allowInternalTypes) const {
-    if (!type.element) {
-      throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                          "unknown type '" + type.name() + "'"));
-    }
-    requireKnownType(*type.element, location, allowedTypeParams, allowImplTags, allowInternalTypes);
-    rejectStructArrayElement(*type.element, location);
+    requireKnownType(type.elementType(), location, allowedTypeParams, allowImplTags,
+                     allowInternalTypes);
+    rejectStructArrayElement(type.elementType(), location);
   }
 
-  void TypeChecker::TypeRelations::requireStructTypeKnown(
+  void TypeRelations::requireStructTypeKnown(
       const Type& type, SourceLocation location,
       const std::unordered_set<std::string>* allowedTypeParams, bool allowInternalTypes) const {
-    if (!type.typeArgs.empty()) {
-      const auto genericStruct = checker_.environment_.genericStructs.find(type.structName);
-      if (genericStruct == checker_.environment_.genericStructs.end()) {
-        if (checker_.environment_.structs.contains(type.structName)) {
+    if (!type.typeArguments().empty()) {
+      const auto genericStruct = environment().genericStructs.find(type.structName());
+      if (genericStruct == environment().genericStructs.end()) {
+        if (environment().structs.contains(type.structName())) {
           throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                               "type '" + type.name() +
                                                   "' is not generic and cannot take type "
@@ -120,54 +116,58 @@ namespace noria {
                                             "unknown type '" + type.name() + "'"));
       }
 
-      const ast::StructDecl& templated = checker_.genericStructAt(genericStruct->second);
-      if (type.typeArgs.size() != templated.typeParams.size()) {
+      if (environment().activeModule == nullptr ||
+          genericStruct->second >= environment().activeModule->structs.size()) {
+        throw CompileError("typecheck: internal error: invalid generic struct index");
+      }
+      const ast::StructDecl& templated = environment().activeModule->structs[genericStruct->second];
+      if (type.typeArguments().size() != templated.typeParams.size()) {
         std::ostringstream out;
         out << "type '" << type.name() << "' expects " << templated.typeParams.size()
-            << " type argument(s), got " << type.typeArgs.size();
+            << " type argument(s), got " << type.typeArguments().size();
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
       }
 
-      for (const Type& typeArg : type.typeArgs) {
+      for (const Type& typeArg : type.typeArguments()) {
         requireKnownType(typeArg, location, allowedTypeParams, true, allowInternalTypes);
       }
 
       if (!containsUnboundTypeParam(type)) {
-        recordStructSpecialization(type.structName, type.typeArgs, location);
+        recordStructSpecialization(type.structName(), type.typeArguments(), location);
       }
       return;
     }
 
-    if (!checker_.environment_.structs.contains(type.structName)) {
-      if (checker_.environment_.genericStructs.contains(type.structName)) {
+    if (!environment().structs.contains(type.structName())) {
+      if (environment().genericStructs.contains(type.structName())) {
         throw CompileError(
             formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                             "generic struct '" + type.structName + "' requires type arguments"));
+                             "generic struct '" + type.structName() + "' requires type arguments"));
       }
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "unknown type '" + type.name() + "'"));
     }
   }
 
-  void TypeChecker::TypeRelations::unifyTypes(const Type& expected, const Type& actual,
+  void TypeRelations::unifyTypes(const Type& expected, const Type& actual,
                                                     std::unordered_map<std::string, Type>& bindings,
                                                     SourceLocation location) const {
-    if (expected.kind == TypeKind::TypeParam) {
+    if (expected.kind() == TypeKind::TypeParam) {
       bindTypeParam(expected, actual, bindings, location);
       return;
     }
 
-    if (expected.kind == TypeKind::Array) {
+    if (expected.kind() == TypeKind::Array) {
       unifyArrayTypes(expected, actual, bindings, location);
       return;
     }
 
-    if (expected.kind == TypeKind::ImplTag) {
+    if (expected.kind() == TypeKind::ImplTag) {
       unifyImplTagTypes(expected, actual, location);
       return;
     }
 
-    if (expected.kind == TypeKind::Struct) {
+    if (expected.kind() == TypeKind::Struct) {
       unifyStructTypes(expected, actual, bindings, location);
       return;
     }
@@ -180,12 +180,12 @@ namespace noria {
   }
 
   void
-  TypeChecker::TypeRelations::bindTypeParam(const Type& expected, const Type& actual,
+  TypeRelations::bindTypeParam(const Type& expected, const Type& actual,
                                                   std::unordered_map<std::string, Type>& bindings,
                                                   SourceLocation location) const {
-    const auto existing = bindings.find(expected.typeParamName);
+    const auto existing = bindings.find(expected.typeParameterName());
     if (existing == bindings.end()) {
-      bindings.emplace(expected.typeParamName, actual);
+      bindings.emplace(expected.typeParameterName(), actual);
       return;
     }
 
@@ -193,54 +193,54 @@ namespace noria {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "conflicting types " + existing->second.name() + " and " +
                                               actual.name() + " for type parameter '" +
-                                              expected.typeParamName + "'"));
+                                              expected.typeParameterName() + "'"));
     }
   }
 
   void
-  TypeChecker::TypeRelations::unifyArrayTypes(const Type& expected, const Type& actual,
+  TypeRelations::unifyArrayTypes(const Type& expected, const Type& actual,
                                                     std::unordered_map<std::string, Type>& bindings,
                                                     SourceLocation location) const {
-    if (actual.kind != TypeKind::Array || !expected.element || !actual.element) {
+    if (actual.kind() != TypeKind::Array) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
     }
-    unifyTypes(*expected.element, *actual.element, bindings, location);
+    unifyTypes(expected.elementType(), actual.elementType(), bindings, location);
   }
 
-  void TypeChecker::TypeRelations::unifyImplTagTypes(const Type& expected, const Type& actual,
+  void TypeRelations::unifyImplTagTypes(const Type& expected, const Type& actual,
                                                            SourceLocation location) const {
-    if (actual.kind != TypeKind::ImplTag || expected.implTag != actual.implTag) {
+    if (actual.kind() != TypeKind::ImplTag ||
+        expected.implementationTagValue() != actual.implementationTagValue()) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
     }
   }
 
-  Type TypeChecker::TypeRelations::canonicalStructType(const Type& type) const {
-    if (type.kind != TypeKind::Struct || !type.typeArgs.empty()) {
+  Type TypeRelations::canonicalStructType(const Type& type) const {
+    if (type.kind() != TypeKind::Struct || !type.typeArguments().empty()) {
       return type;
     }
 
-    const auto specialization =
-        checker_.session_.structSpecializationTypeArgs.find(type.structName);
-    if (specialization == checker_.session_.structSpecializationTypeArgs.end()) {
+    const auto specialization = specializations().structTypeArgs().find(type.structName());
+    if (specialization == specializations().structTypeArgs().end()) {
       return type;
     }
 
-    const std::size_t dollar = type.structName.find('$');
+    const std::size_t dollar = type.structName().find('$');
     if (dollar == std::string::npos) {
       return type;
     }
 
-    return Type::structType(type.structName.substr(0, dollar), specialization->second);
+    return Type::structType(type.structName().substr(0, dollar), specialization->second);
   }
 
-  void TypeChecker::TypeRelations::unifyStructTypes(
+  void TypeRelations::unifyStructTypes(
       const Type& expected, const Type& actual, std::unordered_map<std::string, Type>& bindings,
       SourceLocation location) const {
-    if (actual.kind != TypeKind::Struct) {
+    if (actual.kind() != TypeKind::Struct) {
       throw CompileError(
           formatDiagnostic(location, DiagnosticStage::TypeCheck,
                            "expected " + expected.name() + ", got " + actual.name()));
@@ -248,10 +248,10 @@ namespace noria {
 
     const Type expectedStruct = canonicalStructType(expected);
     const Type actualStruct = canonicalStructType(actual);
-    if (expectedStruct.structName == actualStruct.structName &&
-        expectedStruct.typeArgs.size() == actualStruct.typeArgs.size()) {
-      for (std::size_t index{}; index < expectedStruct.typeArgs.size(); ++index) {
-        unifyTypes(expectedStruct.typeArgs[index], actualStruct.typeArgs[index], bindings,
+    if (expectedStruct.structName() == actualStruct.structName() &&
+        expectedStruct.typeArguments().size() == actualStruct.typeArguments().size()) {
+      for (std::size_t index{}; index < expectedStruct.typeArguments().size(); ++index) {
+        unifyTypes(expectedStruct.typeArguments()[index], actualStruct.typeArguments()[index], bindings,
                    location);
       }
       return;
@@ -266,15 +266,15 @@ namespace noria {
                          "expected " + expected.name() + ", got " + actual.name()));
   }
 
-  void TypeChecker::TypeRelations::checkSpecializationConstraints(
+  void TypeRelations::checkSpecializationConstraints(
       const std::string& templateName, const std::vector<Type>& typeArgs,
       SourceLocation location) const {
     (void)templateName;
 
     std::optional<ImplementationTag> tag;
     for (const Type& typeArg : typeArgs) {
-      if (typeArg.kind == TypeKind::ImplTag) {
-        tag = typeArg.implTag;
+      if (typeArg.kind() == TypeKind::ImplTag) {
+        tag = typeArg.implementationTagValue();
         break;
       }
     }
@@ -284,7 +284,7 @@ namespace noria {
 
     std::optional<Type> keyType;
     for (const Type& typeArg : typeArgs) {
-      if (typeArg.kind != TypeKind::ImplTag) {
+      if (typeArg.kind() != TypeKind::ImplTag) {
         keyType = typeArg;
         break;
       }
@@ -309,19 +309,57 @@ namespace noria {
   }
 
   void
-  TypeChecker::TypeRelations::recordStructSpecialization(const std::string& templateName,
+  TypeRelations::recordStructSpecialization(const std::string& templateName,
                                                                const std::vector<Type>& typeArgs,
                                                                SourceLocation location) const {
     checkSpecializationConstraints(templateName, typeArgs, location);
-    checker_.registerStructSpecialization(mangleSpecialization(templateName, typeArgs), typeArgs);
-    checker_.session_.structSpecializationRequests.push_back(StructSpecializationRequest{
-        templateName, typeArgs, location, checker_.session_.currentFunctionName});
+    specializations().registerStruct(mangleSpecialization(templateName, typeArgs), typeArgs);
+    specializations().recordStructRequest(
+        StructSpecializationRequest{templateName, typeArgs, location, session().currentFunctionName});
   }
-  bool TypeChecker::TypeRelations::isAssignable(Type expected, Type actual) const {
+  bool TypeRelations::isAssignable(Type expected, Type actual) const {
     if (expected == actual) {
       return true;
     }
     return structSpecializationsMatch(expected, actual);
+  }
+
+  std::optional<StandardContainer> TypeRelations::standardContainerFor(const Type& type) const {
+    const Type canonical = canonicalStructType(type);
+    if (canonical.kind() != TypeKind::Struct) {
+      return std::nullopt;
+    }
+
+    const auto origin = environment().symbolOrigins.structs.find(canonical.structName());
+    const std::string module = origin == environment().symbolOrigins.structs.end() ? "" : origin->second;
+    const StandardContainerInfo* info = standardContainerInfo(module, canonical.structName());
+    if (info == nullptr || canonical.typeArguments().size() != info->typeArgumentCount) {
+      return std::nullopt;
+    }
+    return info->kind;
+  }
+
+  void TypeRelations::recordImplicitContainerOperation(StandardContainer container,
+                                                       ContainerOperation operation,
+                                                       const std::vector<Type>& typeArgs,
+                                                       SourceLocation location) {
+    const std::string name(containerOperationHiddenName(container, operation));
+    if (name.empty() || !environment().genericFunctions.contains(name)) {
+      throw CompileError("typecheck: internal error: missing container operation");
+    }
+    checkSpecializationConstraints(name, typeArgs, location);
+    specializations().recordFunctionRequest(
+        SpecializationRequest{name, typeArgs, location, session().currentFunctionName, false});
+  }
+
+  void TypeRelations::requireContainerOwnershipOps(const Type& type, SourceLocation location) {
+    const Type canonical = canonicalStructType(type);
+    if (const std::optional<StandardContainer> container = standardContainerFor(canonical)) {
+      recordImplicitContainerOperation(*container, ContainerOperation::Drop, canonical.typeArguments(),
+                                       location);
+      recordImplicitContainerOperation(*container, ContainerOperation::Clone, canonical.typeArguments(),
+                                       location);
+    }
   }
 
 } // namespace noria

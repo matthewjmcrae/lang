@@ -40,10 +40,10 @@ namespace noria {
 
   std::vector<Type> LLVMGenerator::CodegenState::specializedStructTypeArgs(
       const Type& type, const FunctionCodegenContext& context) const {
-    if (!type.typeArgs.empty()) {
-      return type.typeArgs;
+    if (!type.typeArguments().empty()) {
+      return type.typeArguments();
     }
-    const auto specialization = context.module.structSpecializationTypeArgs.find(type.structName);
+    const auto specialization = context.module.structSpecializationTypeArgs.find(type.structName());
     if (specialization == context.module.structSpecializationTypeArgs.end()) {
       return {};
     }

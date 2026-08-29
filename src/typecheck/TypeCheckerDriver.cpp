@@ -1,5 +1,4 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -87,21 +86,32 @@ namespace noria {
 
   } // namespace
 
-  void TypeChecker::DriverState::check(ast::Module& module, const SymbolOrigins& symbolOrigins) {
+  TypeCheckDriver::TypeCheckDriver(TypeCheckContext& context, TypeRelations& relations,
+                                   DeclarationChecker& declarations, ExpressionChecker& expressions,
+                                   StatementChecker& statements, StructChecker& structs)
+      : TypeCheckComponent(context), relations_(relations), declarations_(declarations),
+        expressions_(expressions), statements_(statements), structs_(structs) {}
+
+  void TypeCheckDriver::resetForCheck(ast::Module& module, const SymbolOrigins& symbolOrigins) {
     environment().activeModule = &module;
     environment().functions.clear();
     environment().genericFunctions.clear();
-    session().specializationRequests.clear();
-    session().structSpecializationRequests.clear();
-    session().scopes.clear();
+    specializations().clearRequests();
+    scopes().clear();
     session().currentFunctionName.clear();
+    pendingReturnTypeFunctions_.clear();
+    inferringReturnTypes_ = false;
     environment().symbolOrigins = symbolOrigins;
+  }
+
+  void TypeCheckDriver::check(ast::Module& module, const SymbolOrigins& symbolOrigins) {
+    resetForCheck(module, symbolOrigins);
 
     for (const auto& function : module.functions) {
       requireExplicitReturn(function);
     }
 
-    collectStructDecls(module);
+    structs_.collectStructDecls(module);
     inferFunctionReturnTypes(module);
 
     for (const auto& function : module.functions) {
@@ -111,7 +121,7 @@ namespace noria {
       }
       requireReturnForms(function.body, *function.returnType);
     }
-    collectFunctionSignatures(module);
+    declarations_.collectFunctionSignatures(module);
 
     for (const auto& function : module.functions) {
       if (function.typeParams.empty()) {
@@ -120,7 +130,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::DriverState::mergeInferredReturnType(ReturnInferenceResult& result, Type type,
+  void TypeCheckDriver::mergeInferredReturnType(ReturnInferenceResult& result, Type type,
                                             SourceLocation location) {
     if (!result.type) {
       result.type = std::move(type);
@@ -135,7 +145,7 @@ namespace noria {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "non-void function must return a value"));
     }
-    if (!isAssignable(*result.type, type) || !isAssignable(type, *result.type)) {
+    if (!relations_.isAssignable(*result.type, type) || !relations_.isAssignable(type, *result.type)) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "return type " + type.name() +
                                               " does not match expected " +
@@ -143,7 +153,7 @@ namespace noria {
     }
   }
 
-  void TypeChecker::DriverState::inferReturnTypesInStatements(
+  void TypeCheckDriver::inferReturnTypesInStatements(
       const std::vector<std::unique_ptr<ast::Statement>>& statements,
       ReturnInferenceResult& result) {
     for (const auto& statement : statements) {
@@ -155,7 +165,7 @@ namespace noria {
 
         try {
           mergeInferredReturnType(
-              result, checkRvalue(*returnStatement->expression, result.type),
+              result, expressions_.checkRvalue(*returnStatement->expression, result.type),
               returnStatement->expression->location);
         } catch (const ReturnInferencePending&) {
           result.sawPendingCall = true;
@@ -165,16 +175,16 @@ namespace noria {
 
       if (const auto* letStatement = dynamic_cast<const ast::LetStatement*>(statement.get())) {
         if (letStatement->declaredType) {
-          declareLocal(letStatement->name, *letStatement->declaredType);
+          scopes().declare(letStatement->name, *letStatement->declaredType);
           continue;
         }
         if (!letStatement->initializer) {
           continue;
         }
         try {
-          const Type localType = checkRvalue(*letStatement->initializer);
+          const Type localType = expressions_.checkRvalue(*letStatement->initializer);
           if (localType != Type::voidType()) {
-            declareLocal(letStatement->name, localType);
+            scopes().declare(letStatement->name, localType);
           }
         } catch (const ReturnInferencePending&) {
           result.sawPendingCall = true;
@@ -183,45 +193,45 @@ namespace noria {
       }
 
       if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(statement.get())) {
-        pushScope();
-        inferReturnTypesInStatements(ifStatement->thenBranch, result);
-        popScope();
-        pushScope();
-        inferReturnTypesInStatements(ifStatement->elseBranch, result);
-        popScope();
+        {
+          auto scope = scopes().frame();
+          inferReturnTypesInStatements(ifStatement->thenBranch, result);
+        }
+        {
+          auto scope = scopes().frame();
+          inferReturnTypesInStatements(ifStatement->elseBranch, result);
+        }
         continue;
       }
 
       if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(statement.get())) {
-        pushScope();
+        auto scope = scopes().frame();
         inferReturnTypesInStatements(whileStatement->body, result);
-        popScope();
       }
     }
   }
 
-  std::optional<Type> TypeChecker::DriverState::inferFunctionReturnType(const ast::Function& function) {
-    session().scopes.clear();
+  std::optional<Type> TypeCheckDriver::inferFunctionReturnType(const ast::Function& function) {
+    scopes().clear();
     session().currentFunctionName = function.name;
-    pushScope();
+    auto scope = scopes().frame();
     for (const auto& parameter : function.parameters) {
-      declareLocal(parameter.name, parameter.type);
+      scopes().declare(parameter.name, parameter.type);
     }
 
     ReturnInferenceResult result;
     inferReturnTypesInStatements(function.body, result);
-    popScope();
     return result.type;
   }
 
-  void TypeChecker::DriverState::inferFunctionReturnTypes(ast::Module& module) {
-    pendingReturnTypeFunctions().clear();
+  void TypeCheckDriver::inferFunctionReturnTypes(ast::Module& module) {
+    pendingReturnTypeFunctions_.clear();
     for (const ast::Function& function : module.functions) {
       if (!function.returnType) {
-        pendingReturnTypeFunctions().insert(function.name);
+        pendingReturnTypeFunctions_.insert(function.name);
       }
     }
-    if (pendingReturnTypeFunctions().empty()) {
+    if (pendingReturnTypeFunctions_.empty()) {
       return;
     }
 
@@ -229,21 +239,21 @@ namespace noria {
     // family become available to forward callers while keeping incomplete recursive families pending.
     for (std::size_t index{}; index < module.functions.size(); ++index) {
       const ast::Function& function = module.functions[index];
-      if (pendingReturnTypeFunctions().contains(function.name)) {
+      if (pendingReturnTypeFunctions_.contains(function.name)) {
         continue;
       }
       if (function.typeParams.empty()) {
-        collectConcreteFunctionSignature(function);
+        declarations_.collectConcreteFunctionSignature(function);
       } else {
-        collectGenericFunctionSignature(function, index);
+        declarations_.collectGenericFunctionSignature(function, index);
       }
     }
 
-    inferringReturnTypes() = true;
-    while (!pendingReturnTypeFunctions().empty()) {
+    inferringReturnTypes_ = true;
+    while (!pendingReturnTypeFunctions_.empty()) {
       bool madeProgress = false;
-      std::vector<std::string> pendingNames(pendingReturnTypeFunctions().begin(),
-                                            pendingReturnTypeFunctions().end());
+      std::vector<std::string> pendingNames(pendingReturnTypeFunctions_.begin(),
+                                            pendingReturnTypeFunctions_.end());
       for (const std::string& name : pendingNames) {
         bool allResolved = true;
         std::vector<std::pair<std::size_t, Type>> inferred;
@@ -267,7 +277,7 @@ namespace noria {
         for (const auto& [index, inferredType] : inferred) {
           module.functions[index].returnType = inferredType;
         }
-        pendingReturnTypeFunctions().erase(name);
+        pendingReturnTypeFunctions_.erase(name);
 
         for (std::size_t index{}; index < module.functions.size(); ++index) {
           const ast::Function& function = module.functions[index];
@@ -275,9 +285,9 @@ namespace noria {
             continue;
           }
           if (function.typeParams.empty()) {
-            collectConcreteFunctionSignature(function);
+            declarations_.collectConcreteFunctionSignature(function);
           } else {
-            collectGenericFunctionSignature(function, index);
+            declarations_.collectGenericFunctionSignature(function, index);
           }
         }
         madeProgress = true;
@@ -287,35 +297,33 @@ namespace noria {
         continue;
       }
 
-      const std::string& name = *pendingReturnTypeFunctions().begin();
+      const std::string& name = *pendingReturnTypeFunctions_.begin();
       const auto function = std::find_if(module.functions.begin(), module.functions.end(),
                                          [&](const ast::Function& candidate) {
                                            return candidate.name == name && !candidate.returnType;
                                          });
-      inferringReturnTypes() = false;
+      inferringReturnTypes_ = false;
       throw CompileError(formatDiagnostic(
           function->location, DiagnosticStage::TypeCheck,
           "cannot infer return type for function '" + name +
               "'; add an explicit '-> Type'"));
     }
-    inferringReturnTypes() = false;
-    session().specializationRequests.clear();
-    session().structSpecializationRequests.clear();
-    session().scopes.clear();
+    inferringReturnTypes_ = false;
+    specializations().clearRequests();
+    scopes().clear();
     session().currentFunctionName.clear();
     environment().functions.clear();
     environment().genericFunctions.clear();
   }
 
-  void TypeChecker::DriverState::checkSpecializationFrontier(const ast::Module& module,
+  void TypeCheckDriver::checkSpecializationFrontier(const ast::Module& module,
                                                       std::size_t firstNewStruct,
                                                       std::size_t firstNewFunction,
                                                       const SymbolOrigins& symbolOrigins) {
     environment().activeModule = &module;
     environment().symbolOrigins = symbolOrigins;
-    session().specializationRequests.clear();
-    session().structSpecializationRequests.clear();
-    session().scopes.clear();
+    specializations().clearRequests();
+    scopes().clear();
     session().currentFunctionName.clear();
 
     if (firstNewStruct > module.structs.size() || firstNewFunction > module.functions.size()) {
@@ -328,9 +336,9 @@ namespace noria {
         throw CompileError(
             "typecheck: internal error: specialization frontier contains generic struct");
       }
-      collectConcreteStructDecl(decl);
+      structs_.collectConcreteStructDecl(decl);
     }
-    validateConcreteStructFieldTypes(module, firstNewStruct);
+    structs_.validateConcreteStructFieldTypes(module, firstNewStruct);
 
     for (std::size_t index = firstNewFunction; index < module.functions.size(); ++index) {
       const ast::Function& function = module.functions[index];
@@ -338,7 +346,7 @@ namespace noria {
         throw CompileError(
             "typecheck: internal error: specialization frontier contains generic function");
       }
-      collectConcreteFunctionSignature(function);
+      declarations_.collectConcreteFunctionSignature(function);
       if (!function.returnType) {
         throw CompileError("typecheck: internal error: specialization has an unresolved return type");
       }
@@ -351,9 +359,9 @@ namespace noria {
     }
   }
 
-  void TypeChecker::DriverState::checkFunction(const ast::Function& function) {
-    session().scopes.clear();
-    pushScope();
+  void TypeCheckDriver::checkFunction(const ast::Function& function) {
+    scopes().clear();
+    auto scope = scopes().frame();
 
     session().currentFunctionName = function.name;
 
@@ -362,32 +370,32 @@ namespace noria {
                          "' has an unresolved return type");
     }
 
-    const bool allowInternal = isStdlibContext();
+    const bool allowInternal = declarations_.isStdlibContext();
     if (*function.returnType != Type::voidType()) {
-      requireKnownType(*function.returnType, function.location, nullptr, false, allowInternal);
+      relations_.requireKnownType(*function.returnType, function.location, nullptr, false,
+                                  allowInternal);
     }
     const Type expectedReturnType = *function.returnType;
     if (expectedReturnType != Type::voidType()) {
-      requireContainerOwnershipOps(expectedReturnType, function.location);
+      relations_.requireContainerOwnershipOps(expectedReturnType, function.location);
     }
 
     for (const auto& parameter : function.parameters) {
-      requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
+      relations_.requireKnownType(parameter.type, parameter.location, nullptr, false, allowInternal);
       const Type parameterType = parameter.type;
 
-      if (!declareLocal(parameter.name, parameterType)) {
+      if (!scopes().declare(parameter.name, parameterType)) {
         throw CompileError(formatDiagnostic(parameter.location, DiagnosticStage::TypeCheck,
                                             "duplicate parameter '" + parameter.name + "'"));
       }
-      requireContainerOwnershipOps(parameterType, parameter.location);
+      relations_.requireContainerOwnershipOps(parameterType, parameter.location);
     }
 
-    checkStatements(function.body, expectedReturnType);
-    popScope();
+    statements_.checkStatements(function.body, expectedReturnType);
   }
 
   bool
-  TypeChecker::StatementsState::checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
+  StatementChecker::checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
                                      Type expectedReturnType) {
     bool returned = false;
     for (const auto& statement : statements) {
@@ -397,49 +405,17 @@ namespace noria {
     return returned;
   }
 
-  bool TypeChecker::StatementsState::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
+  bool StatementChecker::checkStatement(const ast::Statement& statement, Type expectedReturnType) {
     StatementVisitor visitor(*this, expectedReturnType);
     statement.accept(visitor);
     return visitor.returned();
   }
 
-  Type TypeChecker::ExpressionsState::checkRvalue(const ast::Expression& expression,
+  Type ExpressionChecker::checkRvalue(const ast::Expression& expression,
                                       std::optional<Type> expectedType) {
     ExpressionVisitor visitor(*this, std::move(expectedType));
     expression.accept(visitor);
     return visitor.result();
-  }
-
-  bool TypeChecker::StatementsState::declareLocal(const std::string& name, Type type) {
-    if (session().scopes.empty())
-      pushScope();
-
-    auto& scope = session().scopes.back();
-    if (scope.contains(name))
-      return false;
-
-    scope.emplace(name, type);
-    return true;
-  }
-
-  Type TypeChecker::StatementsState::lookupLocal(const std::string& name, SourceLocation location) const {
-    for (auto scope = session().scopes.rbegin(); scope != session().scopes.rend(); ++scope) {
-      const auto local = scope->find(name);
-
-      if (local != scope->end())
-        return local->second;
-    }
-
-    throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
-                                        "unknown local variable '" + name + "'"));
-  }
-
-  void TypeChecker::StatementsState::pushScope() {
-    session().scopes.emplace_back();
-  }
-
-  void TypeChecker::StatementsState::popScope() {
-    session().scopes.pop_back();
   }
 
 } // namespace noria

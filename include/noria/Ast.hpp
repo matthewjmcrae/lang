@@ -15,7 +15,7 @@ namespace noria::ast {
   struct ASTNode {
     virtual ~ASTNode() = default;
 
-    virtual void accept(AstVisitor& visitor) const = 0;
+    virtual void accept(AstVisitor& visitor) const = 0; //REVIEW:: why does this have to be pure virtual lots of duplication in subclasses, they all just visit *this
     virtual void accept(AstMutator& visitor) = 0;
   };
 
@@ -295,6 +295,7 @@ namespace noria::ast {
     SourceLocation location;
   };
 
+  //REVIEW: what is type parameter
   struct TypeParameter {
     std::string name;
     SourceLocation location;

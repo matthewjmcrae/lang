@@ -268,7 +268,7 @@ namespace noria {
   MonomorphizationResult monomorphizeGenerics(ast::Module& module, TypeChecker& checker,
                                               SymbolOrigins& symbolOrigins,
                                               CompilerCache* compilerCache) {
-    static constexpr std::size_t kMaxSpecializationRounds = 64;
+    static constexpr std::size_t kMaxSpecializationRounds = 64; //REVIEW: why 64
     SpecializationCache cache(compilerCache, &symbolOrigins);
     PendingSpecializations accumulated;
     PendingSpecializations pending = takePendingSpecializations(checker);

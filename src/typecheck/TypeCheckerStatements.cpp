@@ -1,5 +1,4 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,11 +19,17 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  TypeChecker::StatementsState::StatementVisitor::StatementVisitor(StatementsState& state, Type expectedReturnType)
+  StatementChecker::StatementChecker(TypeCheckContext& context, TypeRelations& relations,
+                                     DeclarationChecker& declarations, ExpressionChecker& expressions,
+                                     PlaceChecker& places, StructChecker& structs)
+      : TypeCheckComponent(context), relations_(relations), declarations_(declarations),
+        expressions_(expressions), places_(places), structs_(structs) {}
+
+  StatementChecker::StatementVisitor::StatementVisitor(StatementChecker& state, Type expectedReturnType)
       : StatementOnlyVisitor("typecheck"), state_(state),
         expectedReturnType_(expectedReturnType) {}
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::LetStatement& letStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::LetStatement& letStatement) {
     const bool allowInternal = state_.isStdlibContext();
     std::optional<Type> declaredType = letStatement.declaredType;
     if (declaredType) {
@@ -77,7 +82,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::AssignmentStatement& assignmentStatement) {
     const auto place = state_.checkPlace(*assignmentStatement.lhs);
     const Type valueType = state_.checkRvalue(*assignmentStatement.rhs, place.type);
 
@@ -91,7 +96,7 @@ namespace noria {
     returned_ = false;
   }
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::ReturnStatement& returnStatement) {
     if (!returnStatement.expression) {
       if (expectedReturnType_ != Type::voidType()) {
         throw CompileError(formatDiagnostic(returnStatement.location, DiagnosticStage::TypeCheck,
@@ -118,7 +123,7 @@ namespace noria {
     returned_ = true;
   }
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::IfStatement& ifStatement) {
     const Type conditionType = state_.checkRvalue(*ifStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
@@ -126,18 +131,20 @@ namespace noria {
                            "if condition must be bool, got " + conditionType.name()));
     }
 
-    state_.pushScope();
-    const bool thenReturns = state_.checkStatements(ifStatement.thenBranch, expectedReturnType_);
-    state_.popScope();
+    const bool thenReturns = [&] {
+      auto scope = state_.scopeFrame();
+      return state_.checkStatements(ifStatement.thenBranch, expectedReturnType_);
+    }();
 
-    state_.pushScope();
-    const bool elseReturns = state_.checkStatements(ifStatement.elseBranch, expectedReturnType_);
-    state_.popScope();
+    const bool elseReturns = [&] {
+      auto scope = state_.scopeFrame();
+      return state_.checkStatements(ifStatement.elseBranch, expectedReturnType_);
+    }();
 
     returned_ = thenReturns && elseReturns;
   }
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::WhileStatement& whileStatement) {
     const Type conditionType = state_.checkRvalue(*whileStatement.condition);
     if (conditionType != Type::boolean()) {
       throw CompileError(
@@ -145,13 +152,12 @@ namespace noria {
                            "while condition must be bool, got " + conditionType.name()));
     }
 
-    state_.pushScope();
+    auto scope = state_.scopeFrame();
     state_.checkStatements(whileStatement.body, expectedReturnType_);
-    state_.popScope();
     returned_ = false;
   }
 
-  void TypeChecker::StatementsState::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
+  void StatementChecker::StatementVisitor::visit(const ast::ExpressionStatement& expressionStatement) {
     if (dynamic_cast<const ast::CallExpression*>(expressionStatement.expression.get()) == nullptr) {
       throw CompileError(formatDiagnostic(expressionStatement.location, DiagnosticStage::TypeCheck,
                                           "expression statement must be a function call"));

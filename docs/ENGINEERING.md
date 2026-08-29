@@ -10,9 +10,7 @@ Noria is an ahead-of-time compiler written in C++20. It owns the language front 
 
 The current tree contains approximately 15,700 lines of compiler/header code and 1,600 lines of Noria standard-library code. Its validation corpus includes 277 accepted programs and 170 negative programs split between 148 semantic and 22 syntax failures. CTest registers 16 checks: one end-to-end language harness, 13 focused C++ test executables, and two shell contract tests. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, ADT conformance, install layout, and documented corpus counts are all exercised.
 
-The central engineering goal is to keep the project small enough to understand end to end while still making the hard semantics explicit. Noria does not hide container behavior behind C++ builtins, outsource the front end to a parser generator, or rely on a garbage collector to defer ownership questions.
-
-### Evidence map
+### Engineering Highlights
 
 | Engineering concern | Primary implementation | Contract/evidence |
 | --- | --- | --- |
@@ -62,7 +60,7 @@ host clang ──► native executable
 | Lexer | Normalize identifiers, recognize literals/operators, preserve locations | Every token has file/line/column data; unknown characters fail locally |
 | Parser | Build declarations and expression/statement trees with explicit precedence | AST ownership is unique; imports precede declarations; syntax is structurally valid |
 | Module resolver | Load bundled `std::` sources, reject cycles/private imports, merge selected exports | Every merged symbol retains its module of origin |
-| ADT defaulting | Expand omitted standard-ADT implementation arguments | `Sequence`, `Dictionary`, and `Set` reach semantic analysis with concrete tags |
+| ADT defaulting | Use the standard-container registry to expand omitted implementation arguments | `Sequence`, `Dictionary`, and `Set` reach semantic analysis with concrete tags |
 | Type checker | Collect declarations, infer returns/type arguments, enforce visibility and constraints | Every concrete function has a return type and every expression/place use is valid |
 | Monomorphizer | Materialize reachable generic functions/structs and rewrite applications | No generic template reaches code generation; specializations are deterministic and deduplicated |
 | Code generator | Lower checked AST, runtime checks, ownership, and layouts to LLVM | Emitted functions have explicit terminators and managed paths carry correct clone/drop behavior |
@@ -74,13 +72,15 @@ The compiler facade in `include/noria/Compiler.hpp` exposes `StopAfter::Tokens`,
 
 ### One canonical language type
 
-`Type` in `include/noria/Types.hpp` is the shared representation used by the AST, type checker, monomorphizer, and code generator. It is a kind-plus-payload value:
+`Type` in `include/noria/Types.hpp` is the shared representation used by the AST, type checker, monomorphizer, and code generator. It is a private `std::variant` whose active alternative defines its `TypeKind`; callers cannot create a type with a mismatched kind and payload.
 
 - scalar kinds carry no payload;
-- arrays carry an element type;
+- arrays own one recursive element type through `std::unique_ptr`;
 - structs carry a name and concrete type arguments;
 - type parameters carry their source name;
 - implementation tags carry a closed `ImplementationTag` value.
+
+`Type` remains copyable even though arrays are recursively owned: its explicit copy operations clone nested array elements, so AST and cache clones can normalize their types independently. Typed accessors expose only the payload that matches the active alternative and reject mismatched access.
 
 `LLVMType(const Type&)` is an adapter at the backend boundary. This avoids a common compiler failure mode where parser, checker, and backend maintain subtly different type enums or repeatedly parse type-name strings. Language identity stays independent from physical layout: the type says “struct Point,” while codegen owns field order and LLVM layout.
 
@@ -92,19 +92,22 @@ The important choice is not “visitor everywhere”; it is one exhaustively che
 
 Deep clone support is a first-class operation rather than incidental copy construction. The module resolver and compiler cache need isolated AST copies because later phases mutate return annotations and rewrite generic applications.
 
-### Facade outside, state objects inside
+### Thin facades and focused compiler services
 
-The public compiler surface is a single `compileSource()` facade. Internally, the type checker and code generator are split by responsibility:
+The public compiler surface is a single `compileSource()` facade. `TypeChecker` follows the same boundary at the stage level: its public header contains the stable checking and specialization API plus one `std::unique_ptr<Impl>`. Move construction and assignment move that pointer, so no internal collaborator needs rebinding.
 
-- declarations and structs;
-- expressions and function calls;
-- assignment places;
-- statements/control flow;
-- module construction and builtins.
+`TypeChecker::Impl` is a composition root, not a second checker API. It constructs direct, non-polymorphic collaborators and their shared `TypeCheckContext`:
 
-Each subsystem operates through an explicit environment/session or module/function context. Long-lived declaration metadata is separated from per-check scopes and specialization requests. Codegen separates module registries/globals from per-function scopes and temporary output.
+- `TypeEnvironment` owns active-module declaration metadata, callable signatures, generic families, struct metadata, and symbol origins;
+- `TypeCheckSession` owns per-check transient data such as the current function name;
+- `ScopeStack` owns lexical declarations and lookup, and exposes an RAII frame to keep scope exit balanced;
+- `SpecializationRegistry` owns registered type arguments and requested function/struct specializations.
 
-This is a pragmatic middle ground between two extremes: one monolithic pass with implicit mutable state, and a heavyweight pass manager/semantic-IR framework that would exceed the project's needs.
+Semantic work remains in the component that owns it. `TypeCheckDriver` sequences complete and frontier checks plus return inference; `DeclarationChecker`, `TypeRelations`, `CallChecker`, `ExpressionChecker`, `PlaceChecker`, `StatementChecker`, and `StructChecker` own their respective rules. Recursive expression work is passed explicitly to call and struct operations, rather than routed through a broad parent interface.
+
+The implementation is correspondingly split across `src/typecheck/TypeCheckerDriver.cpp`, `TypeCheckerDeclarations.cpp`, `TypeCheckerCalls.cpp`, `TypeCheckerExpressions.cpp`, `TypeCheckerPlaces.cpp`, `TypeCheckerStatements.cpp`, `TypeCheckerStructs.cpp`, `TypeRelations.cpp`, and `TypeCheckerContext.cpp`. The façade implementation contains lifecycle and public-API forwarding only.
+
+Code generation is likewise organized by domain—module sequencing, builtins, expressions, places, statements, structs, ownership, and support—while module and function contexts separate long-lived module metadata from per-function output and lexical bindings. This keeps compiler stages smaller than a general pass-manager framework without centralizing semantic or lowering rules in a public façade.
 
 ### Semantic registries instead of parallel switch logic
 
@@ -114,9 +117,9 @@ This is a pragmatic middle ground between two extremes: one monolithic pass with
 - binary/unary operator type rules and LLVM lowering metadata;
 - type display/LLVM/mangling data;
 - implementation-tag constraints;
-- standard ADT identity and hidden ownership operations.
+- standard ADT identity, full type-argument arity, default implementation tags, and hidden ownership operations.
 
-The type checker consumes this metadata for validation, and codegen consumes the same identities for lowering. Adding a builtin or operator still requires implementation work, but its semantic identity is not duplicated as unrelated string chains.
+The module resolver uses the same container metadata with imported symbol origins to expand an omitted final implementation tag, so a same-named user type is not defaulted as a standard ADT. The type checker consumes this metadata for validation, and codegen consumes the same identities for lowering. Adding a builtin or operator still requires implementation work, but its semantic identity is not duplicated as unrelated string chains.
 
 ### Places are different from values
 
@@ -201,7 +204,7 @@ Codegen tracks this with an `owned` bit on generated values and an ownership slo
 
 The same model covers:
 
-- heap strings, with immortal literals/default empty strings distinguished by a header tag;
+- heap allocated strings, with immortal literals/default empty strings distinguished by a header tag;
 - length-prefixed arrays, including nested arrays and string elements;
 - ordinary structs containing managed fields;
 - standard ADTs through compiler-requested hidden `clone` and `drop` specializations.
@@ -212,7 +215,7 @@ Deep copy is intentionally favored over reference counting. It gives simple, det
 
 ### Strings
 
-Strings are null-terminated byte strings for libc interoperability. Literal globals carry an immortal header marker. Heap strings include a small header before the returned bytes; concatenation and cloning allocate checked storage. `len` maps to `strlen`, indexing loads an unsigned byte, and equality maps to byte-string comparison.
+Strings are null-terminated byte strings for libc interoperability. Literal globals carry an immortal header marker. Heap allocated strings include a small header before the returned bytes; concatenation and cloning allocate checked storage. `len` maps to `strlen`, indexing loads an unsigned byte, and equality maps to byte-string comparison.
 
 This is compact and makes printing straightforward, but it means `len` is O(n), strings cannot contain embedded nulls as first-class data, and indexing is byte-based rather than Unicode-aware.
 
@@ -265,10 +268,10 @@ A historical in-process macrobenchmark ran 196 Noria inputs for 100 rounds and t
 - **Only reachable generics are emitted.** Unused templates never reach LLVM IR.
 - **Specializations are deduplicated.** Canonical mangling makes repeated calls and cross-import requests converge on one emitted body.
 - **Requests are sorted.** Deterministic output improves reproducibility and makes IR assertions stable.
-- **Stdlib parsing/specialization is cached.** A process-local, mutex-protected LFU cache retains up to 64 parsed modules and 256 specializations.
+- **Stdlib parsing/specialization is cached.** A LFU cache retains up to 64 parsed modules and 256 specializations.
 - **Cache boundaries clone ASTs.** Reuse does not leak mutations from type inference or rewrite phases into later compilations.
 - **Admission is selective.** Function specializations below a computed 1 KiB AST weight and structs below eight fields are regenerated rather than retained.
-- **The cache uses project data structures.** `LFUCache` uses frequency buckets plus direct key/frequency indexes; those indexes use the repository's contiguous open-addressed `HashTable` with double hashing and tombstones.
+- **The cache uses custom data structures.** `LFUCache` uses frequency buckets plus direct key/frequency indexes; those indexes use the repository's contiguous open-addressed `HashTable` with double hashing and tombstones.
 
 The process cache assumes stdlib contents under a given canonical root stay stable during the process lifetime; `clear()` is available for explicit invalidation. That is reasonable for the one-shot CLI and in-process tests, but a long-running language server would need content- or metadata-aware keys.
 
@@ -278,9 +281,6 @@ The process cache assumes stdlib contents under a given canonical root stay stab
 - Array Sequence append is amortized O(1); hashmap operations target O(1) average time.
 - Scope metadata records whether a scope contains managed pointers, avoiding drop traversal work for scalar-only scopes.
 - LLVM optimization is optional. The simple alloca/load/store lowering is readable at `-O0`, while LLVM can promote stack slots and simplify control flow at higher levels.
-
-The main performance tradeoff is deliberate: deep-copy value semantics can be expensive for large managed aggregates. Borrowed parameters and moved owned returns reduce unnecessary copies without introducing reference counts or a borrow checker.
-
 ## Testing and quality strategy
 
 CTest combines focused host-language tests with an end-to-end shell harness and two repository-contract checks. The normal configured build currently exposes 16 CTest entries.
@@ -356,18 +356,3 @@ Source-written containers need allocation and typed access, but a public pointer
 | C strings | Direct libc interoperability and compact runtime | O(n) length, byte indexing, no embedded-null/Unicode model |
 | Unbalanced BST and list-backed heap | Keeps alternate representations inspectable and validates abstraction | Worst-case BST O(n); list heap is intentionally inefficient |
 | Explicit shell corpus rather than generated test manifests | Test intent and expected diagnostics remain visible | Harness is long and requires manual registration for detailed native assertions |
-
-## Known boundaries and extension points
-
-The current architecture is intentionally not a production compiler framework. There is no user module search path, separate compilation, incremental dependency invalidation, user-defined trait system, semantic IR, general borrow checker, package manager, or debugger metadata. The recorded performance experiment is an in-process compiler macrobenchmark rather than a maintained benchmark suite, and there are no runtime ADT benchmarks or CI regression thresholds yet.
-
-The existing seams make the likely next work concrete:
-
-- a user module system can build on `ModuleSourceProvider`, cycle detection, and `SymbolOrigins`;
-- broader generics can replace closed constraint tables while retaining substitution and worklist specialization;
-- a semantic IR can be inserted between checked AST and `LLVMGenerator` if optimization needs outgrow direct lowering;
-- content-addressed cache keys can extend the current clone-safe cache for a long-running compiler service;
-- a checked-in benchmark target can make the historical phase experiment reproducible and add cold/warm-cache splits, distributions, scaling curves, managed-copy costs, and runtime ADT constants;
-- richer control flow can reuse lexical scopes, return-flow analysis, and place lowering.
-
-The important constraint is that future features should preserve the current stage invariants and verification style: one canonical semantic definition, located failures, deterministic output, positive and negative language cases, and native behavior checks where code generation is involved.

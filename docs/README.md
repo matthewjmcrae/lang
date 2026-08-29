@@ -16,7 +16,6 @@ This repository is deliberately scoped as a focused language implementation rath
 - **A complete compiler, not a transpiler shell.** The pipeline owns lexing, parsing, AST design, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, native linking, and diagnostics.
 - **Language features are backed by architecture.** Canonical types, visitor-based AST passes, shared semantic registries, place/rvalue separation, and a compiler facade keep later features from becoming one-off branches.
 - **Generics have real compile-time semantics.** Noria infers type arguments, checks tag-specific constraints, emits only reachable concrete specializations, detects recursive specialization cycles, and gives specializations deterministic names.
-- **The standard library exercises the language.** `Sequence`, `Dictionary`, `Set`, and heap algorithms are Noria source modules over a small private runtime ABI, rather than C++ containers exposed as builtins.
 - **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector.
 - **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—about **74.5% less time** or **3.9× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
 - **Failure behavior is part of the contract.** The current regression suite compiles 277 accepted programs, rejects 148 semantic failures and 22 lexer/parser failures, runs native exit/stdout/trap checks, and includes 13 focused C++ test executables.
@@ -24,14 +23,14 @@ This repository is deliberately scoped as a focused language implementation rath
 
 ## Current snapshot
 
-| Area | Evidence in the current tree |
-| --- | --- |
-| Implementation | Approximately 15.7k lines of C++ compiler/header code and 1.6k lines of Noria standard-library code |
-| Compiler stages | Hand-written lexer and parser, module resolution, fixed-point return inference, type checking, reachable monomorphization, ownership-aware LLVM IR generation, optional LLVM optimization, native linking |
-| Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift |
-| Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade |
+| Area | Evidence in the current tree                                                                                                                                                                          |
+| --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Implementation | Approximately 15.7k lines of C++ compiler/header code and 1.6k lines of Noria standard-library code                                                                                                   |
+| Compiler stages | Lexer and parser, module resolution, fixed-point return inference, type checking, reachable monomorphization, memory ownership-aware LLVM IR generation, optional LLVM optimization, native linking   |
+| Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift                                                                     |
+| Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade                                                |
 | End-to-end checks | IR assertions, native exit/stdout/trap behavior, `-O2` regression cases, install/stdlib discovery, sanitizer instrumentation, leak checking, and four checked-in 300-operation container model traces |
-| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes; scheduled Clang/libFuzzer coverage of the in-memory compiler facade |
+| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes; scheduled Clang/libFuzzer coverage of the in-memory compiler facade                                                                        |
 
 `examples/basic`, `examples/invalid`, and `examples/invalid_syntax` are the implemented executable contract. Files under `examples/future` are design sketches and are intentionally excluded from current feature claims and regression counts.
 
@@ -65,10 +64,11 @@ fn main() {
 
 Several choices are intentionally unusual:
 
-- The public abstraction is the **ADT name** (`Sequence`, `Dictionary`, or `Set`), not the backing-container name. `arr`, `list`, `bst`, and `hashmap` are compile-time implementation tags: changing a tag changes representation and complexity, not the API.
-- The last implementation argument has an ADT-specific default: `Sequence<T>` uses `arr`; `Dictionary<K, V>` and `Set<T>` use `hashmap` (`hashset` is an alias).
+- The public abstraction is the **ADT name** (`Sequence`, `Dictionary`, or `Set`), not the backing-container name. `arr`, `list`, `bst`, `hashmap`, and `hashset` are compile-time implementation tags: changing a tag changes representation and complexity, not the API.
+- The last implementation argument has an ADT-specific default from the shared container registry: `Sequence<T>` uses `arr`; `Dictionary<K, V>` and `Set<T>` use `hashmap` (`hashset` is an alias for Set).
 - Typed declarations can put the name or type first: `value: i32` and `i32: value` are equivalent.
-- `fn`, `helper`, `util`, and `recfn` are equivalent declaration keywords, and a trailing `-> Type` is optional when returns provide enough information.
+- `fn`, `helper`, `util`, and `recfn` are function declaration keywords used to describe behaviour from the function body in the function header.
+- A trailing `-> Type` is optional in function declarations when returns provide enough information, but can still be best practice to include to make function headers more descriptive.
 - Top-level structs and functions are collected before bodies are checked, so declarations do not need to be ordered around their uses. Imports are the exception: they must come first.
 
 ## Language overview
@@ -90,16 +90,16 @@ See [SYNTAX.md](SYNTAX.md) for the grammar, precedence, defaults, ownership rule
 
 ## Standard library
 
-The standard library demonstrates one stable ADT interface over multiple compile-time-selected implementations.
+The standard library demonstrates one stable ADT interface over multiple compile-time-selected implementations. A shared container registry records each ADT's module, canonical name, full type-argument arity, and default implementation tag; ADT defaulting consults that metadata after import resolution.
 
-| Module | Abstraction | Implementations and default | Representative operations |
-| --- | --- | --- | --- |
-| `std::sequence` | `Sequence<T, I>` | `arr`, `list`; default `arr` | `push`, `pop`, `get`, `set`, `insert`, `remove`, `[]`, `+` |
+| Module | Abstraction | Implementations and default         | Representative operations |
+| --- | --- |-------------------------------------| --- |
+| `std::sequence` | `Sequence<T, I>` | `arr`, `list`; default `arr`        | `push`, `pop`, `get`, `set`, `insert`, `remove`, `[]`, `+` |
 | `std::dictionary` | `Dictionary<K, V, I>` | `bst`, `hashmap`; default `hashmap` | `insert`, `contains`, `get`, `get_or`, `remove`, `[]` |
-| `std::set` | `Set<T, I>` | `bst`, `hashmap`/`hashset`; default `hashmap` | `insert`, `contains`, `remove`, membership `[]` |
-| `std::heap` | algorithms over `Sequence<T, I>` | inherits the sequence tag | `heappush`, `heappop`, `heapify` |
+| `std::set` | `Set<T, I>` | `bst`, `hashmap` (`hashset` alias); default `hashmap` | `insert`, `contains`, `remove`, membership `[]` |
+| `std::heap` | algorithms over `Sequence<T, I>` | inherits the sequence tag           | `heappush`, `heappop`, `heapify` |
 
-For example, `Sequence<i32, arr>` provides amortized O(1) append and O(1) indexed access, while `Sequence<i32, list>` provides O(1) append but O(n) indexed access. Both expose the same source-level operations. Dictionary and Set follow the same model: an unbalanced BST offers O(h) operations, while the open-addressed hashmap targets O(1) average lookup and resizes at 75% load.
+For example, `Sequence<i32, arr>` provides amortized O(1) append and O(1) indexed access, while `Sequence<i32, list>` provides O(1) append but O(n) indexed access. Both expose the same source-level operations. Dictionary and Set follow the same model: an unbalanced BST offers O(h) operations. `hashmap` and `hashset` are open addressed implementations which targets O(1) average lookup and resize at 75% load.
 
 The implementation tags are erased by monomorphization—there is no runtime branch or virtual dispatch to select a representation.
 
@@ -111,7 +111,7 @@ The implementation tags are erased by monomorphization—there is no runtime bra
     ├─ Lexer ─────────────── tokens + file/line/column locations
     ├─ Parser ────────────── owned AST with canonical language types
     ├─ ModuleResolver ────── selective stdlib imports + symbol origins
-    ├─ ADT defaulting ────── omitted implementation tags become explicit
+    ├─ ADT defaulting ────── registry expands omitted implementation tags
     ├─ TypeChecker ───────── declarations, inference, constraints, places
     ├─ Monomorphizer ─────── reachable, deduplicated specializations
     ├─ LLVMGenerator ─────── ownership-aware textual LLVM IR
@@ -126,26 +126,12 @@ Key directories:
 | Path | Responsibility |
 | --- | --- |
 | [`include/noria/`](../include/noria/) | AST, canonical types, public compiler facade, shared semantic metadata, runtime definitions |
-| [`src/typecheck/`](../src/typecheck/) | Declaration collection, fixed-point return inference, expression/place checking, constraints |
+| [`src/typecheck/`](../src/typecheck/) | `TypeChecker` Pimpl façade; context-owned declarations, scopes, sessions, specialization registry, and focused checking components |
 | [`src/monomorphize/`](../src/monomorphize/) | Specialization discovery, cloning, rewriting, caching, cycle and expansion guards |
-| [`src/codegen/`](../src/codegen/) | Module/function state, expressions, statements, places, builtins, structs, ownership/drop emission |
+| [`src/codegen/`](../src/codegen/) | Module/function contexts, expressions, statements, places, builtins, structs, ownership/drop emission |
 | [`stdlib/`](../stdlib/) | Public Noria ADTs and private implementation/runtime modules |
 | [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, fuzz target, and corpus seeds |
 | [`examples/`](../examples/) | Passing programs, semantic failures, syntax failures, and clearly separated future sketches |
-
-## Suggested review path
-
-For a time-boxed technical review, these paths expose the project’s highest-signal decisions without requiring a linear read of the codebase.
-
-| Time | Read | What it demonstrates |
-| ---: | --- | --- |
-| 5 minutes | [`Compiler.cpp`](../src/Compiler.cpp), [`Compiler.hpp`](../include/noria/Compiler.hpp), and the pipeline diagram above | Stage ownership, a testable in-memory facade, and separation of compiler logic from CLI/toolchain concerns |
-| 15 minutes | [Ownership and memory model](ENGINEERING.md#ownership-and-memory-model), [`CodegenStatements.cpp`](../src/codegen/CodegenStatements.cpp), and [`CodegenPlaces.cpp`](../src/codegen/CodegenPlaces.cpp) | Explicit clone/borrow/move/drop behavior and composable lvalue lowering |
-| 15 minutes | [Reachable monomorphization](ENGINEERING.md#reachable-monomorphization-as-a-checked-worklist) and [`src/monomorphize/`](../src/monomorphize/) | Deterministic specialization, frontier checking, deduplication, and cycle/expansion guards |
-| 10 minutes | [Performance case study](PERFORMANCE.md), [`CompilerCache.cpp`](../src/CompilerCache.cpp), and [`LfuCache.hpp`](../include/noria/LfuCache.hpp) | Profile-guided optimization, bounded cache policy, selective admission, clone isolation, and stated measurement limits |
-| 10 minutes | [Testing strategy](ENGINEERING.md#testing-and-quality-strategy), [`run_examples.sh`](../tests/run_examples.sh), and [`fuzz.yml`](../.github/workflows/fuzz.yml) | Positive/negative contracts, native and optimized behavior, memory tooling, model-based traces, and fuzzing |
-
-The [engineering deep dive](ENGINEERING.md) connects these implementation points to the invariants and tradeoffs they protect.
 
 ## Build and run
 

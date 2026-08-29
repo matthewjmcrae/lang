@@ -97,14 +97,16 @@ namespace noria {
     StandardContainer kind;
     std::string_view structName;
     std::string_view modulePath;
-    std::size_t typeArgumentCount;
+    std::size_t typeArgumentCount; // Includes the implementation-tag argument.
+    ImplementationTag defaultImplementation;
   };
 
   inline const std::vector<StandardContainerInfo>& standardContainerTable() {
     static const std::vector<StandardContainerInfo> table = {
-        {StandardContainer::Sequence, "sequence", "std::sequence", 2},
-        {StandardContainer::Dictionary, "dictionary", "std::dictionary", 3},
-        {StandardContainer::Set, "set", "std::set", 2},
+        {StandardContainer::Sequence, "sequence", "std::sequence", 2, ImplementationTag::Arr},
+        {StandardContainer::Dictionary, "dictionary", "std::dictionary", 3,
+         ImplementationTag::Hashmap},
+        {StandardContainer::Set, "set", "std::set", 2, ImplementationTag::Hashmap},
     };
     return table;
   }
@@ -366,14 +368,10 @@ namespace noria {
   standardContainerKindFromStructName(std::string_view name) {
     const std::size_t dollar = name.find('$');
     const std::string_view base = dollar == std::string_view::npos ? name : name.substr(0, dollar);
-    if (base == "sequence" || base == "Sequence") {
-      return StandardContainer::Sequence;
-    }
-    if (base == "dictionary" || base == "Dictionary") {
-      return StandardContainer::Dictionary;
-    }
-    if (base == "set" || base == "Set") {
-      return StandardContainer::Set;
+    for (const StandardContainerInfo& info : standardContainerTable()) {
+      if (base == info.structName) {
+        return info.kind;
+      }
     }
     return std::nullopt;
   }

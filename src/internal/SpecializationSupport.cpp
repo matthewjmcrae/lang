@@ -4,7 +4,7 @@ namespace noria::internal {
 
   std::optional<Type> firstNonImplTagTypeArg(const std::vector<Type>& typeArgs) {
     for (const Type& typeArg : typeArgs) {
-      if (typeArg.kind != TypeKind::ImplTag) {
+      if (typeArg.kind() != TypeKind::ImplTag) {
         return typeArg;
       }
     }
@@ -13,22 +13,22 @@ namespace noria::internal {
 
   std::optional<ImplementationTag> findImplTag(const std::vector<Type>& typeArgs) {
     for (const Type& typeArg : typeArgs) {
-      if (typeArg.kind == TypeKind::ImplTag) {
-        return typeArg.implTag;
+      if (typeArg.kind() == TypeKind::ImplTag) {
+        return typeArg.implementationTagValue();
       }
     }
     return std::nullopt;
   }
 
   bool containsUnboundTypeParam(const Type& type) {
-    if (type.kind == TypeKind::TypeParam) {
+    if (type.kind() == TypeKind::TypeParam) {
       return true;
     }
-    if (type.kind == TypeKind::Array && type.element) {
-      return containsUnboundTypeParam(*type.element);
+    if (type.kind() == TypeKind::Array) {
+      return containsUnboundTypeParam(type.elementType());
     }
-    if (type.kind == TypeKind::Struct) {
-      for (const Type& typeArg : type.typeArgs) {
+    if (type.kind() == TypeKind::Struct) {
+      for (const Type& typeArg : type.typeArguments()) {
         if (containsUnboundTypeParam(typeArg)) {
           return true;
         }

@@ -2,37 +2,37 @@
 
 This document is the reference for Noria's implemented syntax and semantics. It includes the language's deliberate quirks, generic ADTs, ownership behavior, runtime traps, and current limitations. For project status and build instructions, start with the [README](README.md); for compiler internals and design rationale, see [ENGINEERING.md](ENGINEERING.md); for the optimization case study, see [PERFORMANCE.md](PERFORMANCE.md).
 
-The executable language contract is the checked-in corpus under `examples/basic`, `examples/invalid`, and `examples/invalid_syntax`. Files under `examples/future` are design sketches, are not included in regression counts, and must not be read as implemented syntax. Where this reference and a test disagree, that disagreement is a documentation or implementation bug rather than an intentional undocumented feature.
+The executable language contract is the checked-in corpus under `examples/basic`, `examples/invalid`, and `examples/invalid_syntax`. Files under `examples/future` are design sketches, are not included in regression counts, and must not be read as implemented syntax.
 
 ## Syntax that is intentionally different
 
 These rules are easy to miss if you approach Noria from C++, Rust, or TypeScript:
 
-| Choice | Noria rule | Example |
-| --- | --- | --- |
-| **The ADT is named, not the backing container** | `Sequence`, `Dictionary`, and `Set` are the public abstractions. `arr`, `list`, `bst`, and `hashmap` are compile-time implementation tags, never standalone runtime types. | `Sequence<i32, list>` is still a `Sequence`, with the Sequence API. |
-| **ADT implementation defaults** | An omitted final tag expands before type checking: `Sequence<T>` defaults to `arr`; `Dictionary<K, V>` and `Set<T>` default to `hashmap`. `hashset` aliases `hashmap`. | `let seen: Set<str>;` creates an empty hashmap-backed set. |
-| **Default initialization is real initialization** | A typed declaration may omit `= expr`; the compiler constructs the type's default value rather than leaving uninitialized storage. | `let n: i32;`, `let text: str;`, `let values: [i32];` |
-| **Trailing return types are optional** | Omitting `-> Type` asks the checker to infer one type from all returns. Recursive or otherwise underconstrained functions need an annotation. | `fn answer() { return 42; }` infers `i32`. |
-| **Function keywords are aliases** | `fn`, `util`, `helper`, and `recfn` lex as the same declaration. The spelling communicates intent but has no semantic effect. | `recfn factorial(...) -> i32 { ... }` |
-| **Type/name order is independent** | Parameters, struct fields, and typed locals accept either `name: Type` or `Type: name`. | `left: i32` and `i32: left` are equivalent. |
-| **Top-level declaration order is independent** | Struct and function declarations are collected before bodies are checked, enabling forward calls and mutual references where the types can be resolved. Imports alone must precede declarations. | `main` may call a later declared helper. |
-| **Names are case-insensitive** | The lexer lowercases identifiers and keywords. String contents retain their case. | `Main`, `main`, and `MAIN` are the same identifier. |
-| **Returns are explicit on every completing path** | Inferred return types do not imply an implicit final expression. Value functions use `return expr;`; void functions use `return;`. | Both branches of an exhaustive `if` may return. |
+| Choice | Noria rule                                                                                                                                                                                                                                                                                                                                            | Example |
+| --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| --- |
+| **The ADT is named, not the backing container** | `Sequence`, `Dictionary`, and `Set` are the public abstractions. `arr`, `list`, `bst`, `hashmap`, and `hashset` are compile-time implementation tags, never standalone runtime types.                                                                                                                                                                 | `Sequence<i32, list>` is still a `Sequence`, with the Sequence API. |
+| **ADT implementation defaults** | An omitted final tag expands before type checking: `Sequence<T>` defaults to `arr`; `Dictionary<K, V>` and `Set<T>` default to `hashmap`. The shared standard-container registry defines these defaults by imported module, canonical ADT name, and full arity. `hashset` aliases `hashmap` and is considered idiomatic for Set implementations. | `let seen: Set<str>;` creates an empty hashmap-backed set. |
+| **Default initialization is real initialization** | A typed declaration may omit `= expr`; the compiler constructs the type's default value rather than leaving uninitialized storage.                                                                                                                                                                                                                    | `let n: i32;`, `let text: str;`, `let values: [i32];` |
+| **Trailing return types are optional** | Omitting `-> Type` asks the checker to infer one type from all returns. Recursive or otherwise underconstrained functions need an annotation. Annotations are recommended for functions frequently called by other parts of code so that developers can infer the return type from the function header, but can be omitted for internal helper logic. | `fn answer() { return 42; }` infers `i32`. |
+| **Function keywords are aliases** | `fn`, `util`, `helper`, and `recfn` lex as the same declaration. The spelling communicates intent but has no semantic effect. It is advised to annotate function headers using these keywords to increase code readability.                                                                                                                           | `recfn factorial(...) -> i32 { ... }` |
+| **Type/name order is independent** | Parameters, struct fields, and typed locals accept either `name: Type` or `Type: name`.                                                                                                                                                                                                                                                               | `left: i32` and `i32: left` are equivalent. |
+| **Top-level declaration order is independent** | Struct and function declarations are collected before bodies are checked, enabling forward calls and mutual references where the types can be resolved. Imports alone must precede declarations.                                                                                                                                                      | `main` may call a later declared helper. |
+| **Names are case-insensitive** | The lexer lowercases identifiers and keywords. String contents retain their case.                                                                                                                                                                                                                                                                     | `Main`, `main`, and `MAIN` are the same identifier. |
+| **Returns are explicit on every completing path** | Inferred return types do not imply an implicit final expression. Value functions use `return expr;`; void functions use `return;`.                                                                                                                                                                                                                    | Both branches of an exhaustive `if` may return. |
 
 ### Default values
 
-| Type | Default |
-| --- | --- |
-| `i32` | `0` |
-| `f64` | `0.0` |
-| `bool` | `false` |
-| `str` | immortal empty string `""` |
-| `[T]` | allocated, length-zero array |
-| ordinary struct | field-wise defaults |
-| `Sequence<T>` | empty `Sequence<T, arr>` |
+| Type | Default                           |
+| --- |-----------------------------------|
+| `i32` | `0`                               |
+| `f64` | `0.0`                             |
+| `bool` | `false`                           |
+| `str` | immortal empty string `""`        |
+| `[T]` | allocated, length-zero array      |
+| ordinary struct | field-wise defaults               |
+| `Sequence<T>` | empty `Sequence<T, arr>`          |
 | `Dictionary<K, V>` | empty `Dictionary<K, V, hashmap>` |
-| `Set<T>` | empty `Set<T, hashmap>` |
+| `Set<T>` | empty `Set<T, hashmap>`           |
 
 `void`, raw runtime pointers, and implementation tags cannot be local value types and therefore have no user-visible default.
 
@@ -211,7 +211,7 @@ fn main() -> i32 {
 
 ## Set (bst and hashmap)
 
-`std::set` exports a generic `Set<T, I>` struct and tag-selected operation families. Omitting `I` defaults to the hashmap implementation, so `Set<T>` is equivalent to `Set<T, hashset>`; `hashset` and `hashmap` are aliases. Implementations reuse the dictionary BST/hashmap storage layout with a dummy `i32` value (same header, keys, and internal search paths as `Dictionary<T, i32, I>`). `bst` elements require `<` and `==`; `hashmap` elements require `==` and V2 `hash` (`i32`, `bool`, `str`). A typed `Set<T>` local without an initializer is an empty set. Indexing `s[x]` is a membership test (`bool`) and does not insert; `s[x] = expr` is rejected.
+`std::set` exports a generic `Set<T, I>` struct and tag-selected operation families. Omitting `I` defaults to the hashmap implementation, so `Set<T>` is equivalent to `Set<T, hashmap>`; `hashset` is an alias. Implementations reuse the dictionary BST/hashmap storage layout with a dummy `i32` value (same header, keys, and internal search paths as `Dictionary<T, i32, I>`). `bst` elements require `<` and `==`; `hashmap` elements require `==` and V2 `hash` (`i32`, `bool`, `str`). A typed `Set<T>` local without an initializer is an empty set. Indexing `s[x]` is a membership test (`bool`) and does not insert; `s[x] = expr` is rejected.
 
 | Operation | Signature | bst | hashmap |
 | --- | --- | --- | --- |
@@ -377,7 +377,7 @@ Implementation tags `arr`, `list`, `bst`, and `hashmap` are closed compile-time 
 
 Local variables may use the original `let name: Type = expr;` form, a shorthand
 typed form without `let`, or `let name = expr;` when the type can be inferred
-from the initializer. Bare `name = expr;` remains assignment. Declarations
+from the initializer. Bare `name = expr;` is treated as assignment, so the `let` keyword is required for initialization in this case. Declarations
 without an initializer must include an explicit type and are default-initialized.
 Defaults are `0` for `i32`, `false` for `bool`, `0.0` for `f64`, `""` for `str`,
 a length-0 heap array for `[T]`, `sequence_new` / `set_new` / `dictionary_new` for the
@@ -971,9 +971,6 @@ Noria currently does not support:
 - `[T]` arrays whose element type `T` is a struct
 - nested `Sequence`, `Dictionary`, or `Set` element types
 
-These are implementation boundaries, not promises of a particular roadmap. The compiler also does not provide a package manager, separately compiled user modules, a debugger metadata format, or a stable external ABI.
-
-Runtime traps (exit status 70) cover Sequence/Dictionary/Set misuse, array and string index OOB, failed `malloc`/`realloc`, and computed invalid integer division, remainder, or shift operations. Integer `+`, `-`, `*`, and valid shifts wrap on overflow; direct invalid integer literals are type errors.
 
 ## Commands
 

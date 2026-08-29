@@ -3,34 +3,109 @@
 #include "noria/Diagnostic.hpp"
 #include "noria/SemanticTables.hpp"
 
-#include <unordered_map>
+#include <type_traits>
 #include <utility>
 
 namespace noria {
 
-  Type Type::array(Type elementType) {
-    Type type(TypeKind::Array);
-    type.element = std::make_shared<Type>(std::move(elementType));
-    return type;
+  Type::ArrayPayload::ArrayPayload(Type elementType)
+      : element(std::make_unique<Type>(std::move(elementType))) {}
+
+  Type::ArrayPayload::ArrayPayload(const ArrayPayload& other)
+      : element(std::make_unique<Type>(*other.element)) {}
+
+  Type::ArrayPayload& Type::ArrayPayload::operator=(const ArrayPayload& other) {
+    if (this != &other) {
+      element = std::make_unique<Type>(*other.element);
+    }
+    return *this;
   }
 
+  Type::Type() = default;
+  Type::Type(Storage storage) : storage_(std::move(storage)) {}
+  Type::Type(const Type& other) = default;
+  Type& Type::operator=(const Type& other) {
+    if (this != &other) {
+      Type copy(other);
+      *this = std::move(copy);
+    }
+    return *this;
+  }
+  Type::Type(Type&& other) noexcept = default;
+  Type& Type::operator=(Type&& other) noexcept = default;
+  Type::~Type() = default;
+
+  Type Type::i32() { return Type(I32Payload{}); }
+  Type Type::f64() { return Type(F64Payload{}); }
+  Type Type::boolean() { return Type(BoolPayload{}); }
+  Type Type::str() { return Type(StrPayload{}); }
+  Type Type::voidType() { return Type(VoidPayload{}); }
+  Type Type::rawPtr() { return Type(RawPtrPayload{}); }
+
+  Type Type::array(Type elementType) { return Type(ArrayPayload(std::move(elementType))); }
+
   Type Type::structType(std::string name, std::vector<Type> typeArgs) {
-    Type type(TypeKind::Struct);
-    type.structName = std::move(name);
-    type.typeArgs = std::move(typeArgs);
-    return type;
+    return Type(StructPayload{std::move(name), std::move(typeArgs)});
   }
 
   Type Type::typeParam(std::string name) {
-    Type type(TypeKind::TypeParam);
-    type.typeParamName = std::move(name);
-    return type;
+    return Type(TypeParameterPayload{std::move(name)});
   }
 
   Type Type::implementationTag(ImplementationTag tag) {
-    Type type(TypeKind::ImplTag);
-    type.implTag = tag;
-    return type;
+    return Type(ImplementationTagPayload{tag});
+  }
+
+  TypeKind Type::kind() const noexcept {
+    return std::visit(
+        [](const auto& payload) -> TypeKind {
+          using Payload = std::decay_t<decltype(payload)>;
+          if constexpr (std::is_same_v<Payload, I32Payload>) {
+            return TypeKind::I32;
+          } else if constexpr (std::is_same_v<Payload, F64Payload>) {
+            return TypeKind::F64;
+          } else if constexpr (std::is_same_v<Payload, BoolPayload>) {
+            return TypeKind::Bool;
+          } else if constexpr (std::is_same_v<Payload, StrPayload>) {
+            return TypeKind::Str;
+          } else if constexpr (std::is_same_v<Payload, ArrayPayload>) {
+            return TypeKind::Array;
+          } else if constexpr (std::is_same_v<Payload, StructPayload>) {
+            return TypeKind::Struct;
+          } else if constexpr (std::is_same_v<Payload, TypeParameterPayload>) {
+            return TypeKind::TypeParam;
+          } else if constexpr (std::is_same_v<Payload, ImplementationTagPayload>) {
+            return TypeKind::ImplTag;
+          } else if constexpr (std::is_same_v<Payload, RawPtrPayload>) {
+            return TypeKind::RawPtr;
+          } else {
+            static_assert(std::is_same_v<Payload, VoidPayload>);
+            return TypeKind::Void;
+          }
+        },
+        storage_);
+  }
+
+  Type& Type::elementType() { return *std::get<ArrayPayload>(storage_).element; }
+
+  const Type& Type::elementType() const { return *std::get<ArrayPayload>(storage_).element; }
+
+  const std::string& Type::structName() const { return std::get<StructPayload>(storage_).name; }
+
+  std::vector<Type>& Type::typeArguments() {
+    return std::get<StructPayload>(storage_).typeArguments;
+  }
+
+  const std::vector<Type>& Type::typeArguments() const {
+    return std::get<StructPayload>(storage_).typeArguments;
+  }
+
+  const std::string& Type::typeParameterName() const {
+    return std::get<TypeParameterPayload>(storage_).name;
+  }
+
+  ImplementationTag Type::implementationTagValue() const {
+    return std::get<ImplementationTagPayload>(storage_).tag;
   }
 
   std::optional<ImplementationTag> implementationTagFromName(std::string_view name) {
@@ -49,90 +124,78 @@ namespace noria {
   }
 
   bool Type::operator==(const Type& other) const {
-    if (kind != other.kind)
+    if (kind() != other.kind())
       return false;
 
-    using EqualityCheck = bool (*)(const Type&, const Type&);
-    static const std::unordered_map<TypeKind, EqualityCheck, EnumHash<TypeKind>> equalityChecks = {
-        {TypeKind::Array,
-         [](const Type& left, const Type& right) {
-           if (!left.element || !right.element)
-             return left.element == right.element;
-           return *left.element == *right.element;
-         }},
-        {TypeKind::Struct,
-         [](const Type& left, const Type& right) {
-           return left.structName == right.structName && left.typeArgs == right.typeArgs;
-         }},
-        {TypeKind::TypeParam,
-         [](const Type& left, const Type& right) {
-           return left.typeParamName == right.typeParamName;
-         }},
-        {TypeKind::ImplTag,
-         [](const Type& left, const Type& right) { return left.implTag == right.implTag; }},
-    };
-
-    const auto check = equalityChecks.find(kind);
-    if (check != equalityChecks.end()) {
-      return check->second(*this, other);
+    switch (kind()) {
+    case TypeKind::Array: return elementType() == other.elementType();
+    case TypeKind::Struct:
+      return structName() == other.structName() && typeArguments() == other.typeArguments();
+    case TypeKind::TypeParam: return typeParameterName() == other.typeParameterName();
+    case TypeKind::ImplTag: return implementationTagValue() == other.implementationTagValue();
+    case TypeKind::I32:
+    case TypeKind::F64:
+    case TypeKind::Bool:
+    case TypeKind::Str:
+    case TypeKind::RawPtr:
+    case TypeKind::Void: return true;
     }
-
-    return true;
+    return false;
   }
 
   std::string Type::name() const {
-    if (kind == TypeKind::Array) {
-      return "[" + (element ? element->name() : std::string{"?"}) + "]";
+    if (kind() == TypeKind::Array) {
+      return "[" + elementType().name() + "]";
     }
 
-    if (kind == TypeKind::Struct) {
-      if (structName.empty())
+    if (kind() == TypeKind::Struct) {
+      if (structName().empty())
         return "<struct>";
-      if (typeArgs.empty())
-        return structName;
+      if (typeArguments().empty())
+        return structName();
       {
-        std::string rendered = structName + "<";
-        for (std::size_t index{}; index < typeArgs.size(); ++index) {
+        std::string rendered = structName() + "<";
+        for (std::size_t index{}; index < typeArguments().size(); ++index) {
           if (index != 0)
             rendered += ", ";
-          rendered += typeArgs[index].name();
+          rendered += typeArguments()[index].name();
         }
         rendered += ">";
         return rendered;
       }
     }
 
-    if (kind == TypeKind::TypeParam) {
-      return typeParamName;
+    if (kind() == TypeKind::TypeParam) {
+      return typeParameterName();
     }
 
-    if (kind == TypeKind::ImplTag) {
-      return std::string(implementationTagName(implTag));
+    if (kind() == TypeKind::ImplTag) {
+      return std::string(implementationTagName(implementationTagValue()));
     }
 
-    if (const TypeKindInfo* info = typeKindInfo(kind); info && !info->displayName.empty()) {
+    if (const TypeKindInfo* info = typeKindInfo(kind()); info && !info->displayName.empty()) {
       return std::string(info->displayName);
     }
     return "<unknown>";
   }
 
   std::string LLVMType(const Type& type) {
-    if (type.kind == TypeKind::Struct) {
-      if (!type.typeArgs.empty()) {
+    if (type.kind() == TypeKind::Struct) {
+      if (!type.typeArguments().empty()) {
         throw CompileError("internal: unsubstituted generic struct");
       }
-      return "%" + type.structName;
+      return "%" + type.structName();
     }
 
-    if (type.kind == TypeKind::TypeParam) {
+    if (type.kind() == TypeKind::TypeParam) {
       throw CompileError("internal: unsubstituted type parameter");
     }
 
-    if (type.kind == TypeKind::ImplTag) {
+    if (type.kind() == TypeKind::ImplTag) {
       throw CompileError("internal: implementation tag is not a runtime type");
     }
 
-    if (const TypeKindInfo* info = typeKindInfo(type.kind); info && !info->LLVMName.empty()) {
+    if (const TypeKindInfo* info = typeKindInfo(type.kind()); info && !info->LLVMName.empty()) {
       return std::string(info->LLVMName);
     }
     return "";

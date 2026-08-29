@@ -17,20 +17,20 @@ namespace noria {
     }
 
     std::size_t typeWeight(const Type& type) {
-      if (type.kind == TypeKind::Array) {
-        return 1 + (type.element ? typeWeight(*type.element) : 0);
+      if (type.kind() == TypeKind::Array) {
+        return 1 + typeWeight(type.elementType());
       }
 
-      if (type.kind == TypeKind::Struct) {
-        std::size_t weight = stringWeight(type.structName);
-        for (const Type& typeArg : type.typeArgs) {
+      if (type.kind() == TypeKind::Struct) {
+        std::size_t weight = stringWeight(type.structName());
+        for (const Type& typeArg : type.typeArguments()) {
           weight += typeWeight(typeArg);
         }
         return weight;
       }
 
-      if (type.kind == TypeKind::TypeParam) {
-        return stringWeight(type.typeParamName);
+      if (type.kind() == TypeKind::TypeParam) {
+        return stringWeight(type.typeParameterName());
       }
 
       return 1;

@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace noria {
@@ -12,7 +13,7 @@ namespace noria {
     Arr,
     List,
     Bst,
-    Hashmap,
+    Hashmap, //hashset lexes to hashmap
   };
 
   enum class StandardContainer {
@@ -28,36 +29,79 @@ namespace noria {
     Str,
     Array,
     Struct,
+    // A named placeholder declared by a generic function or struct, such as `T` in `Box<T>`.
     TypeParam,
     ImplTag,
     RawPtr,
     Void,
   };
 
-  // Kind + payload type representation. Scalars (I32/F64/Bool/Str/Void) only use
-  // `kind`; Array carries its element type and Struct carries its name. Later
-  // phases add behaviour for the non-scalar kinds without reshaping callers.
-  struct Type {
-    TypeKind kind = TypeKind::I32;
-    std::shared_ptr<Type> element; // Array element type
-    std::string structName;        // Struct name
-    std::vector<Type> typeArgs;    // Generic struct type arguments
-    std::string typeParamName;     // TypeParam name
-    ImplementationTag implTag{};   // ImplTag payload
+  // A type is represented by exactly one variant alternative. Array elements are owned by
+  // their enclosing type and copied recursively, so copied type trees can be normalized
+  // independently.
+  class Type {
+  private:
+    struct I32Payload {};
+    struct F64Payload {};
+    struct BoolPayload {};
+    struct StrPayload {};
+    struct ArrayPayload {
+      explicit ArrayPayload(Type elementType);
+      ArrayPayload(const ArrayPayload& other);
+      ArrayPayload& operator=(const ArrayPayload& other);
+      ArrayPayload(ArrayPayload&&) noexcept = default;
+      ArrayPayload& operator=(ArrayPayload&&) noexcept = default;
 
-    Type() = default;
-    explicit Type(TypeKind kind) : kind(kind) {}
+      std::unique_ptr<Type> element;
+    };
+    struct StructPayload {
+      std::string name;
+      std::vector<Type> typeArguments;
+    };
+    struct TypeParameterPayload {
+      std::string name;
+    };
+    struct ImplementationTagPayload {
+      ImplementationTag tag;
+    };
+    struct RawPtrPayload {};
+    struct VoidPayload {};
 
-    static Type i32() { return Type(TypeKind::I32); }
-    static Type f64() { return Type(TypeKind::F64); }
-    static Type boolean() { return Type(TypeKind::Bool); }
-    static Type str() { return Type(TypeKind::Str); }
-    static Type voidType() { return Type(TypeKind::Void); }
-    static Type rawPtr() { return Type(TypeKind::RawPtr); }
+    using Storage = std::variant<I32Payload, F64Payload, BoolPayload, StrPayload, ArrayPayload,
+                                 StructPayload, TypeParameterPayload, ImplementationTagPayload,
+                                 RawPtrPayload, VoidPayload>;
+
+    explicit Type(Storage storage);
+
+    Storage storage_;
+
+  public:
+    Type();
+    Type(const Type& other);
+    Type& operator=(const Type& other);
+    Type(Type&& other) noexcept;
+    Type& operator=(Type&& other) noexcept;
+    ~Type();
+
+    static Type i32();
+    static Type f64();
+    static Type boolean();
+    static Type str();
+    static Type voidType();
+    static Type rawPtr();
     static Type array(Type elementType);
     static Type structType(std::string name, std::vector<Type> typeArgs = {});
     static Type typeParam(std::string name);
     static Type implementationTag(ImplementationTag tag);
+
+    TypeKind kind() const noexcept;
+    Type& elementType();
+    const Type& elementType() const;
+    const std::string& structName() const;
+    std::vector<Type>& typeArguments();
+    const std::vector<Type>& typeArguments() const;
+    const std::string& typeParameterName() const;
+    ImplementationTag implementationTagValue() const;
 
     bool operator==(const Type& other) const;
     bool operator!=(const Type& other) const { return !(*this == other); }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "noria/SemanticTables.hpp"
 #include "noria/Types.hpp"
 
 #include <array>
 #include <cstddef>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -234,6 +236,22 @@ namespace noria {
     return argumentCount == signature.arity;
   }
 
+  inline Type builtinTypeFromKind(TypeKind kind) {
+    switch (kind) {
+    case TypeKind::I32: return Type::i32();
+    case TypeKind::F64: return Type::f64();
+    case TypeKind::Bool: return Type::boolean();
+    case TypeKind::Str: return Type::str();
+    case TypeKind::RawPtr: return Type::rawPtr();
+    case TypeKind::Void: return Type::voidType();
+    case TypeKind::Array:
+    case TypeKind::Struct:
+    case TypeKind::TypeParam:
+    case TypeKind::ImplTag: throw std::logic_error("builtin kind requires a payload");
+    }
+    throw std::logic_error("unknown builtin type kind");
+  }
+
   inline std::string formatBuiltinArityError(const BuiltinSignature& signature) {
     std::ostringstream out;
     out << signature.name << " expects " << signature.arity;
@@ -246,14 +264,18 @@ namespace noria {
 
   inline std::string formatBuiltinPerArgumentMismatch(std::string_view name, TypeKind expected,
                                                       std::string_view actualName) {
-    return std::string(name) + " expects " + Type(expected).name() + ", got " +
+    const TypeKindInfo* info = typeKindInfo(expected);
+    const std::string_view expectedName = info == nullptr ? "<unknown>" : info->displayName;
+    return std::string(name) + " expects " + std::string(expectedName) + ", got " +
            std::string(actualName);
   }
 
   inline std::string formatBuiltinAllArgumentsMismatch(std::string_view name, TypeKind expected,
                                                        std::string_view firstName,
                                                        std::string_view secondName) {
-    return std::string(name) + " expects " + Type(expected).name() + " arguments, got " +
+    const TypeKindInfo* info = typeKindInfo(expected);
+    const std::string_view expectedName = info == nullptr ? "<unknown>" : info->displayName;
+    return std::string(name) + " expects " + std::string(expectedName) + " arguments, got " +
            std::string(firstName) + " and " + std::string(secondName);
   }
 

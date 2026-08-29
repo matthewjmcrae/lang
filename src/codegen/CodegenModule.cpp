@@ -66,9 +66,9 @@ namespace noria {
       return "false";
     if (type == Type::f64())
       return "0.0";
-    if (type.kind == TypeKind::I32)
+    if (type.kind() == TypeKind::I32)
       return "0";
-    if (type.kind == TypeKind::RawPtr)
+    if (type.kind() == TypeKind::RawPtr)
       return "null";
     throw CompileError("codegen: type '" + type.name() + "' has no constant default IR value");
   }
@@ -76,22 +76,19 @@ namespace noria {
   LLVMGenerator::Value
   LLVMGenerator::ModuleState::emitDefaultValue(const Type& type, IREmitter& emitter,
                                                 FunctionCodegenContext& context) const {
-    if (type.kind == TypeKind::Str) {
+    if (type.kind() == TypeKind::Str) {
       return Value{emitCStringPointer("", emitter, context), Type::str(), false};
     }
 
-    if (type.kind == TypeKind::Array) {
-      if (!type.element) {
-        throw CompileError("codegen: array type missing element type");
-      }
+    if (type.kind() == TypeKind::Array) {
       const std::string base = emitCheckedMalloc("8", emitter, context);
       emitter.line("store i64 0, ptr " + base);
       return Value{base, type, true};
     }
 
-    if (type.kind == TypeKind::Struct) {
+    if (type.kind() == TypeKind::Struct) {
       if (const std::optional<StandardContainer> container =
-              standardContainerKindFromStructName(type.structName)) {
+              standardContainerKindFromStructName(type.structName())) {
         const std::vector<Type> typeArgs = specializedStructTypeArgs(type, context);
         std::vector<Value> samples;
         if (*container == StandardContainer::Dictionary) {
@@ -124,8 +121,8 @@ namespace noria {
   void LLVMGenerator::ModuleState::emitDefaultStore(const Type& type, const std::string& slot,
                                                      IREmitter& emitter,
                                                      FunctionCodegenContext& context) const {
-    if (type.kind == TypeKind::Struct) {
-      if (standardContainerKindFromStructName(type.structName)) {
+    if (type.kind() == TypeKind::Struct) {
+      if (standardContainerKindFromStructName(type.structName())) {
         const Value value = emitDefaultValue(type, emitter, context);
         emitter.emitStore(type, value.text, slot);
         return;

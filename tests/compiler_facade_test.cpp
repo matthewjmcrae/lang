@@ -691,12 +691,20 @@ fn main() -> i32 {
   checker.check(typedModule);
   noria::TypeChecker movedChecker(std::move(checker));
   movedChecker.check(typedModule);
+  noria::TypeChecker moveAssignedChecker;
+  moveAssignedChecker = std::move(movedChecker);
+  moveAssignedChecker.check(typedModule);
 
   noria::LLVMGenerator generator;
   generator.setFunctionSpecializationTypeArgs({});
   noria::LLVMGenerator movedGenerator(std::move(generator));
   const std::string movedIr = movedGenerator.generate(typedOutput.module);
   expect(movedIr.find("define i32 @main") != std::string::npos, "moved generator remains usable");
+  noria::LLVMGenerator moveAssignedGenerator;
+  moveAssignedGenerator = std::move(movedGenerator);
+  const std::string reassignedIr = moveAssignedGenerator.generate(typedOutput.module);
+  expect(reassignedIr.find("define i32 @main") != std::string::npos,
+         "move-assigned generator remains usable");
 
   if (failures != 0) {
     std::cerr << failures << " compiler facade test failure(s)\n";

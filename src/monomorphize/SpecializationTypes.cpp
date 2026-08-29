@@ -22,46 +22,43 @@ namespace noria::monomorphize_detail {
   using internal::findImplTag;
 
   Type substituteType(const Type& type, const Substitution& substitution) {
-    if (type.kind == TypeKind::TypeParam) {
-      const auto bound = substitution.find(type.typeParamName);
+    if (type.kind() == TypeKind::TypeParam) {
+      const auto bound = substitution.find(type.typeParameterName());
       if (bound == substitution.end()) {
-        throw CompileError("internal: unbound type parameter '" + type.typeParamName + "'");
+        throw CompileError("internal: unbound type parameter '" + type.typeParameterName() + "'");
       }
       return bound->second;
     }
 
-    if (type.kind == TypeKind::Array) {
-      if (!type.element) {
-        return type;
-      }
-      return Type::array(substituteType(*type.element, substitution));
+    if (type.kind() == TypeKind::Array) {
+      return Type::array(substituteType(type.elementType(), substitution));
     }
 
-    if (type.kind == TypeKind::Struct) {
-      if (type.typeArgs.empty()) {
+    if (type.kind() == TypeKind::Struct) {
+      if (type.typeArguments().empty()) {
         return type;
       }
       std::vector<Type> substitutedArgs;
-      substitutedArgs.reserve(type.typeArgs.size());
-      for (const Type& typeArg : type.typeArgs) {
+      substitutedArgs.reserve(type.typeArguments().size());
+      for (const Type& typeArg : type.typeArguments()) {
         substitutedArgs.push_back(substituteType(typeArg, substitution));
       }
-      return Type::structType(type.structName, std::move(substitutedArgs));
+      return Type::structType(type.structName(), std::move(substitutedArgs));
     }
 
     return type;
   }
 
   Type rewriteAppliedStructType(const Type& type) {
-    if (type.kind == TypeKind::Struct && !type.typeArgs.empty()) {
+    if (type.kind() == TypeKind::Struct && !type.typeArguments().empty()) {
       if (containsUnboundTypeParam(type)) {
         return type;
       }
-      return Type::structType(mangleSpecialization(type.structName, type.typeArgs), {});
+      return Type::structType(mangleSpecialization(type.structName(), type.typeArguments()), {});
     }
 
-    if (type.kind == TypeKind::Array && type.element) {
-      return Type::array(rewriteAppliedStructType(*type.element));
+    if (type.kind() == TypeKind::Array) {
+      return Type::array(rewriteAppliedStructType(type.elementType()));
     }
 
     return type;
@@ -95,34 +92,34 @@ namespace noria {
   }
 
   std::string mangleType(const Type& type) {
-    if (type.kind == TypeKind::Struct) {
-      if (type.typeArgs.empty()) {
-        return "st." + type.structName;
+    if (type.kind() == TypeKind::Struct) {
+      if (type.typeArguments().empty()) {
+        return "st." + type.structName();
       }
       {
         std::ostringstream out;
-        out << "st." << type.structName;
-        for (const Type& typeArg : type.typeArgs) {
+        out << "st." << type.structName();
+        for (const Type& typeArg : type.typeArguments()) {
           out << "$" << mangleType(typeArg);
         }
         return out.str();
       }
     }
 
-    if (type.kind == TypeKind::Array) {
-      return "arr." + mangleType(*type.element);
+    if (type.kind() == TypeKind::Array) {
+      return "arr." + mangleType(type.elementType());
     }
 
-    if (type.kind == TypeKind::ImplTag) {
-      return "tag." + std::string(implementationTagName(type.implTag));
+    if (type.kind() == TypeKind::ImplTag) {
+      return "tag." + std::string(implementationTagName(type.implementationTagValue()));
     }
 
-    if (type.kind == TypeKind::TypeParam) {
+    if (type.kind() == TypeKind::TypeParam) {
       throw CompileError("internal: cannot mangle unsubstituted type parameter '" +
-                         type.typeParamName + "'");
+                         type.typeParameterName() + "'");
     }
 
-    if (const TypeKindInfo* info = typeKindInfo(type.kind); info && !info->mangleAtom.empty()) {
+    if (const TypeKindInfo* info = typeKindInfo(type.kind()); info && !info->mangleAtom.empty()) {
       return std::string(info->mangleAtom);
     }
     return "unknown";

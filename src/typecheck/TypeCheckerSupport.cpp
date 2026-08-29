@@ -25,42 +25,42 @@ namespace noria {
     }
 
     bool structSpecializationsMatch(const Type& left, const Type& right) {
-      if (left.kind != TypeKind::Struct || right.kind != TypeKind::Struct) {
+      if (left.kind() != TypeKind::Struct || right.kind() != TypeKind::Struct) {
         return false;
       }
 
-      if (left.structName == right.structName && left.typeArgs == right.typeArgs) {
+      if (left.structName() == right.structName() && left.typeArguments() == right.typeArguments()) {
         return true;
       }
 
-      if (left.typeArgs.empty() && !right.typeArgs.empty()) {
+      if (left.typeArguments().empty() && !right.typeArguments().empty()) {
         if (containsUnboundTypeParam(right)) {
           return false;
         }
-        return left.structName == mangleSpecialization(right.structName, right.typeArgs);
+        return left.structName() == mangleSpecialization(right.structName(), right.typeArguments());
       }
 
-      if (right.typeArgs.empty() && !left.typeArgs.empty()) {
+      if (right.typeArguments().empty() && !left.typeArguments().empty()) {
         if (containsUnboundTypeParam(left)) {
           return false;
         }
-        return right.structName == mangleSpecialization(left.structName, left.typeArgs);
+        return right.structName() == mangleSpecialization(left.structName(), left.typeArguments());
       }
 
       return false;
     }
 
     bool allTypeParamsSubstituted(const Type& type, const Substitution& substitution) {
-      if (type.kind == TypeKind::TypeParam) {
-        return substitution.contains(type.typeParamName);
+      if (type.kind() == TypeKind::TypeParam) {
+        return substitution.contains(type.typeParameterName());
       }
 
-      if (type.kind == TypeKind::Array && type.element) {
-        return allTypeParamsSubstituted(*type.element, substitution);
+      if (type.kind() == TypeKind::Array) {
+        return allTypeParamsSubstituted(type.elementType(), substitution);
       }
 
-      if (type.kind == TypeKind::Struct) {
-        for (const Type& typeArg : type.typeArgs) {
+      if (type.kind() == TypeKind::Struct) {
+        for (const Type& typeArg : type.typeArguments()) {
           if (!allTypeParamsSubstituted(typeArg, substitution)) {
             return false;
           }
@@ -91,7 +91,7 @@ namespace noria {
     }
 
     void rejectStructArrayElement(const Type& elementType, SourceLocation location) {
-      if (elementType.kind == TypeKind::Struct) {
+      if (elementType.kind() == TypeKind::Struct) {
         throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                             "array element type cannot be a struct"));
       }

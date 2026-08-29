@@ -19,7 +19,7 @@ namespace noria {
       return false;
     }
 
-    return std::find(info->supportedTypeKinds.begin(), info->supportedTypeKinds.end(), type.kind) !=
+    return std::find(info->supportedTypeKinds.begin(), info->supportedTypeKinds.end(), type.kind()) !=
            info->supportedTypeKinds.end();
   }
 

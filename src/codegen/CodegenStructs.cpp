@@ -87,9 +87,9 @@ namespace noria {
   const LLVMGenerator::StructLayout&
   LLVMGenerator::StructsState::lookupStructLayout(const FunctionCodegenContext& context,
                                     const Type& structType) const {
-    const auto layout = context.structs.find(structType.structName);
+    const auto layout = context.structs.find(structType.structName());
     if (layout == context.structs.end()) {
-      throw CompileError("codegen: unknown struct '" + structType.structName + "'");
+      throw CompileError("codegen: unknown struct '" + structType.structName() + "'");
     }
 
     return layout->second;
@@ -147,7 +147,7 @@ namespace noria {
     if (const auto* identifier =
             dynamic_cast<const ast::IdentifierExpression*>(access.base.get())) {
       const LocalBinding& local = generator().lookupLocal(scopes, identifier->name);
-      if (local.type.kind != TypeKind::Struct) {
+      if (local.type.kind() != TypeKind::Struct) {
         throw CompileError("codegen: field access requires struct base");
       }
       slot = local.slot;
@@ -156,7 +156,7 @@ namespace noria {
       const Value base = generator().generateRvalue(*access.base, emitter, context, scopes,
                                                     std::nullopt,
                                                     LLVMGenerator::OwnershipMode::Borrow);
-      if (base.type.kind != TypeKind::Struct) {
+      if (base.type.kind() != TypeKind::Struct) {
         throw CompileError("codegen: field access requires struct base");
       }
       structType = base.type;
@@ -168,7 +168,7 @@ namespace noria {
     const StructLayout& layout = lookupStructLayout(context, structType);
     const auto fieldIndex = layout.fieldIndex.find(access.fieldName);
     if (fieldIndex == layout.fieldIndex.end()) {
-      throw CompileError("codegen: struct '" + structType.structName + "' has no field '" +
+      throw CompileError("codegen: struct '" + structType.structName() + "' has no field '" +
                          access.fieldName + "'");
     }
 

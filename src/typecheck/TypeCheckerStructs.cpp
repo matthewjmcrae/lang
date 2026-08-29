@@ -1,5 +1,4 @@
 #include "TypeCheckerInternal.hpp"
-#include "TypeCheckerState.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Constraints.hpp"
@@ -20,14 +19,20 @@ namespace noria {
 
   using namespace typecheck_detail;
 
-  void TypeChecker::ExpressionsState::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
-    result_ = state_.checkStructLiteral(literal);
+  StructChecker::StructChecker(TypeCheckContext& context, TypeRelations& relations,
+                               DeclarationChecker& declarations)
+      : TypeCheckComponent(context), relations_(relations), declarations_(declarations) {}
+
+  void ExpressionChecker::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    result_ = state_.structs_.checkStructLiteral(state_, literal);
   }
 
-  Type TypeChecker::StructsState::checkStructLiteral(const ast::StructLiteral& literal) {
+  Type StructChecker::checkStructLiteral(ExpressionChecker& expressions,
+                                         const ast::StructLiteral& literal) {
     const auto genericStruct = environment().genericStructs.find(literal.structName);
     if (genericStruct != environment().genericStructs.end()) {
-      return checkGenericStructLiteral(literal, genericStructAt(genericStruct->second));
+      return checkGenericStructLiteral(expressions, literal,
+                                       declarations_.genericStructAt(genericStruct->second));
     }
 
     if (!literal.typeArgs.empty()) {
@@ -37,14 +42,15 @@ namespace noria {
     }
 
     const StructInfo& structInfo = lookupStruct(literal.structName, literal.location);
-    return checkConcreteStructLiteral(literal, structInfo, {});
+    return checkConcreteStructLiteral(expressions, literal, structInfo, {});
   }
 
-  Type TypeChecker::StructsState::checkGenericStructLiteral(const ast::StructLiteral& literal,
-                                              const ast::StructDecl& templated) {
+  Type StructChecker::checkGenericStructLiteral(ExpressionChecker& expressions,
+                                                const ast::StructLiteral& literal,
+                                                const ast::StructDecl& templated) {
     std::vector<Type> typeArgs = literal.typeArgs;
     if (typeArgs.empty()) {
-      typeArgs = inferStructLiteralTypeArgs(literal, templated);
+      typeArgs = inferStructLiteralTypeArgs(expressions, literal, templated);
     } else if (typeArgs.size() != templated.typeParams.size()) {
       std::ostringstream out;
       out << "struct '" << literal.structName << "' expects " << templated.typeParams.size()
@@ -53,17 +59,18 @@ namespace noria {
     }
 
     for (const Type& typeArg : typeArgs) {
-      requireKnownType(typeArg, literal.location, nullptr, true);
+      relations_.requireKnownType(typeArg, literal.location, nullptr, true);
     }
 
-    recordStructSpecialization(literal.structName, typeArgs, literal.location);
+    relations_.recordStructSpecialization(literal.structName, typeArgs, literal.location);
     const StructInfo structInfo =
         resolveStructInfo(Type::structType(literal.structName, typeArgs), literal.location);
-    return checkConcreteStructLiteral(literal, structInfo, typeArgs);
+    return checkConcreteStructLiteral(expressions, literal, structInfo, typeArgs);
   }
 
-  std::vector<Type> TypeChecker::StructsState::inferStructLiteralTypeArgs(const ast::StructLiteral& literal,
-                                                            const ast::StructDecl& templated) {
+  std::vector<Type> StructChecker::inferStructLiteralTypeArgs(ExpressionChecker& expressions,
+                                                               const ast::StructLiteral& literal,
+                                                               const ast::StructDecl& templated) {
     std::unordered_map<std::string, Type> bindings;
     std::unordered_map<std::string, Type> provided;
 
@@ -90,8 +97,8 @@ namespace noria {
           StructFieldInfo{templateField->name, templateField->type, 0, templateField->visibility},
           field.location);
 
-      const Type actual = checkRvalue(*field.value);
-      unifyTypes(templateField->type, actual, bindings, field.location);
+      const Type actual = expressions.checkRvalue(*field.value);
+      relations_.unifyTypes(templateField->type, actual, bindings, field.location);
       provided.emplace(field.name, actual);
     }
 
@@ -117,18 +124,20 @@ namespace noria {
     return typeArgs;
   }
 
-  Type TypeChecker::StructsState::checkConcreteStructLiteral(const ast::StructLiteral& literal,
-                                               const StructInfo& structInfo,
-                                               std::vector<Type> typeArgs) {
+  Type StructChecker::checkConcreteStructLiteral(ExpressionChecker& expressions,
+                                                 const ast::StructLiteral& literal,
+                                                 const StructInfo& structInfo,
+                                                 std::vector<Type> typeArgs) {
     const std::unordered_map<std::string, Type> provided =
-        checkStructLiteralFields(literal, structInfo);
+        checkStructLiteralFields(expressions, literal, structInfo);
     requireStructLiteralComplete(literal, structInfo, provided);
     return Type::structType(literal.structName, std::move(typeArgs));
   }
 
   std::unordered_map<std::string, Type>
-  TypeChecker::StructsState::checkStructLiteralFields(const ast::StructLiteral& literal,
-                                        const StructInfo& structInfo) {
+  StructChecker::checkStructLiteralFields(ExpressionChecker& expressions,
+                                          const ast::StructLiteral& literal,
+                                          const StructInfo& structInfo) {
     std::unordered_map<std::string, Type> provided;
     for (const auto& field : literal.fields) {
       if (provided.contains(field.name)) {
@@ -146,12 +155,12 @@ namespace noria {
 
       const StructFieldInfo& fieldInfo = structInfo.fields.at(structInfo.fieldIndex.at(field.name));
       requireFieldVisible(literal.structName, fieldInfo, field.location);
-      provided.emplace(field.name, checkRvalue(*field.value, fieldInfo.type));
+      provided.emplace(field.name, expressions.checkRvalue(*field.value, fieldInfo.type));
     }
     return provided;
   }
 
-  void TypeChecker::StructsState::requireStructLiteralComplete(
+  void StructChecker::requireStructLiteralComplete(
       const ast::StructLiteral& literal, const StructInfo& structInfo,
       const std::unordered_map<std::string, Type>& provided) const {
     for (const auto& expectedField : structInfo.fields) {
@@ -162,7 +171,7 @@ namespace noria {
                                                 "' is missing field '" + expectedField.name + "'"));
       }
 
-      if (!isAssignable(expectedField.type, actual->second)) {
+      if (!relations_.isAssignable(expectedField.type, actual->second)) {
         throw CompileError(formatDiagnostic(
             literal.location, DiagnosticStage::TypeCheck,
             "field '" + expectedField.name + "' of '" + literal.structName + "' expects " +
@@ -171,34 +180,34 @@ namespace noria {
     }
   }
 
-  TypeChecker::StructInfo TypeChecker::StructsState::resolveStructInfo(const Type& structType,
+  StructInfo StructChecker::resolveStructInfo(const Type& structType,
                                                          SourceLocation location) const {
-    if (structType.kind != TypeKind::Struct) {
+    if (structType.kind() != TypeKind::Struct) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "internal: resolveStructInfo requires struct type"));
     }
 
-    if (structType.typeArgs.empty()) {
-      return lookupStruct(structType.structName, location);
+    if (structType.typeArguments().empty()) {
+      return lookupStruct(structType.structName(), location);
     }
 
-    const auto genericStruct = environment().genericStructs.find(structType.structName);
+    const auto genericStruct = environment().genericStructs.find(structType.structName());
     if (genericStruct == environment().genericStructs.end()) {
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                           "unknown type '" + structType.name() + "'"));
     }
 
-    const ast::StructDecl& templated = genericStructAt(genericStruct->second);
-    if (structType.typeArgs.size() != templated.typeParams.size()) {
+    const ast::StructDecl& templated = declarations_.genericStructAt(genericStruct->second);
+    if (structType.typeArguments().size() != templated.typeParams.size()) {
       std::ostringstream out;
       out << "type '" << structType.name() << "' expects " << templated.typeParams.size()
-          << " type argument(s), got " << structType.typeArgs.size();
+          << " type argument(s), got " << structType.typeArguments().size();
       throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck, out.str()));
     }
 
     Substitution substitution;
     for (std::size_t index{}; index < templated.typeParams.size(); ++index) {
-      substitution.emplace(templated.typeParams[index].name, structType.typeArgs[index]);
+      substitution.emplace(templated.typeParams[index].name, structType.typeArguments()[index]);
     }
 
     StructInfo info;
@@ -213,7 +222,7 @@ namespace noria {
     return info;
   }
 
-  const TypeChecker::StructInfo& TypeChecker::StructsState::lookupStruct(const std::string& name,
+  const StructInfo& StructChecker::lookupStruct(const std::string& name,
                                                            SourceLocation location) const {
     const auto structInfo = environment().structs.find(name);
     if (structInfo == environment().structs.end()) {
@@ -224,7 +233,7 @@ namespace noria {
     return structInfo->second;
   }
 
-  void TypeChecker::StructsState::checkStructAcyclic(const std::string& structName,
+  void StructChecker::checkStructAcyclic(const std::string& structName,
                                        SourceLocation location) const {
     std::vector<const std::string*> stack;
     std::unordered_set<std::string> visiting;
@@ -245,14 +254,14 @@ namespace noria {
 
       const StructInfo& info = environment().structs.at(name);
       for (const auto& field : info.fields) {
-        if (field.type.kind == TypeKind::Struct) {
+        if (field.type.kind() == TypeKind::Struct) {
           for (const std::string* seen : stack) {
-            if (*seen == field.type.structName) {
+            if (*seen == field.type.structName()) {
               throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                                   "struct '" + structName + "' has infinite size"));
             }
           }
-          visitStructRef(visitStructRef, field.type.structName);
+          visitStructRef(visitStructRef, field.type.structName());
         }
       }
 
@@ -263,7 +272,7 @@ namespace noria {
     visitStruct(visitStruct, structName);
   }
 
-  void TypeChecker::StructsState::collectStructDecls(const ast::Module& module) {
+  void StructChecker::collectStructDecls(const ast::Module& module) {
     environment().structs.clear();
     environment().genericStructs.clear();
     environment().genericStructs.reserve(module.structs.size());
@@ -287,7 +296,7 @@ namespace noria {
     validateConcreteStructFieldTypes(module);
   }
 
-  void TypeChecker::StructsState::collectGenericStructDecl(const ast::StructDecl& decl, std::size_t moduleIndex) {
+  void StructChecker::collectGenericStructDecl(const ast::StructDecl& decl, std::size_t moduleIndex) {
     std::unordered_set<std::string> allowedTypeParams;
     for (const auto& typeParam : decl.typeParams) {
       allowedTypeParams.insert(typeParam.name);
@@ -301,14 +310,14 @@ namespace noria {
                              "duplicate field '" + field.name + "' in struct '" + decl.name + "'"));
       }
       seenFields.insert(field.name);
-      requireKnownType(field.type, field.location, &allowedTypeParams, false,
-                       allowsInternalStructTypes(decl));
+      relations_.requireKnownType(field.type, field.location, &allowedTypeParams, false,
+                                  allowsInternalStructTypes(decl));
     }
 
     environment().genericStructs.emplace(decl.name, moduleIndex);
   }
 
-  void TypeChecker::StructsState::collectConcreteStructDecl(const ast::StructDecl& decl) {
+  void StructChecker::collectConcreteStructDecl(const ast::StructDecl& decl) {
     if (environment().structs.contains(decl.name) ||
         environment().genericStructs.contains(decl.name)) {
       throw CompileError(formatDiagnostic(decl.location, DiagnosticStage::TypeCheck,
@@ -334,7 +343,7 @@ namespace noria {
     environment().structs.emplace(decl.name, std::move(info));
   }
 
-  void TypeChecker::StructsState::validateConcreteStructFieldTypes(const ast::Module& module,
+  void StructChecker::validateConcreteStructFieldTypes(const ast::Module& module,
                                                      std::size_t firstStruct) {
     for (std::size_t index = firstStruct; index < module.structs.size(); ++index) {
       const ast::StructDecl& decl = module.structs[index];
@@ -343,19 +352,20 @@ namespace noria {
       }
 
       for (const auto& field : decl.fields) {
-        requireKnownType(field.type, field.location, nullptr, false,
-                         allowsInternalStructTypes(decl));
+        relations_.requireKnownType(field.type, field.location, nullptr, false,
+                                    allowsInternalStructTypes(decl));
       }
       checkStructAcyclic(decl.name, decl.location);
     }
   }
 
-  bool TypeChecker::StructsState::allowsInternalStructTypes(const ast::StructDecl& decl) const {
+  bool StructChecker::allowsInternalStructTypes(const ast::StructDecl& decl) const {
     const auto origin = environment().symbolOrigins.structs.find(decl.name);
-    return origin != environment().symbolOrigins.structs.end() && isStdlibOrigin(origin->second);
+    return origin != environment().symbolOrigins.structs.end() &&
+           declarations_.isStdlibOrigin(origin->second);
   }
 
-  std::string TypeChecker::StructsState::structOriginModule(const std::string& structName) const {
+  std::string StructChecker::structOriginModule(const std::string& structName) const {
     const auto origin = environment().symbolOrigins.structs.find(structName);
     if (origin == environment().symbolOrigins.structs.end()) {
       return "";
@@ -363,7 +373,7 @@ namespace noria {
     return origin->second;
   }
 
-  std::string TypeChecker::StructsState::currentModuleOrigin() const {
+  std::string StructChecker::currentModuleOrigin() const {
     const auto origin = environment().symbolOrigins.functions.find(session().currentFunctionName);
     if (origin == environment().symbolOrigins.functions.end()) {
       return "";
@@ -371,7 +381,7 @@ namespace noria {
     return origin->second;
   }
 
-  void TypeChecker::StructsState::requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
+  void StructChecker::requireFieldVisible(const std::string& structName, const StructFieldInfo& field,
                                         SourceLocation location) const {
     if (field.visibility == ast::FieldVisibility::Public) {
       return;
@@ -386,6 +396,25 @@ namespace noria {
     throw CompileError(formatDiagnostic(location, DiagnosticStage::TypeCheck,
                                         "field '" + field.name + "' is private to module '" +
                                             declaringModule + "'"));
+  }
+
+  void StructChecker::requireDefaultInitializable(const Type& type, SourceLocation location) {
+    const Type canonical = relations_.canonicalStructType(type);
+    if (const std::optional<StandardContainer> container = relations_.standardContainerFor(canonical)) {
+      relations_.recordImplicitContainerOperation(*container, ContainerOperation::New,
+                                                  canonical.typeArguments(), location);
+      relations_.requireContainerOwnershipOps(canonical, location);
+      return;
+    }
+
+    if (canonical.kind() != TypeKind::Struct) {
+      return;
+    }
+
+    const StructInfo info = resolveStructInfo(canonical, location);
+    for (const StructFieldInfo& field : info.fields) {
+      requireDefaultInitializable(field.type, location);
+    }
   }
 
 } // namespace noria

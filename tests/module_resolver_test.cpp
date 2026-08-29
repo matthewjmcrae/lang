@@ -83,6 +83,22 @@ namespace {
     return count;
   }
 
+  const noria::ast::Function* findFunction(const noria::ast::Module& module,
+                                           const std::string& name) {
+    for (const auto& function : module.functions) {
+      if (function.name == name) {
+        return &function;
+      }
+    }
+    return nullptr;
+  }
+
+  bool hasDefaultImplementation(const noria::Type& type, noria::ImplementationTag tag) {
+    return !type.typeArguments().empty() &&
+           type.typeArguments().back().kind() == noria::TypeKind::ImplTag &&
+           type.typeArguments().back().implementationTagValue() == tag;
+  }
+
 } // namespace
 
 int main() {
@@ -356,6 +372,70 @@ fn main() -> i32 { return cached(); }
          "shared module cache avoids reloading parsed stdlib module");
   expect(resolverCache.parsedStdlibModuleCount() == 1,
          "resolver cache retains parsed stdlib module");
+
+  MemoryModuleSourceProvider containerProvider;
+  containerProvider.addModule("std::sequence", R"(
+struct Sequence<T, I> {
+  value: T;
+}
+fn sequence_new() -> i32 { return 0; }
+fn sequence_get() -> i32 { return 0; }
+fn sequence_set() -> i32 { return 0; }
+fn sequence_drop() -> i32 { return 0; }
+fn sequence_clone() -> i32 { return 0; }
+)");
+  containerProvider.addModule("std::dictionary", R"(
+struct Dictionary<K, V, I> {
+  key: K;
+  value: V;
+}
+fn dictionary_new() -> i32 { return 0; }
+fn dictionary_get() -> i32 { return 0; }
+fn dictionary_contains() -> i32 { return 0; }
+fn dictionary_insert() -> i32 { return 0; }
+fn dictionary_drop() -> i32 { return 0; }
+fn dictionary_clone() -> i32 { return 0; }
+)");
+  containerProvider.addModule("std::set", R"(
+struct Set<T, I> {
+  value: T;
+}
+fn set_new() -> i32 { return 0; }
+fn set_contains() -> i32 { return 0; }
+fn set_drop() -> i32 { return 0; }
+fn set_clone() -> i32 { return 0; }
+)");
+  noria::ResolvedProgram defaultContainerResolved = noria::resolveImports(
+      parseModule(R"(
+import std::sequence::{Sequence};
+import std::dictionary::{Dictionary};
+import std::set::{Set};
+
+fn main(sequence: Sequence<i32>, dictionary: Dictionary<i32, bool>, set: Set<i32>) -> Sequence<i32> {
+  return sequence;
+}
+)"),
+      noria::CompileOptions{}, containerProvider);
+  noria::applyDefaultAdtImplementations(defaultContainerResolved.module,
+                                        defaultContainerResolved.symbolOrigins);
+  const noria::ast::Function* defaultContainerFunction =
+      findFunction(defaultContainerResolved.module, "main");
+  expect(defaultContainerFunction != nullptr, "default container test function is present");
+  if (defaultContainerFunction != nullptr) {
+    expect(defaultContainerFunction->returnType &&
+               hasDefaultImplementation(*defaultContainerFunction->returnType,
+                                        noria::ImplementationTag::Arr),
+           "Sequence omits to arr through the container registry");
+    expect(hasDefaultImplementation(defaultContainerFunction->parameters[0].type,
+                                    noria::ImplementationTag::Arr),
+           "Sequence parameter default comes from the container registry");
+    expect(hasDefaultImplementation(defaultContainerFunction->parameters[1].type,
+                                    noria::ImplementationTag::Hashmap),
+           "Dictionary parameter default comes from the container registry");
+    expect(hasDefaultImplementation(defaultContainerFunction->parameters[2].type,
+                                    noria::ImplementationTag::Hashmap),
+           "Set parameter default comes from the container registry");
+  }
 
   if (failures != 0) {
     std::cerr << failures << " module resolver test failure(s)\n";

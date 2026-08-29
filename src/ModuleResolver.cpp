@@ -26,40 +26,29 @@ namespace noria {
         return std::nullopt;
       }
 
-      if (origin->second == "std::sequence" &&
-          (structName == "Sequence" || structName == "sequence") &&
-          typeArgumentCount == 1) {
-        return ImplementationTag::Arr;
-      }
-      if (origin->second == "std::set" && (structName == "Set" || structName == "set") &&
-          typeArgumentCount == 1) {
-        return ImplementationTag::Hashmap;
-      }
-      if (origin->second == "std::dictionary" &&
-          (structName == "Dictionary" || structName == "dictionary") &&
-          typeArgumentCount == 2) {
-        return ImplementationTag::Hashmap;
+      const StandardContainerInfo* container =
+          standardContainerInfo(origin->second, structName);
+      if (container != nullptr && typeArgumentCount + 1 == container->typeArgumentCount) {
+        return container->defaultImplementation;
       }
       return std::nullopt;
     }
 
     void normalizeType(Type& type, const SymbolOrigins& symbolOrigins) {
-      if (type.kind == TypeKind::Array) {
-        if (type.element) {
-          normalizeType(*type.element, symbolOrigins);
-        }
+      if (type.kind() == TypeKind::Array) {
+        normalizeType(type.elementType(), symbolOrigins);
         return;
       }
-      if (type.kind != TypeKind::Struct) {
+      if (type.kind() != TypeKind::Struct) {
         return;
       }
 
-      for (Type& typeArgument : type.typeArgs) {
+      for (Type& typeArgument : type.typeArguments()) {
         normalizeType(typeArgument, symbolOrigins);
       }
       if (const auto defaultTag =
-              defaultImplementationFor(type.structName, type.typeArgs.size(), symbolOrigins)) {
-        type.typeArgs.push_back(Type::implementationTag(*defaultTag));
+              defaultImplementationFor(type.structName(), type.typeArguments().size(), symbolOrigins)) {
+        type.typeArguments().push_back(Type::implementationTag(*defaultTag));
       }
     }
 

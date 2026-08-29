@@ -160,14 +160,18 @@ int main() {
              "pow expects f64 arguments, got i32 and str",
          "pow combined mismatch message");
 
-  expect(Type(printDescriptor->parameters[0]) == Type::str(), "print parameter type");
-  expect(Type(lenDescriptor->parameters[0]) == Type::str(), "len parameter type");
-  expect(Type(lenDescriptor->returnKind) == Type::i32(), "len return type");
+  expect(builtinTypeFromKind(printDescriptor->parameters[0]) == Type::str(),
+         "print parameter type");
+  expect(builtinTypeFromKind(lenDescriptor->parameters[0]) == Type::str(),
+         "len parameter type");
+  expect(builtinTypeFromKind(lenDescriptor->returnKind) == Type::i32(), "len return type");
   expect(Type::rawPtr().name() == "__rt_ptr", "raw ptr name");
   expect(noria::LLVMType(Type::rawPtr()) == "ptr", "raw ptr llvm type");
-  expect(Type(powDescriptor->parameters[0]) == Type::f64(), "pow first parameter type");
-  expect(Type(powDescriptor->parameters[1]) == Type::f64(), "pow second parameter type");
-  expect(Type(powDescriptor->returnKind) == Type::f64(), "pow return type");
+  expect(builtinTypeFromKind(powDescriptor->parameters[0]) == Type::f64(),
+         "pow first parameter type");
+  expect(builtinTypeFromKind(powDescriptor->parameters[1]) == Type::f64(),
+         "pow second parameter type");
+  expect(builtinTypeFromKind(powDescriptor->returnKind) == Type::f64(), "pow return type");
 
   if (failures != 0) {
     std::cerr << failures << " builtin registry test(s) failed\n";
