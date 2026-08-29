@@ -13,7 +13,7 @@ This repository is deliberately scoped as a focused language implementation rath
 
 ## Project Highlights
 
-- **A complete compiler, not a transpiler shell.** The pipeline owns lexing, parsing, AST design, module resolution, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, object emission, native linking, and diagnostics.
+- **A complete compiler.** The pipeline owns lexing, parsing, AST design, module resolution, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, object emission, native linking, and diagnostics.
 - **Language features are backed by architecture.** Canonical types, visitor-based AST passes, shared semantic registries, place/rvalue separation, and a compiler facade keep later features from becoming one-off branches.
 - **Generics have real compile-time semantics.** Noria infers type arguments, checks tag-specific constraints, emits only reachable concrete specializations, detects recursive specialization cycles, and gives specializations deterministic names.
 - **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector. Default-initialized locals, field and index assignment, collection `+`, and projections of temporaries follow the same unique-ownership rule.
