@@ -17,7 +17,7 @@ The current tree contains approximately 15,500 lines of compiler/header code and
 | Pipeline composition | [`Compiler.cpp`](../src/Compiler.cpp), [`Compiler.hpp`](../include/noria/Compiler.hpp) | [`compiler_facade_test.cpp`](../tests/compiler_facade_test.cpp) |
 | Type rules and inference | [`src/typecheck/`](../src/typecheck/), [`Types.hpp`](../include/noria/Types.hpp), [`SemanticTables.hpp`](../include/noria/SemanticTables.hpp) | Negative corpus plus type, constraint, semantic-table, and generic tests |
 | Generic specialization | [`src/monomorphize/`](../src/monomorphize/) | [`generics_test.cpp`](../tests/generics_test.cpp) and IR/dedup assertions in the end-to-end harness |
-| Ownership and lowering | [`src/codegen/`](../src/codegen/) | Native copy/move/drop cases, leak fixtures, generated-code ASan, and optimized regression cases |
+| Ownership and lowering | [`src/codegen/`](../src/codegen/) | Native copy/move/drop cases, leak fixtures, generated-code ASan (Ubuntu LSan), and optimized regression cases |
 | Source-written ADTs | [`stdlib/`](../stdlib/) and the private ABI in [`Builtins.hpp`](../include/noria/Builtins.hpp) | Cross-tag conformance cases and deterministic container model traces |
 | Compiler throughput | [`CompilerCache.cpp`](../src/CompilerCache.cpp), [`LfuCache.hpp`](../include/noria/LfuCache.hpp), frontier monomorphization | Focused cache tests and the documented historical [performance experiment](PERFORMANCE.md) |
 | Robustness | [`run_examples.sh`](../tests/run_examples.sh), [`compile_fuzzer.cpp`](../tests/fuzz/compile_fuzzer.cpp) | Cross-platform CI, sanitizers, leak tools, and WIP weekly fuzzing with crash artifact upload |
@@ -203,10 +203,15 @@ Noria is AOT and has no garbage collector. Managed values use value semantics at
 | Function argument | Borrow the caller's value; in-place container/array mutation remains visible |
 | Return owned local/temporary | Move ownership to the caller |
 | Return borrowed parameter | Clone before returning |
-| Reassignment | Drop the previous owned value, then store/move or clone the replacement |
+| Reassignment of a local, field, or index | Drop the previous occupant, then store/move or clone the replacement |
 | Scope exit / early return | Drop every still-owned local in exited scopes |
+| Default-initialized managed local | Construct the default; mark owned when `typeNeedsDrop` |
+| Temporary used by `print`/`len`, a call, an index, or a field read | Clone a managed result if needed, then `emitReleaseIfOwned` the temporary |
+| `+` on `str`, `[T]`, or Sequence | New owned result; `emitReleaseIfOwned` both operands |
+| Container index `Get` of `str` | Independent clone (`__rt_load`); owned |
+| Container index `Get` of `[T]` | Borrow into the container; not owned |
 
-Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Borrow-mode expression lowering avoids cloning a managed local merely to pass it, while still marking a newly allocated temporary as owned; after the callee or consuming builtin returns, that temporary is released. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields.
+Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. `OwnershipEmitter` is the single place that decides whether a type needs a drop (`str`, `[T]`, standard ADTs, and structs that contain those), clones, drops a value, assigns into a place, or releases a temporary. `emitDefaultValue` sets `owned` from `typeNeedsDrop` on every path. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Borrow-mode expression lowering avoids cloning a managed local merely to pass it, while still marking a newly allocated temporary as owned; after the callee or consuming builtin returns, that temporary is released. `emitAssignPlace` is the only assignment store for managed types: it drops the occupant (an `ownedSlot` when present, otherwise load-and-drop) before storing. Index and field reads clone a managed result when the mode is Own or the base is owned, then release the base. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields. The language-facing table is in [SYNTAX.md](SYNTAX.md#ownership); residuals and the leak class are in [Closing forgotten drops on independent heap values](#closing-forgotten-drops-on-independent-heap-values).
 
 The same model covers:
 
@@ -221,7 +226,7 @@ Deep copy is intentionally favored over reference counting. It gives simple, det
 
 ### Strings
 
-Strings are null-terminated byte strings for libc interoperability. Literal globals carry an immortal header marker. Heap allocated strings include a small header before the returned bytes; concatenation and cloning allocate checked storage. `len` maps to `strlen`, indexing loads an unsigned byte, and equality maps to byte-string comparison.
+Strings are null-terminated byte strings for libc interoperability. Literal globals carry an immortal header marker. Heap allocated strings include a small header before the returned bytes; concatenation and cloning allocate checked storage. `len` maps to `strlen`, indexing loads an unsigned byte, and equality maps to byte-string comparison. Concatenation returns `owned=true` and releases owned operands; `len`, `print`, and string index then `emitReleaseIfOwned` a temporary base after copying the result.
 
 This is compact and makes printing straightforward, but it means `len` is O(n), strings cannot contain embedded nulls as first-class data, and indexing is byte-based rather than Unicode-aware.
 
@@ -236,11 +241,11 @@ An array value points to one allocation:
      ...
 ```
 
-Element stride comes from shared type metadata; `[bool]` deliberately uses byte stride even though SSA booleans are LLVM `i1`. Bounds checks zero-extend the signed index and compare it unsigned with length, so negative indexes fail without a separate branch. Nested managed elements are cloned/dropped recursively.
+Element stride comes from shared type metadata; `[bool]` deliberately uses byte stride even though SSA booleans are LLVM `i1`. Bounds checks zero-extend the signed index and compare it unsigned with length, so negative indexes fail without a separate branch. Nested managed elements are cloned/dropped recursively. Empty defaults and array `+` results are owned; index of an owned temporary clones a managed element if needed and then drops the base.
 
 ### Structs
 
-Structs lower to named LLVM aggregate types. Fields retain source declaration order even when a literal supplies them in another order. Locals and parameters use stack slots, field access lowers through GEP, and structs are passed/returned by value. Managed fields add recursive clone/drop work.
+Structs lower to named LLVM aggregate types. Fields retain source declaration order even when a literal supplies them in another order. Locals and parameters use stack slots, field access lowers through GEP, and structs are passed/returned by value. Default-initialized structs with managed fields are marked owned. Field assignment goes through `emitAssignPlace`. Field reads of an owned temporary clone a managed result and then drop the aggregate. Managed fields add recursive clone/drop work.
 
 ### Standard ADTs
 
@@ -314,7 +319,7 @@ The 13 C++ test executables cover canonical types, builtin and semantic registri
 - a named high-risk `-O2` manifest re-runs ownership and container programs after optimization;
 - `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`.
 
-ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1`. Linux instruments generated IR with LLVM ASan passes and clang-links that IR. Darwin one-step compiles the original IR with Apple clang `-fsanitize=address -c` (Homebrew `opt` IR that Apple clang cannot parse falls back to `llc` without ASan hooks). Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind.
+ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1`. Linux instruments generated IR with LLVM ASan passes, clang-links that IR, and runs generated natives with `detect_leaks=1`. Darwin one-step compiles the original IR with Apple clang `-fsanitize=address -c` (Homebrew `opt` IR that Apple clang cannot parse falls back to `llc` without ASan hooks) and sets `detect_leaks=0` because Apple's ASan has no usable LSan. Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind. Ubuntu LSan on generated natives is therefore the leak gate for forgotten drops; Darwin generated-code ASan is for use-after-free and overflow.
 
 ### Fuzzing (WIP)
 
@@ -336,7 +341,7 @@ The standard library creates nested generic calls: a heap specialization calls S
 
 ### Reconciling mutation with value ownership
 
-Container parameters need borrowed handles so `sequence_push(s, x)` mutates caller-visible storage, while `let copy = s` must produce an independently droppable value. The solution separates binding copy semantics from call semantics and generates hidden container clone/drop operations as ordinary monomorphized stdlib requests.
+Container parameters need borrowed handles so `sequence_push(s, x)` mutates caller-visible storage, while `let copy = s` must produce an independently droppable value. The solution separates binding copy semantics from call semantics and generates hidden container clone/drop operations as ordinary monomorphized stdlib requests. Making every independent heap value actually get dropped is a separate, later problem; see [Closing forgotten drops on independent heap values](#closing-forgotten-drops-on-independent-heap-values).
 
 ### Making nested assignment composable
 
@@ -349,6 +354,39 @@ The ADT API must behave the same for array/list and BST/hashmap implementations 
 ### Managing raw layout without exposing raw pointers
 
 Source-written containers need allocation and typed access, but a public pointer type would undermine the language's safety boundary. Module provenance, private struct fields, internal builtin visibility, and a narrow runtime ABI combine to keep raw operations inside trusted stdlib modules.
+
+### Closing forgotten drops on independent heap values
+
+Noria has no GC. Every independent heap object the compiler creates—empty or nonempty `[T]`, a heap `str` from concat or `clone_str`, a Sequence/Dictionary/Set handle, or a struct that owns any of those—must be dropped exactly once. The language rule is simple; the lowering is not. Allocation is scattered across default values, literals, concat, collection `+`, clones, stdlib `New`/`Get`, and struct/array construction. Consumption is equally scattered: named locals, field and element places, projections (`.field`, `[i]`), builtins (`len`, `print`), user calls, comparisons, and scope exit. A path that mallocs and then leaves `Value.owned == false` is invisible to `emitReleaseIfOwned` and to `emitDropLocal` (which also no-ops when a place has no `ownedSlot`). Ubuntu ASan runs generated natives with `detect_leaks=1`; Darwin sets `detect_leaks=0` because Apple's ASan has no usable LSan. Ordinary `just test` does not set `NORIA_NATIVE_ASAN`. So a missing drop is a real bug on every OS and a red CI job only on Linux sanitize, and only after earlier leaks in the same harness phase are gone.
+
+The architecture that has to hold together is the one in [Ownership and memory model](#ownership-and-memory-model):
+
+- `typeNeedsDrop` is the recursive predicate: `str`, `[T]`, standard containers, and any struct containing those.
+- A generated `Value` is either a borrow (`owned=false`) or an independent heap object (`owned=true`). Immortal string literals use a negative header tag; `drop_str` is a no-op on them, so marking a default `""` owned is safe.
+- Named managed locals have an `ownedSlot`. Field and array-element places do not; the aggregate owns the occupant.
+- Borrow-mode rvalues avoid cloning a local just to read it. Own mode, or a projection out of an owned temporary, must clone a managed result before the aggregate is dropped.
+- `__rt_load` clones only `str`. Index `Get` of `str` is therefore an independent heap value; index `Get` of `[T]` is a borrow into the container.
+
+The failures that showed up—and the ones the same rule predicted—were one class: **independent heap, then forgotten drop**.
+
+| Hole | What allocated | Why it leaked |
+| --- | --- | --- |
+| `print` / `len` of a concat temp | heap `str` | Borrow-eval, then no `emitReleaseIfOwned` |
+| `("xy" + "z")[2]` | heap `str` | Index copied a byte and discarded the owned base |
+| `holder.nested = []` | empty `[T]` header | Field place had no `ownedSlot`; assignment used a raw store |
+| `(Holder { nested: [] }).nested` | empty `[T]` in a temp struct | Field read never dropped the owned aggregate |
+| `payload: Payload` / `wrapper: Wrapper` | empty `[T]` fields | `emitDefaultValue` returned the struct `owned=false`; let default stored that flag |
+| `let numbers: Sequence<i32>` (and Set/Dictionary) | container `New` handle | `emitStandardContainerCall` always returned `owned=false` |
+| Sequence `+` | new handle and payload | Result unowned; operands not released (array `+` already did both) |
+| `s[i]` / `d[k]` of `str` | `clone_str` inside `__rt_load` | Function-call `sequence_get` was marked owned; index `Get` was not |
+
+The overarching fix is one rule, centralized rather than another per-site `if`:
+
+1. **If this `Value` is an independent heap object, it is `owned=true`.** `emitDefaultValue` sets `owned` from `typeNeedsDrop` on every path. Let-without-initializer uses the same claim as let-with-initializer. Sequence `+` returns owned and `emitReleaseIfOwned`s both operands. `New`/`Clone` are owned. Index `Get` is owned only when the return type is `str`.
+2. **A managed place owns its occupant.** `emitAssignPlace` is the only assignment store: drop the current value (`ownedSlot` gated, otherwise load-and-drop), clone an unowned rvalue, then store. No raw `emitStore` fallback for managed types.
+3. **A projection out of an owned aggregate drops the aggregate after the result is independently owned.** Index and field reads clone a managed result when the mode is Own or the base is owned, then `emitReleaseIfOwned(base)`. Identifier bases stay unowned, so `len(holder.nested)` does not drop the local.
+
+That is not a proof of ownership soundness. Left closed only if a later sanitizer names them: `New` samples that are themselves `[T]`; `sequence_get` of `[T]` as a `Call` (marked owned even though `__rt_load` does not clone arrays—use-after-free, the opposite flavour); index-assign of `[T]` where `store_at` does not clone and then `emitReleaseIfOwned` frees the buffer still in the container; `__rt_alloc` raw pointers. The leak gate remains Ubuntu LSan on generated natives, plus IR assertions that owned slots are `true` and that overwritten or temporary headers are `free`d.
 
 ## Tradeoffs and alternatives considered
 

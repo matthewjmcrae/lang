@@ -31,7 +31,10 @@ They cover:
 - Lexical scoping and shadowing
 - Direct native executable generation
 - Optimized LLVM IR / native builds through `-O1`, `-O2`, or `-O3`
-- Arrays: `[T]` types, literals, `len`, and index read
+- Arrays: `[T]` types, literals, `len`, index read, and empty/default-init contexts
+- Strings: literals, concatenation, indexing, and owned temporaries
+- Structs: literals, field assignment, and default-initialized managed fields
+- Standard ADTs: Sequence, Dictionary, Set, and heap over Sequence
 
 Good starter examples:
 

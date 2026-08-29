@@ -16,7 +16,7 @@ This repository is deliberately scoped as a focused language implementation rath
 - **A complete compiler, not a transpiler shell.** The pipeline owns lexing, parsing, AST design, module resolution, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, object emission, native linking, and diagnostics.
 - **Language features are backed by architecture.** Canonical types, visitor-based AST passes, shared semantic registries, place/rvalue separation, and a compiler facade keep later features from becoming one-off branches.
 - **Generics have real compile-time semantics.** Noria infers type arguments, checks tag-specific constraints, emits only reachable concrete specializations, detects recursive specialization cycles, and gives specializations deterministic names.
-- **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector.
+- **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector. Default-initialized locals, field and index assignment, collection `+`, and projections of temporaries follow the same unique-ownership rule.
 - **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—**74.5% less time** or **3.93× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
 - **Failure behavior is part of the contract.** The current regression suite compiles 277 accepted programs, rejects 148 semantic failures and 22 lexer/parser failures, runs native exit/stdout/trap checks, and includes 13 focused C++ test executables.
 - **Memory safety and resilience get dedicated workflows.** Compiler and generated-code sanitizers, portable leak checks, deterministic container reference models, and a weekly WIP libFuzzer job exercise risks that success-only examples miss.
@@ -86,7 +86,7 @@ Noria currently includes:
 
 Identifiers and keywords are case-insensitive; string contents retain their case. Noria does not perform implicit numeric conversions.
 
-See [SYNTAX.md](SYNTAX.md) for the grammar, precedence, defaults, ownership rules, ADT APIs, diagnostics, and limitations.
+See [SYNTAX.md](SYNTAX.md) for the grammar, precedence, defaults, [ownership rules](SYNTAX.md#ownership), ADT APIs, diagnostics, and limitations.
 
 ## Standard library
 
@@ -203,10 +203,10 @@ just valgrind   # wrap compiler invocations under Valgrind
 | Workflow | What it checks |
 | --- | --- |
 | `just test` | All 16 CTest entries: the end-to-end corpus, 13 C++ executables, a macOS leak-output classifier test, and a documentation/corpus-count guard |
-| `just sanitize` | ASan/UBSan on the compiler and generated-code ASan (Linux: instrument IR then clang-link; Darwin: one-step `-fsanitize=address -c` of original IR) |
+| `just sanitize` | ASan/UBSan on the compiler and generated-code ASan (Linux: instrument IR, clang-link, `detect_leaks=1`; Darwin: one-step `-fsanitize=address -c` of original IR, `detect_leaks=0`; Homebrew `opt` IR that Apple clang cannot parse falls back to `llc` without ASan hooks) |
 | `just leak` | Container-focused leak fixtures using Valgrind when available, otherwise Linux ASan/LSan or macOS `leaks`; fails if no checker can run |
 
-The end-to-end harness validates more than successful compilation. It checks located diagnostics, emitted IR patterns, native exit codes and stdout, stable runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. A named high-risk manifest reruns ownership and container cases at `-O2`. Container fixtures cover both Sequence implementations, both Dictionary/Set representations, mixed scalar widths, heap-allocated strings, arrays, and heap-over-Sequence. Four generated-but-checked-in reference models each replay a deterministic 300-operation trace against expected state, including clone divergence, resize/tombstone behavior, and alternate representations.
+The end-to-end harness validates more than successful compilation. It checks located diagnostics, emitted IR patterns, native exit codes and stdout, stable runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. A named high-risk manifest reruns ownership and container cases at `-O2`. Ubuntu LSan on generated natives (`just sanitize`) is the leak gate for forgotten drops; Darwin generated-code ASan catches use-after-free and overflow, not leaks. Container fixtures cover both Sequence implementations, both Dictionary/Set representations, mixed scalar widths, heap-allocated strings, arrays, and heap-over-Sequence. Four generated-but-checked-in reference models each replay a deterministic 300-operation trace against expected state, including clone divergence, resize/tombstone behavior, and alternate representations.
 
 The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, the `cmake --install` layout, and the same-LLVM `llc` object path used before host linking. GitHub Actions requires both `opt` and `llc` and runs normal, sanitizer, and required leak lanes on macOS and Ubuntu.
 
