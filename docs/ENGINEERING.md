@@ -6,9 +6,9 @@ It is intentionally about decisions visible in the code. Start with the [project
 
 ## Engineering profile
 
-Noria is an ahead-of-time compiler written in C++20. It owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, and delegates native linking to the host Clang driver. The standard data-structure library is implemented in Noria source over a deliberately small private runtime ABI; the compiler does not link against LLVM libraries.
+Noria is an ahead-of-time compiler written in C++20. It owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, lowers IR to an object with `llc` when available, and delegates the final native link to the host Clang driver. The standard data-structure library is implemented in Noria source over a deliberately small private runtime ABI; the compiler invokes LLVM tools as subprocesses rather than linking against LLVM libraries.
 
-The current tree contains approximately 15,700 lines of compiler/header code and 1,600 lines of Noria standard-library code. Its validation corpus includes 277 accepted programs and 170 negative programs split between 148 semantic and 22 syntax failures. CTest registers 16 checks: one end-to-end language harness, 13 focused C++ test executables, and two shell contract tests. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, ADT conformance, install layout, and documented corpus counts are all exercised.
+The current tree contains approximately 15,500 lines of compiler/header code and 1,600 lines of Noria standard-library code. Its validation corpus includes 277 accepted programs and 170 negative programs split between 148 semantic and 22 syntax failures. CTest registers 16 checks: one end-to-end language harness, 13 focused C++ test executables, and two shell contract tests. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, ADT conformance, install layout, and documented corpus counts are all exercised.
 
 ### Engineering Highlights
 
@@ -49,8 +49,10 @@ Monomorphizer ◄──► TypeChecker frontier checks
 LLVMGenerator ──► textual LLVM IR + runtime definitions
    │
    ├──► opt -O1/-O2/-O3 (optional)
+   │
+   ├──► llc ──► target object (when the resolved tool exists)
    ▼
-host clang ──► native executable
+host clang ──► final native link (or direct IR compilation fallback)
 ```
 
 ### Stage boundaries and invariants
@@ -64,7 +66,7 @@ host clang ──► native executable
 | Type checker | Collect declarations, infer returns/type arguments, enforce visibility and constraints | Every concrete function has a return type and every expression/place use is valid |
 | Monomorphizer | Materialize reachable generic functions/structs and rewrite applications | No generic template reaches code generation; specializations are deterministic and deduplicated |
 | Code generator | Lower checked AST, runtime checks, ownership, and layouts to LLVM | Emitted functions have explicit terminators and managed paths carry correct clone/drop behavior |
-| CLI/toolchain | File I/O, executable/stdlib discovery, `opt`, native linking | Front-end logic remains callable without subprocesses through `compileSource()` |
+| CLI/toolchain | File I/O, executable/stdlib discovery, `opt`, `llc`, native linking | Front-end logic remains callable without subprocesses through `compileSource()`; native linking uses an explicit host target triple |
 
 The compiler facade in `include/noria/Compiler.hpp` exposes `StopAfter::Tokens`, `StopAfter::Ast`, `StopAfter::Typed`, and `StopAfter::Ir` checkpoints. This separation is useful in two ways: the CLI is a thin integration layer, and C++ tests can exercise the compiler in memory without writing files or launching the binary.
 
@@ -200,7 +202,7 @@ Noria is AOT and has no garbage collector. Managed values use value semantics at
 | Reassignment | Drop the previous owned value, then store/move or clone the replacement |
 | Scope exit / early return | Drop every still-owned local in exited scopes |
 
-Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields.
+Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Borrow-mode expression lowering avoids cloning a managed local merely to pass it, while still marking a newly allocated temporary as owned; after the callee or consuming builtin returns, that temporary is released. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields.
 
 The same model covers:
 
@@ -281,6 +283,8 @@ The process cache assumes stdlib contents under a given canonical root stay stab
 - Array Sequence append is amortized O(1); hashmap operations target O(1) average time.
 - Scope metadata records whether a scope contains managed pointers, avoiding drop traversal work for scalar-only scopes.
 - LLVM optimization is optional. The simple alloca/load/store lowering is readable at `-O0`, while LLVM can promote stack slots and simplify control flow at higher levels.
+- Native builds prefer `llc` from the same LLVM installation used for `opt`, then use the host Clang driver only for final linking. This avoids optimized-IR dialect mismatches without giving up the host SDK and system-library search path; direct Clang consumption of textual IR remains the fallback.
+
 ## Testing and quality strategy
 
 CTest combines focused host-language tests with an end-to-end shell harness and two repository-contract checks. The normal configured build currently exposes 16 CTest entries.
@@ -314,7 +318,7 @@ ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1` so
 
 Fuzzing is WIP, not part of the canonical test suite, and not a benchmark. It is currently exercised only by a separate scheduled Ubuntu workflow, which runs the compile fuzzer weekly for 120 seconds and uploads crash artifacts when the job fails.
 
-The main CI matrix builds and tests on macOS and Ubuntu with LLVM tools required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs.
+The main CI matrix builds and tests on macOS and Ubuntu with both `opt` and `llc` required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs.
 
 ## Notable engineering challenges
 

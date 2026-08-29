@@ -452,7 +452,8 @@ namespace {
     // attributes). Assemble with the same LLVM's llc, then link with the host driver.
     std::string linkInput = llPath.string();
     if (pathExists(llcPath)) {
-      runCommand({llcPath, "-filetype=obj", llPath.string(), "-o", objPath.string()});
+      runCommand({llcPath, "-relocation-model=pic", "-filetype=obj", llPath.string(),
+                  "-o", objPath.string()});
       linkInput = objPath.string();
     }
 

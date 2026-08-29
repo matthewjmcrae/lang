@@ -162,13 +162,24 @@ link_ir() {
     fi
     link_ir_path="${instrumented}"
     echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
-    "${CLANG}" "${link_ir_path}" -lm -fsanitize=address -o "${executable}"
+    # Darwin already instrumented via Apple clang. Compiling that IR again with
+    # -fsanitize=address re-instruments (AppleClang 21: nosanitize_address warning)
+    # and is the remaining .ll-to-host-clang path. Assemble without sanitizers,
+    # then link the object with the ASan runtime. Do not send Apple-clang IR
+    # through Homebrew llc.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      local object_file="${executable}.o"
+      "${CLANG}" -c "${link_ir_path}" -o "${object_file}"
+      "${CLANG}" "${object_file}" -lm -fsanitize=address -o "${executable}"
+    else
+      "${CLANG}" "${link_ir_path}" -lm -fsanitize=address -o "${executable}"
+    fi
   else
     # Homebrew opt IR can include memory() attributes Apple clang rejects. Assemble
     # with the same LLVM's llc, then link the object with the host clang.
     if [[ -n "${LLC}" ]]; then
       local object_file="${executable}.o"
-      "${LLC}" -filetype=obj "${link_ir_path}" -o "${object_file}"
+      "${LLC}" -relocation-model=pic -filetype=obj "${link_ir_path}" -o "${object_file}"
       "${CLANG}" "${object_file}" -lm -o "${executable}"
     else
       "${CLANG}" "${link_ir_path}" -lm -o "${executable}"

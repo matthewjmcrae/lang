@@ -1,6 +1,6 @@
 # Noria
 
-Noria is a statically typed, ahead-of-time compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or invoke the host toolchain to produce native executables on macOS and Linux.
+Noria is a statically typed, ahead-of-time compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or drive LLVM object emission and host linking to produce native executables on macOS and Linux.
 
 This repository is deliberately scoped as a focused language implementation rather than a production ecosystem. Within that scope it tackles the parts that make compiler work interesting: type and return inference, source modules, generic specialization, representation-independent data structures, ownership-aware code generation, deterministic diagnostics, runtime safety checks, and cross-platform validation.
 
@@ -13,11 +13,11 @@ This repository is deliberately scoped as a focused language implementation rath
 
 ## Project Highlights
 
-- **A complete compiler, not a transpiler shell.** The pipeline owns lexing, parsing, AST design, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, native linking, and diagnostics.
+- **A complete compiler, not a transpiler shell.** The pipeline owns lexing, parsing, AST design, module resolution, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, object emission, native linking, and diagnostics.
 - **Language features are backed by architecture.** Canonical types, visitor-based AST passes, shared semantic registries, place/rvalue separation, and a compiler facade keep later features from becoming one-off branches.
 - **Generics have real compile-time semantics.** Noria infers type arguments, checks tag-specific constraints, emits only reachable concrete specializations, detects recursive specialization cycles, and gives specializations deterministic names.
 - **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector.
-- **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—about **74.5% less time** or **3.9× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
+- **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—**74.5% less time** or **3.93× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
 - **Failure behavior is part of the contract.** The current regression suite compiles 277 accepted programs, rejects 148 semantic failures and 22 lexer/parser failures, runs native exit/stdout/trap checks, and includes 13 focused C++ test executables.
 - **Memory safety and resilience get dedicated workflows.** Compiler and generated-code sanitizers, portable leak checks, deterministic container reference models, and a weekly WIP libFuzzer job exercise risks that success-only examples miss.
 
@@ -25,8 +25,8 @@ This repository is deliberately scoped as a focused language implementation rath
 
 | Area | Evidence in the current tree                                                                                                                                                                          |
 | --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Implementation | Approximately 15.7k lines of C++ compiler/header code and 1.6k lines of Noria standard-library code                                                                                                   |
-| Compiler stages | Lexer and parser, module resolution, fixed-point return inference, type checking, reachable monomorphization, memory ownership-aware LLVM IR generation, optional LLVM optimization, native linking   |
+| Implementation | Approximately 15.5k lines of C++ compiler/header code and 1.6k lines of Noria standard-library code                                                                                                   |
+| Compiler stages | Lexer and parser, module resolution, fixed-point return inference, type checking, reachable monomorphization, ownership-aware LLVM IR generation, optional LLVM optimization, object emission, native linking |
 | Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift                                                                     |
 | Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade                                                |
 | End-to-end checks | IR assertions, native exit/stdout/trap behavior, `-O2` regression cases, install/stdlib discovery, sanitizer instrumentation, leak checking, and four checked-in 300-operation container model traces |
@@ -116,7 +116,8 @@ The implementation tags are erased by monomorphization—there is no runtime bra
     ├─ Monomorphizer ─────── reachable, deduplicated specializations
     ├─ LLVMGenerator ─────── ownership-aware textual LLVM IR
     ├─ opt (optional) ────── LLVM -O1/-O2/-O3 pipeline
-    └─ host clang ────────── native executable
+    ├─ llc (when found) ──── target object file
+    └─ host clang ────────── final link; can consume IR if llc is unavailable
 ```
 
 The public `compileSource()` facade can stop after tokens, AST, typed AST, or LLVM IR. The CLI remains responsible for files, options, optimization, and native linking; compiler stages remain usable directly from C++ tests.
@@ -140,7 +141,9 @@ Requirements:
 - CMake 3.20+
 - a C++20 compiler
 - host `clang` for the CLI's native-executable mode
-- LLVM `opt` for `-O1` through `-O3` and the full CI path; unoptimized IR emission does not link against LLVM libraries
+- LLVM `opt` for `-O1` through `-O3`
+- LLVM `llc` for matched LLVM object emission and the full CI path; native builds fall back to letting host Clang consume IR when `llc` is unavailable
+- unoptimized IR emission requires neither LLVM libraries nor external LLVM tools
 - optionally `just` for convenience recipes and Valgrind for the Linux leak lane
 
 ```bash
@@ -177,7 +180,7 @@ Inspect front-end output:
 ./build/noria --emit-ast examples/basic/factorial.noria
 ```
 
-Set `LLVM_BIN` when LLVM tools are not on `PATH`.
+Set `LLVM_BIN` to the LLVM tool directory when `opt` and `llc` are not in their default locations. Keeping both tools from the same LLVM installation avoids dialect mismatches between optimized IR and object emission; final linking still uses the host Clang driver so platform SDK and system-library discovery remain native to the host.
 
 ## Verification
 
@@ -205,7 +208,7 @@ just valgrind   # wrap compiler invocations under Valgrind
 
 The end-to-end harness validates more than successful compilation. It checks located diagnostics, emitted IR patterns, native exit codes and stdout, stable runtime trap status/messages, ownership drops, specialization reuse, and ADT conformance across implementation tags. A named high-risk manifest reruns ownership and container cases at `-O2`. Container fixtures cover both Sequence implementations, both Dictionary/Set representations, mixed scalar widths, heap-allocated strings, arrays, and heap-over-Sequence. Four generated-but-checked-in reference models each replay a deterministic 300-operation trace against expected state, including clone divergence, resize/tombstone behavior, and alternate representations.
 
-The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, and the `cmake --install` layout. GitHub Actions runs normal, sanitizer, and required leak lanes on macOS and Ubuntu.
+The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, the `cmake --install` layout, and the same-LLVM `llc` object path used before host linking. GitHub Actions requires both `opt` and `llc` and runs normal, sanitizer, and required leak lanes on macOS and Ubuntu.
 
 Fuzzing is WIP and is not part of the canonical test suite or a benchmark. A separate scheduled workflow currently runs the Clang/libFuzzer target weekly and uploads crash artifacts on failure.
 
