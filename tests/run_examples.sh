@@ -90,6 +90,7 @@ resolve_host_clang() {
 
 CLANG="$(resolve_host_clang)"
 OPT="$(resolve_tool opt)"
+LLC="$(resolve_tool llc)"
 NORIA_NATIVE_ASAN="${NORIA_NATIVE_ASAN:-0}"
 NORIA_RUN_LEAK_CHECKS="${NORIA_RUN_LEAK_CHECKS:-0}"
 NORIA_REQUIRE_LEAK_CHECKS="${NORIA_REQUIRE_LEAK_CHECKS:-0}"
@@ -163,7 +164,15 @@ link_ir() {
     echo "[noria-tests] native ASan instrumentation active for ${executable##*/}"
     "${CLANG}" "${link_ir_path}" -lm -fsanitize=address -o "${executable}"
   else
-    "${CLANG}" "${link_ir_path}" -lm -o "${executable}"
+    # Homebrew opt IR can include memory() attributes Apple clang rejects. Assemble
+    # with the same LLVM's llc, then link the object with the host clang.
+    if [[ -n "${LLC}" ]]; then
+      local object_file="${executable}.o"
+      "${LLC}" -filetype=obj "${link_ir_path}" -o "${object_file}"
+      "${CLANG}" "${object_file}" -lm -o "${executable}"
+    else
+      "${CLANG}" "${link_ir_path}" -lm -o "${executable}"
+    fi
   fi
 }
 
@@ -195,6 +204,10 @@ fi
 
 if [[ "${NORIA_REQUIRE_LLVM_TOOLS}" != "0" && -z "${OPT}" ]]; then
   fail "opt is required when NORIA_REQUIRE_LLVM_TOOLS is enabled"
+fi
+
+if [[ "${NORIA_REQUIRE_LLVM_TOOLS}" != "0" && -z "${LLC}" ]]; then
+  fail "llc is required when NORIA_REQUIRE_LLVM_TOOLS is enabled"
 fi
 
 mkdir -p "${TEST_OUT_DIR}"

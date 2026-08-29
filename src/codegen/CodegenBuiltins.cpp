@@ -84,12 +84,15 @@ namespace noria {
   LLVMGenerator::BuiltinsState::emitPrintBuiltin(const ast::CallExpression& call, IREmitter& emitter,
                                         FunctionCodegenContext& context,
                                         const std::vector<Scope>& scopes) const {
-    const Value argument = generator().generateRvalue(*call.arguments[0], emitter, context, scopes);
+    const Value argument =
+        generator().generateRvalue(*call.arguments[0], emitter, context, scopes, std::nullopt,
+                                   LLVMGenerator::OwnershipMode::Borrow);
     const std::string formatPointer = emitter.freshTemp();
     emitter.line(formatPointer +
                  " = getelementptr inbounds [3 x i8], ptr @.fmt.str, i32 0, i32 0");
     emitter.line("call i32 (ptr, ...) @printf(ptr " + formatPointer + ", ptr " + argument.text +
                  ")");
+    generator().emitReleaseIfOwned(argument, emitter, context);
     return Value{"", Type::voidType()};
   }
 

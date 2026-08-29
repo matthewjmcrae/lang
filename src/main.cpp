@@ -386,7 +386,7 @@ namespace {
   }
 
   // Homebrew LLVM's clang cannot link macOS host binaries (SDK / libSystem).
-  // Native builds use the system driver; llvmToolPath stays for `opt` only.
+  // Native builds use the system driver; llvmToolPath stays for `opt` and `llc`.
   std::string hostClangPath() {
     const std::filesystem::path systemClang{"/usr/bin/clang"};
     if (pathExists(systemClang)) {
@@ -442,16 +442,26 @@ namespace {
     const std::filesystem::path executable = outputPath.empty() ? "a.out" : outputPath;
     const ScopedTempDirectory temp;
     const std::filesystem::path llPath = temp.path / "program.ll";
+    const std::filesystem::path objPath = temp.path / "program.o";
     const std::string targetTriple = noria::runtime::targetTriple();
+    const std::string llcPath = llvmToolPath("llc");
 
     writeOutput(llPath, llvmIr);
+
+    // Homebrew `opt` can emit IR Apple clang cannot parse (e.g. target_memN memory
+    // attributes). Assemble with the same LLVM's llc, then link with the host driver.
+    std::string linkInput = llPath.string();
+    if (pathExists(llcPath)) {
+      runCommand({llcPath, "-filetype=obj", llPath.string(), "-o", objPath.string()});
+      linkInput = objPath.string();
+    }
 
     std::vector<std::string> command{hostClangPath()};
     if (!targetTriple.empty()) {
       command.push_back("--target=" + targetTriple);
     }
     // Linux needs libm for llvm.sqrt.f64 / llvm.pow.f64; macOS provides them via libSystem.
-    command.push_back(llPath.string());
+    command.push_back(linkInput);
     command.push_back("-lm");
     command.push_back("-o");
     command.push_back(executable.string());
