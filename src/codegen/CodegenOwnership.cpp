@@ -274,4 +274,20 @@ namespace noria::codegen_detail {
     }
   }
 
+  void OwnershipEmitter::emitAssignPlace(const LocalBinding& dest, Value rvalue, IREmitter& emitter,
+                                         FunctionCodegenContext& context) const {
+    if (typeNeedsDrop(dest.type, context)) {
+      if (!dest.ownedSlot.empty()) {
+        emitDropLocal(dest, emitter, context);
+      } else {
+        const std::string oldValue = memory_.emitBufferLoad(dest.type, dest.slot, emitter);
+        emitDropValue(Value{oldValue, dest.type, true}, emitter, context);
+      }
+      if (!rvalue.owned) {
+        rvalue = emitCloneValue(rvalue, emitter, context);
+      }
+    }
+    emitStoreManagedLocal(dest, rvalue, emitter, context);
+  }
+
 } // namespace noria::codegen_detail

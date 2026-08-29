@@ -164,12 +164,8 @@ namespace noria::codegen_detail {
   }
 
   void ExpressionEmitter::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
-    Value field = state_.structs_.generateFieldAccess(state_, access, emitter_, context_);
-    if (ownership_ == LLVMGenerator::OwnershipMode::Own &&
-        state_.ownership_.typeNeedsDrop(field.type, context_)) {
-      field = state_.ownership_.emitCloneValue(field, emitter_, context_);
-    }
-    result_ = field;
+    result_ = state_.structs_.generateFieldAccess(state_, state_.ownership_, access, emitter_,
+                                                  context_, ownership_);
   }
 
   Value ExpressionEmitter::generateStringLiteral(const ast::StringLiteral& literal,

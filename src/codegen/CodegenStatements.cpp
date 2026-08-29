@@ -140,38 +140,9 @@ namespace noria::codegen_detail {
     const LocalBinding local =
         state_.places_.generatePlace(*assignmentStatement.lhs, emitter_, context_);
 
-    Value rvalue = state_.expressions_.generateRvalue(*assignmentStatement.rhs, emitter_, context_,
-                                                      local.type);
-
-    if (local.byteBuffer && state_.ownership_.typeContainsManaged(local.type, context_)) {
-      const std::string oldValue = state_.memory_.emitBufferLoad(local.type, local.slot, emitter_);
-      state_.ownership_.emitDropValue(Value{oldValue, local.type, true}, emitter_, context_);
-      if (state_.ownership_.typeNeedsDrop(local.type, context_) && !rvalue.owned) {
-        rvalue = state_.ownership_.emitCloneValue(rvalue, emitter_, context_);
-      }
-      state_.memory_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
-      returned_ = false;
-      return;
-    }
-
-    if (!local.ownedSlot.empty()) {
-      state_.ownership_.emitDropLocal(local, emitter_, context_);
-      if (dynamic_cast<const ast::IdentifierExpression*>(assignmentStatement.rhs.get()) !=
-              nullptr ||
-          dynamic_cast<const ast::FieldAccessExpression*>(assignmentStatement.rhs.get()) !=
-              nullptr) {
-        if (!rvalue.owned) {
-          rvalue = state_.ownership_.emitCloneValue(rvalue, emitter_, context_);
-        }
-      } else if (!rvalue.owned) {
-        rvalue.owned = true;
-      }
-      state_.ownership_.emitStoreManagedLocal(local, rvalue, emitter_, context_);
-    } else if (local.byteBuffer) {
-      state_.memory_.emitBufferStore(local.type, rvalue.text, local.slot, emitter_);
-    } else {
-      emitter_.emitStore(local.type, rvalue.text, local.slot);
-    }
+    const Value rvalue = state_.expressions_.generateRvalue(*assignmentStatement.rhs, emitter_,
+                                                           context_, local.type);
+    state_.ownership_.emitAssignPlace(local, rvalue, emitter_, context_);
     returned_ = false;
   }
 

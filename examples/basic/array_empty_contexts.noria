@@ -18,5 +18,6 @@ fn main() -> i32 {
   let holder: Holder = Holder { nested: [] };
   holder.nested = [];
 
-  return len(values) + len(names) + count_flags([]) + len(empty_floats()) + len(holder.nested);
+  return len(values) + len(names) + count_flags([]) + len(empty_floats()) + len(holder.nested) +
+         len((Holder { nested: [] }).nested);
 }

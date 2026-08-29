@@ -104,45 +104,39 @@ namespace noria::codegen_detail {
   }
 
   Value StructEmitter::generateFieldAccess(const ExpressionEmitter& expressions,
+                                           const OwnershipEmitter& ownership,
                                            const ast::FieldAccessExpression& access,
-                                           IREmitter& emitter,
-                                           FunctionCodegenContext& context) const {
-    std::string slot;
-    Type structType;
-
-    if (const auto* identifier =
-            dynamic_cast<const ast::IdentifierExpression*>(access.base.get())) {
-      const LocalBinding& local = context.lookupLocal(identifier->name);
-      if (local.type.kind() != TypeKind::Struct) {
-        throw CompileError("codegen: field access requires struct base");
-      }
-      slot = local.slot;
-      structType = local.type;
-    } else {
-      const Value base = expressions.generateRvalue(*access.base, emitter, context, std::nullopt,
-                                                    LLVMGenerator::OwnershipMode::Borrow);
-      if (base.type.kind() != TypeKind::Struct) {
-        throw CompileError("codegen: field access requires struct base");
-      }
-      structType = base.type;
-      slot = emitter.freshTemp();
-      emitter.emitAlloca(structType, slot);
-      emitter.emitStore(structType, base.text, slot);
+                                           IREmitter& emitter, FunctionCodegenContext& context,
+                                           LLVMGenerator::OwnershipMode ownershipMode) const {
+    const Value base = expressions.generateRvalue(*access.base, emitter, context, std::nullopt,
+                                                  LLVMGenerator::OwnershipMode::Borrow);
+    if (base.type.kind() != TypeKind::Struct) {
+      throw CompileError("codegen: field access requires struct base");
     }
 
-    const StructLayout& layout = lookupStructLayout(context, structType);
+    const std::string slot = emitter.freshTemp();
+    emitter.emitAlloca(base.type, slot);
+    emitter.emitStore(base.type, base.text, slot);
+
+    const StructLayout& layout = lookupStructLayout(context, base.type);
     const auto fieldIndex = layout.fieldIndex.find(access.fieldName);
     if (fieldIndex == layout.fieldIndex.end()) {
-      throw CompileError("codegen: struct '" + structType.structName() + "' has no field '" +
+      throw CompileError("codegen: struct '" + base.type.structName() + "' has no field '" +
                          access.fieldName + "'");
     }
 
     const Type fieldType = layout.fieldTypes[fieldIndex->second];
     const std::string pointer =
-        emitStructFieldPointer(structType, slot, fieldIndex->second, emitter);
+        emitStructFieldPointer(base.type, slot, fieldIndex->second, emitter);
     const std::string result = emitter.freshTemp();
     emitter.emitLoad(fieldType, pointer, result);
-    return Value{result, fieldType};
+    Value field{result, fieldType, false};
+    if (ownership.typeNeedsDrop(fieldType, context) &&
+        (ownershipMode == LLVMGenerator::OwnershipMode::Own || base.owned)) {
+      field = ownership.emitCloneValue(field, emitter, context);
+    }
+    ownership.emitReleaseIfOwned(base, emitter, context);
+    return field;
   }
 
 } // namespace noria::codegen_detail

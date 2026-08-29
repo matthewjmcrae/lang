@@ -135,8 +135,9 @@ namespace noria::codegen_detail {
     Value generateStructLiteral(const ExpressionEmitter&, const OwnershipEmitter&,
                                 const ast::StructLiteral&, IREmitter&,
                                 FunctionCodegenContext&) const;
-    Value generateFieldAccess(const ExpressionEmitter&, const ast::FieldAccessExpression&,
-                              IREmitter&, FunctionCodegenContext&) const;
+    Value generateFieldAccess(const ExpressionEmitter&, const OwnershipEmitter&,
+                              const ast::FieldAccessExpression&, IREmitter&,
+                              FunctionCodegenContext&, LLVMGenerator::OwnershipMode) const;
     std::unordered_map<std::string, StructLayout> collectStructLayouts(const ast::Module&) const;
     std::string emitStructTypeDefinitions(const ast::Module&) const;
     const StructLayout& lookupStructLayout(const FunctionCodegenContext&, const Type&) const;
@@ -158,6 +159,7 @@ namespace noria::codegen_detail {
     Value emitCloneValue(const Value&, IREmitter&, FunctionCodegenContext&) const;
     void emitStoreManagedLocal(const LocalBinding&, const Value&, IREmitter&,
                                FunctionCodegenContext&) const;
+    void emitAssignPlace(const LocalBinding&, Value, IREmitter&, FunctionCodegenContext&) const;
     void emitReleaseIfOwned(const Value&, IREmitter&, FunctionCodegenContext&) const;
 
   private:
