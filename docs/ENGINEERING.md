@@ -96,9 +96,13 @@ Deep clone support is a first-class operation rather than incidental copy constr
 
 ### Thin facades and focused compiler services
 
-The public compiler surface is a single `compileSource()` facade. `TypeChecker` follows the same boundary at the stage level: its public header contains the stable checking and specialization API plus one `std::unique_ptr<Impl>`. Move construction and assignment move that pointer, so no internal collaborator needs rebinding.
+The public compiler surface is a single `compileSource()` facade. `TypeChecker` and `LLVMGenerator` follow the same boundary at the stage level: each public header contains the stable stage API plus one `std::unique_ptr<Impl>`. `Impl` is a composition root of direct, non-polymorphic collaborators, not a second stage API. Move construction and assignment move that pointer, so no internal collaborator needs rebinding.
 
-`TypeChecker::Impl` is a composition root, not a second checker API. It constructs direct, non-polymorphic collaborators and their shared `TypeCheckContext`:
+Pimpl is the right boundary here for three reasons. It keeps the include surface small and stable, so clients do not pull visitors, emitter headers, or per-function lowering types. It lets the internal file split grow without changing the public header. And it makes moves a pointer steal instead of rewriting parent back-pointers after relocating heap proxies.
+
+These stages are not a GoF State machine. Checkers and emitters all exist at once and call each other during one check or one `generate()`. Naming those objects “state” produced heap proxies and a service locator, not exclusive modes that transition.
+
+`TypeChecker::Impl` constructs collaborators around a shared `TypeCheckContext`:
 
 - `TypeEnvironment` owns active-module declaration metadata, callable signatures, generic families, struct metadata, and symbol origins;
 - `TypeCheckSession` owns per-check transient data such as the current function name;
@@ -109,7 +113,7 @@ Semantic work remains in the component that owns it. `TypeCheckDriver` sequences
 
 The implementation is correspondingly split across `src/typecheck/TypeCheckerDriver.cpp`, `TypeCheckerDeclarations.cpp`, `TypeCheckerCalls.cpp`, `TypeCheckerExpressions.cpp`, `TypeCheckerPlaces.cpp`, `TypeCheckerStatements.cpp`, `TypeCheckerStructs.cpp`, `TypeRelations.cpp`, and `TypeCheckerContext.cpp`. The façade implementation contains lifecycle and public-API forwarding only.
 
-Code generation is likewise organized by domain—module sequencing, builtins, expressions, places, statements, structs, ownership, and support—while module and function contexts separate long-lived module metadata from per-function output and lexical bindings. This keeps compiler stages smaller than a general pass-manager framework without centralizing semantic or lowering rules in a public façade.
+`LLVMGenerator::Impl` owns specialization maps plus `ModuleEmitter`, `BuiltinEmitter`, `ExpressionEmitter`, `PlaceEmitter`, `StatementEmitter`, `StructEmitter`, `MemoryEmitter`, and `OwnershipEmitter`. Recursive expression emission is passed into builtin and struct methods. Module and function contexts are per-call so one `generate()` cannot leak locals, bindings, globals, or counters into another. The façade implementation again contains lifecycle and public-API forwarding only.
 
 ### Semantic registries instead of parallel switch logic
 

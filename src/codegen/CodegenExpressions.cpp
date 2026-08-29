@@ -1,4 +1,4 @@
-#include "CodegenState.hpp"
+#include "CodegenInternal.hpp"
 
 #include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
@@ -17,38 +17,34 @@
 #include <unordered_map>
 #include <utility>
 
-namespace noria {
+namespace noria::codegen_detail {
 
-  using namespace codegen_detail;
+  ExpressionEmitter::ExpressionVisitor::ExpressionVisitor(const ExpressionEmitter& state,
+                                                          IREmitter& emitter,
+                                                          FunctionCodegenContext& context,
+                                                          std::optional<Type> expectedType,
+                                                          LLVMGenerator::OwnershipMode ownership)
+      : ExpressionOnlyVisitor("codegen"), state_(state), emitter_(emitter), context_(context),
+        expectedType_(std::move(expectedType)), ownership_(ownership) {}
 
-  LLVMGenerator::ExpressionsState::ExpressionVisitor::ExpressionVisitor(const ExpressionsState& state,
-                                                      IREmitter& emitter,
-                                                      FunctionCodegenContext& context,
-                                                      const std::vector<Scope>& scopes,
-                                                      std::optional<Type> expectedType,
-                                                      LLVMGenerator::OwnershipMode ownership)
-      : ExpressionOnlyVisitor("codegen"), state_(state), emitter_(emitter),
-        context_(context), scopes_(scopes), expectedType_(std::move(expectedType)),
-        ownership_(ownership) {}
-
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::IntegerLiteral& integer) {
     result_ = Value{std::to_string(integer.value), Type::i32()};
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::FloatLiteral& floating) {
     result_ = Value{formatLLVMFloatLiteral(floating.value), Type::f64()};
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::StringLiteral& stringLiteral) {
     result_ = state_.generateStringLiteral(stringLiteral, emitter_, context_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::BoolLiteral& boolean) {
     result_ = Value{boolean.value ? "true" : "false", Type::boolean()};
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
-    const Value operand = state_.generateRvalue(*unary.operand, emitter_, context_, scopes_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::UnaryExpression& unary) {
+    const Value operand = state_.generateRvalue(*unary.operand, emitter_, context_);
     const std::string result = emitter_.freshTemp();
     const UnaryOperatorInfo* info = unaryOperatorInfo(unary.op);
     if (info == nullptr) {
@@ -81,36 +77,36 @@ namespace noria {
     throw CompileError("codegen: internal error: unknown unary codegen rule");
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
-    result_ = state_.generateCastExpression(castExpression, emitter_, context_, scopes_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::CastExpression& castExpression) {
+    result_ = state_.generateCastExpression(castExpression, emitter_, context_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
-    result_ = state_.generateBinaryExpression(binary, emitter_, context_, scopes_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::BinaryExpression& binary) {
+    result_ = state_.generateBinaryExpression(binary, emitter_, context_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
-    const LocalBinding& local = state_.generator().lookupLocal(scopes_, identifier.name);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::IdentifierExpression& identifier) {
+    const LocalBinding& local = context_.lookupLocal(identifier.name);
 
     const std::string result = emitter_.freshTemp();
     emitter_.emitLoad(local.type, local.slot, result);
     Value loaded{result, local.type, false};
     if (ownership_ == LLVMGenerator::OwnershipMode::Own &&
-        state_.generator().typeNeedsDrop(local.type, context_)) {
-      result_ = state_.generator().emitCloneValue(loaded, emitter_, context_);
+        state_.ownership_.typeNeedsDrop(local.type, context_)) {
+      result_ = state_.ownership_.emitCloneValue(loaded, emitter_, context_);
       return;
     }
     result_ = loaded;
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::CallExpression& call) {
-    if (auto builtin = state_.generator().tryGenerateBuiltinCall(call, emitter_, context_, scopes_)) {
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::CallExpression& call) {
+    if (auto builtin = state_.builtins_.tryGenerateBuiltinCall(call, emitter_, context_, state_)) {
       result_ = *builtin;
       return;
     }
 
-    const auto function = context_.functions.find(call.callee);
-    if (function == context_.functions.end())
+    const auto function = context_.module.functions.find(call.callee);
+    if (function == context_.module.functions.end())
       throw CompileError("codegen: unknown function '" + call.callee + "'");
 
     std::vector<Value> arguments;
@@ -119,8 +115,8 @@ namespace noria {
     for (std::size_t index{}; index < call.arguments.size(); ++index) {
       const Type expectedType = function->second.parameterTypes[index];
       arguments.push_back(state_.generateRvalue(*call.arguments[index], emitter_, context_,
-                                                    scopes_, expectedType,
-                                                    LLVMGenerator::OwnershipMode::Borrow));
+                                                expectedType,
+                                                LLVMGenerator::OwnershipMode::Borrow));
     }
 
     const bool returnsVoid = function->second.returnType == Type::voidType();
@@ -139,7 +135,7 @@ namespace noria {
     emitter_.line(callLine);
 
     for (const Value& argument : arguments) {
-      state_.generator().emitReleaseIfOwned(argument, emitter_, context_);
+      state_.ownership_.emitReleaseIfOwned(argument, emitter_, context_);
     }
 
     if (returnsVoid) {
@@ -148,42 +144,43 @@ namespace noria {
     }
 
     Value returnValue{result, function->second.returnType, false};
-    if (state_.generator().typeNeedsDrop(function->second.returnType, context_)) {
+    if (state_.ownership_.typeNeedsDrop(function->second.returnType, context_)) {
       returnValue.owned = true;
     }
     result_ = returnValue;
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
-    result_ = state_.generateArrayLiteral(literal, emitter_, context_, scopes_, expectedType_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::ArrayLiteral& literal) {
+    result_ = state_.generateArrayLiteral(literal, emitter_, context_, expectedType_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::IndexExpression& index) {
-    result_ = state_.generateIndexExpression(index, emitter_, context_, scopes_, ownership_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::IndexExpression& index) {
+    result_ = state_.generateIndexExpression(index, emitter_, context_, ownership_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
-    result_ = state_.generator().generateStructLiteral(literal, emitter_, context_, scopes_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::StructLiteral& literal) {
+    result_ = state_.structs_.generateStructLiteral(state_, state_.ownership_, literal, emitter_,
+                                                    context_);
   }
 
-  void LLVMGenerator::ExpressionsState::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
-    Value field = state_.generator().generateFieldAccess(access, emitter_, context_, scopes_);
+  void ExpressionEmitter::ExpressionVisitor::visit(const ast::FieldAccessExpression& access) {
+    Value field = state_.structs_.generateFieldAccess(state_, access, emitter_, context_);
     if (ownership_ == LLVMGenerator::OwnershipMode::Own &&
-        state_.generator().typeNeedsDrop(field.type, context_)) {
-      field = state_.generator().emitCloneValue(field, emitter_, context_);
+        state_.ownership_.typeNeedsDrop(field.type, context_)) {
+      field = state_.ownership_.emitCloneValue(field, emitter_, context_);
     }
     result_ = field;
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateStringLiteral(const ast::StringLiteral& literal,
-                                                            IREmitter& emitter,
-                                                            FunctionCodegenContext& context) const {
-    return Value{generator().emitCStringPointer(literal.value, emitter, context), Type::str(), false};
+  Value ExpressionEmitter::generateStringLiteral(const ast::StringLiteral& literal,
+                                                 IREmitter& emitter,
+                                                 FunctionCodegenContext& context) const {
+    return Value{memory_.emitCStringPointer(literal.value, emitter, context), Type::str(), false};
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayLiteral(
-      const ast::ArrayLiteral& literal, IREmitter& emitter, FunctionCodegenContext& context,
-      const std::vector<Scope>& scopes, const std::optional<Type>& expectedType) const {
+  Value ExpressionEmitter::generateArrayLiteral(const ast::ArrayLiteral& literal,
+                                                IREmitter& emitter, FunctionCodegenContext& context,
+                                                const std::optional<Type>& expectedType) const {
     std::optional<Type> expectedElementType;
     if (expectedType && expectedType->kind() == TypeKind::Array) {
       expectedElementType = expectedType->elementType();
@@ -193,14 +190,14 @@ namespace noria {
     elements.reserve(literal.elements.size());
 
     for (const auto& element : literal.elements) {
-      elements.push_back(generateRvalue(*element, emitter, context, scopes, expectedElementType));
+      elements.push_back(generateRvalue(*element, emitter, context, expectedElementType));
     }
 
     if (elements.empty()) {
       if (!expectedElementType) {
         throw CompileError("codegen: empty array literal missing expected array type");
       }
-      return generator().emitDefaultValue(Type::array(*expectedElementType), emitter, context);
+      return module().emitDefaultValue(Type::array(*expectedElementType), emitter, context);
     }
 
     const Type elementType = elements.front().type;
@@ -208,7 +205,8 @@ namespace noria {
     const std::size_t count = elements.size();
     const std::size_t totalBytes = 8 + count * elementSizeInBytes(elementType);
 
-    const std::string base = generator().emitCheckedMalloc(std::to_string(totalBytes), emitter, context);
+    const std::string base =
+        memory_.emitCheckedMalloc(std::to_string(totalBytes), emitter, context);
     emitter.line("store i64 " + std::to_string(count) + ", ptr " + base);
 
     const std::string elems = emitter.freshTemp();
@@ -216,23 +214,21 @@ namespace noria {
 
     for (std::size_t index{}; index < count; ++index) {
       const Value indexValue{std::to_string(index), Type::i32()};
-      const std::string slot = generator().emitRawBufferElementPointer(Value{elems, Type::rawPtr()}, indexValue,
-                                                           elementType, emitter);
-      generator().emitBufferStore(elementType, elements[index].text, slot, emitter);
+      const std::string slot = memory_.emitRawBufferElementPointer(
+          Value{elems, Type::rawPtr()}, indexValue, elementType, emitter);
+      memory_.emitBufferStore(elementType, elements[index].text, slot, emitter);
     }
 
     return Value{base, arrayType, true};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::generateIndexExpression(const ast::IndexExpression& index,
-                                                           IREmitter& emitter,
-                                                           FunctionCodegenContext& context,
-                                                           const std::vector<Scope>& scopes,
-                                                           LLVMGenerator::OwnershipMode ownership) const {
-    const Value base = generateRvalue(*index.base, emitter, context, scopes, std::nullopt,
+  Value ExpressionEmitter::generateIndexExpression(const ast::IndexExpression& index,
+                                                   IREmitter& emitter,
+                                                   FunctionCodegenContext& context,
+                                                   LLVMGenerator::OwnershipMode ownership) const {
+    const Value base = generateRvalue(*index.base, emitter, context, std::nullopt,
                                       LLVMGenerator::OwnershipMode::Borrow);
-    const Value indexValue = generateRvalue(*index.index, emitter, context, scopes);
+    const Value indexValue = generateRvalue(*index.index, emitter, context);
 
     if (index.standardContainer) {
       const StandardContainer container = index.standardContainer->first;
@@ -258,7 +254,7 @@ namespace noria {
       emitter.emitBranch(ready);
 
       emitter.emitLabel(missing);
-      const Value defaultValue = emitDefaultValue(typeArgs[1], emitter, context);
+      const Value defaultValue = module().emitDefaultValue(typeArgs[1], emitter, context);
       (void)emitStandardContainerCall(container, ContainerOperation::Insert, typeArgs,
                                       {base, indexValue, defaultValue}, emitter, context);
       emitter.emitBranch(ready);
@@ -271,19 +267,19 @@ namespace noria {
     if (base.type.kind() == TypeKind::Array) {
       const Type elementType = base.type.elementType();
       const std::string pointer =
-          emitArrayElementPointer(base, indexValue, elementType, emitter, context);
-      const std::string result = emitBufferLoad(elementType, pointer, emitter);
+          memory_.emitArrayElementPointer(base, indexValue, elementType, emitter, context);
+      const std::string result = memory_.emitBufferLoad(elementType, pointer, emitter);
       Value loaded{result, elementType, false};
       if (ownership == LLVMGenerator::OwnershipMode::Own &&
-          generator().typeNeedsDrop(elementType, context)) {
-        return generator().emitCloneValue(loaded, emitter, context);
+          ownership_.typeNeedsDrop(elementType, context)) {
+        return ownership_.emitCloneValue(loaded, emitter, context);
       }
       return loaded;
     }
 
     const std::string length = emitter.freshTemp();
     emitter.line(length + " = call i64 @strlen(ptr " + base.text + ")");
-    emitBoundsCheck(length, indexValue, emitter, context, "string index out of bounds\n");
+    memory_.emitBoundsCheck(length, indexValue, emitter, context, "string index out of bounds\n");
 
     const std::string pointer = emitter.freshTemp();
     emitter.line(pointer + " = getelementptr inbounds i8, ptr " + base.text + ", i32 " +
@@ -295,9 +291,8 @@ namespace noria {
     return Value{result, Type::i32()};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::emitCheckedF64ToI32Cast(const Value& source, IREmitter& emitter,
-                                         FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::emitCheckedF64ToI32Cast(const Value& source, IREmitter& emitter,
+                                                   FunctionCodegenContext& context) const {
     constexpr double minimumInput =
         static_cast<double>(std::numeric_limits<std::int32_t>::min()) - 1.0;
     constexpr double maximumInput =
@@ -311,18 +306,17 @@ namespace noria {
                  formatLLVMFloatLiteral(maximumInput));
     const std::string inRange = emitter.freshTemp();
     emitter.line(inRange + " = and i1 " + aboveMinimum + ", " + belowMaximum);
-    generator().emitTrapUnless(inRange, "cast", emitter, context, "invalid f64 to i32 cast\n");
+    memory_.emitTrapUnless(inRange, "cast", emitter, context, "invalid f64 to i32 cast\n");
 
     const std::string result = emitter.freshTemp();
     emitter.line(result + " = fptosi double " + source.text + " to i32");
     return Value{result, Type::i32()};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::generateCastExpression(const ast::CastExpression& cast, IREmitter& emitter,
-                                        FunctionCodegenContext& context,
-                                        const std::vector<Scope>& scopes) const {
-    const Value source = generateRvalue(*cast.expression, emitter, context, scopes);
+  Value ExpressionEmitter::generateCastExpression(const ast::CastExpression& cast,
+                                                  IREmitter& emitter,
+                                                  FunctionCodegenContext& context) const {
+    const Value source = generateRvalue(*cast.expression, emitter, context);
     const Type targetType = cast.targetType;
 
     if (source.type == targetType)
@@ -353,30 +347,27 @@ namespace noria {
     throw CompileError("codegen: unsupported cast");
   }
 
-  std::string LLVMGenerator::ExpressionsState::generateCondition(const ast::Expression& expression,
-                                               IREmitter& emitter, FunctionCodegenContext& context,
-                                               const std::vector<Scope>& scopes) const {
-    const Value value = generateRvalue(expression, emitter, context, scopes);
+  std::string ExpressionEmitter::generateCondition(const ast::Expression& expression,
+                                                   IREmitter& emitter,
+                                                   FunctionCodegenContext& context) const {
+    const Value value = generateRvalue(expression, emitter, context);
     if (value.type != Type::boolean())
       throw CompileError("codegen: condition must be bool");
     return value.text;
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateRvalue(const ast::Expression& expression,
-                                                     IREmitter& emitter,
-                                                     FunctionCodegenContext& context,
-                                                     const std::vector<Scope>& scopes,
-                                                     std::optional<Type> expectedType,
-                                                     LLVMGenerator::OwnershipMode ownership) const {
-    ExpressionVisitor visitor(*this, emitter, context, scopes, std::move(expectedType), ownership);
+  Value ExpressionEmitter::generateRvalue(const ast::Expression& expression, IREmitter& emitter,
+                                          FunctionCodegenContext& context,
+                                          std::optional<Type> expectedType,
+                                          LLVMGenerator::OwnershipMode ownership) const {
+    ExpressionVisitor visitor(*this, emitter, context, std::move(expectedType), ownership);
     expression.accept(visitor);
     return visitor.result();
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::generateBinaryExpression(const ast::BinaryExpression& binary, IREmitter& emitter,
-                                          FunctionCodegenContext& context,
-                                          const std::vector<Scope>& scopes) const {
+  Value ExpressionEmitter::generateBinaryExpression(const ast::BinaryExpression& binary,
+                                                    IREmitter& emitter,
+                                                    FunctionCodegenContext& context) const {
 
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
@@ -384,12 +375,12 @@ namespace noria {
     }
 
     if (info->shortCircuit) {
-      return generateShortCircuitBinaryExpression(binary, emitter, context, scopes);
+      return generateShortCircuitBinaryExpression(binary, emitter, context);
     }
 
-    const Value left = generateRvalue(*binary.left, emitter, context, scopes, std::nullopt,
+    const Value left = generateRvalue(*binary.left, emitter, context, std::nullopt,
                                       LLVMGenerator::OwnershipMode::Borrow);
-    const Value right = generateRvalue(*binary.right, emitter, context, scopes, std::nullopt,
+    const Value right = generateRvalue(*binary.right, emitter, context, std::nullopt,
                                        LLVMGenerator::OwnershipMode::Borrow);
 
     if (binary.op == ast::BinaryOperator::Add && left.type == Type::str() &&
@@ -405,21 +396,22 @@ namespace noria {
 
     if (info->comparison) {
       const Value result = generateComparisonExpression(binary, left, right, emitter);
-      generator().emitReleaseIfOwned(left, emitter, context);
-      generator().emitReleaseIfOwned(right, emitter, context);
+      ownership_.emitReleaseIfOwned(left, emitter, context);
+      ownership_.emitReleaseIfOwned(right, emitter, context);
       return result;
     }
 
     const Value result = generateNumericBinaryExpression(binary, left, right, emitter, context);
-    generator().emitReleaseIfOwned(left, emitter, context);
-    generator().emitReleaseIfOwned(right, emitter, context);
+    ownership_.emitReleaseIfOwned(left, emitter, context);
+    ownership_.emitReleaseIfOwned(right, emitter, context);
     return result;
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateShortCircuitBinaryExpression(
-      const ast::BinaryExpression& binary, IREmitter& emitter, FunctionCodegenContext& context,
-      const std::vector<Scope>& scopes) const {
-    const Value left = generateRvalue(*binary.left, emitter, context, scopes);
+  Value
+  ExpressionEmitter::generateShortCircuitBinaryExpression(const ast::BinaryExpression& binary,
+                                                          IREmitter& emitter,
+                                                          FunctionCodegenContext& context) const {
+    const Value left = generateRvalue(*binary.left, emitter, context);
     const int labelId = emitter.freshLabelId();
     const std::string shortCircuitLabel =
         (binary.op == ast::BinaryOperator::And ? "and.short" : "or.short") +
@@ -439,7 +431,7 @@ namespace noria {
     emitter.emitBranch(mergeLabel);
 
     emitter.emitLabel(rhsLabel);
-    const Value right = generateRvalue(*binary.right, emitter, context, scopes);
+    const Value right = generateRvalue(*binary.right, emitter, context);
     const std::string rhsJoinLabel =
         (binary.op == ast::BinaryOperator::And ? "and.rhs.join" : "or.rhs.join") +
         std::to_string(labelId);
@@ -455,10 +447,9 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::generateStringConcatExpression(const Value& left, const Value& right,
-                                                IREmitter& emitter,
-                                                FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::generateStringConcatExpression(const Value& left, const Value& right,
+                                                          IREmitter& emitter,
+                                                          FunctionCodegenContext& context) const {
     const std::string leftLength = emitter.freshTemp();
     emitter.line(leftLength + " = call i64 @strlen(ptr " + left.text + ")");
     const std::string rightLength = emitter.freshTemp();
@@ -469,20 +460,20 @@ namespace noria {
     emitter.line(payloadSize + " = add i64 " + sumLength + ", 1");
     const std::string size = emitter.freshTemp();
     emitter.line(size + " = add i64 " + payloadSize + ", 4");
-    const std::string allocation = generator().emitCheckedMalloc(size, emitter, context);
+    const std::string allocation = memory_.emitCheckedMalloc(size, emitter, context);
     emitter.line("store i32 1, ptr " + allocation);
     const std::string buffer = emitter.freshTemp();
     emitter.line(buffer + " = getelementptr i8, ptr " + allocation + ", i64 4");
     emitter.line("call ptr @strcpy(ptr " + buffer + ", ptr " + left.text + ")");
     emitter.line("call ptr @strcat(ptr " + buffer + ", ptr " + right.text + ")");
-    generator().emitReleaseIfOwned(left, emitter, context);
-    generator().emitReleaseIfOwned(right, emitter, context);
+    ownership_.emitReleaseIfOwned(left, emitter, context);
+    ownership_.emitReleaseIfOwned(right, emitter, context);
     return Value{buffer, Type::str(), true};
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateCollectionAddExpression(
-      const Value& left, const Value& right, IREmitter& emitter,
-      FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::generateCollectionAddExpression(const Value& left, const Value& right,
+                                                           IREmitter& emitter,
+                                                           FunctionCodegenContext& context) const {
     if (left.type.kind() == TypeKind::Array && right.type.kind() == TypeKind::Array) {
       return generateArrayAddExpression(left, right, emitter, context);
     }
@@ -492,9 +483,9 @@ namespace noria {
     throw CompileError("codegen: internal error: invalid collection addition operands");
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateArrayAddExpression(
-      const Value& left, const Value& right, IREmitter& emitter,
-      FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::generateArrayAddExpression(const Value& left, const Value& right,
+                                                      IREmitter& emitter,
+                                                      FunctionCodegenContext& context) const {
     if (left.type != right.type) {
       throw CompileError("codegen: internal error: invalid array addition operands");
     }
@@ -506,15 +497,15 @@ namespace noria {
     emitter.line(rightLength + " = load i64, ptr " + right.text);
     const std::string sameLength = emitter.freshTemp();
     emitter.line(sameLength + " = icmp eq i64 " + leftLength + ", " + rightLength);
-    generator().emitTrapUnless(sameLength, "array.add.length", emitter, context,
-                   "array addition requires equal lengths\n");
+    memory_.emitTrapUnless(sameLength, "array.add.length", emitter, context,
+                           "array addition requires equal lengths\n");
 
     const std::string payloadBytes = emitter.freshTemp();
     emitter.line(payloadBytes + " = mul i64 " + leftLength + ", " +
                  std::to_string(elementSizeInBytes(elementType)));
     const std::string totalBytes = emitter.freshTemp();
     emitter.line(totalBytes + " = add i64 " + payloadBytes + ", 8");
-    const std::string result = generator().emitCheckedMalloc(totalBytes, emitter, context);
+    const std::string result = memory_.emitCheckedMalloc(totalBytes, emitter, context);
     emitter.line("store i64 " + leftLength + ", ptr " + result);
 
     const std::string leftElements = emitter.freshTemp();
@@ -543,35 +534,36 @@ namespace noria {
     const std::string index = emitter.freshTemp();
     emitter.line(index + " = trunc i64 " + index64 + " to i32");
     const Value indexValue{index, Type::i32()};
-    const std::string leftPointer =
-        generator().emitRawBufferElementPointer(Value{leftElements, Type::rawPtr()}, indexValue, elementType,
-                                    emitter);
-    const std::string rightPointer =
-        generator().emitRawBufferElementPointer(Value{rightElements, Type::rawPtr()}, indexValue, elementType,
-                                    emitter);
-    const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
-    const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+    const std::string leftPointer = memory_.emitRawBufferElementPointer(
+        Value{leftElements, Type::rawPtr()}, indexValue, elementType, emitter);
+    const std::string rightPointer = memory_.emitRawBufferElementPointer(
+        Value{rightElements, Type::rawPtr()}, indexValue, elementType, emitter);
+    const Value leftElement{memory_.emitBufferLoad(elementType, leftPointer, emitter), elementType};
+    const Value rightElement{memory_.emitBufferLoad(elementType, rightPointer, emitter),
+                             elementType};
     const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
-    const std::string resultPointer =
-        generator().emitRawBufferElementPointer(Value{resultElements, Type::rawPtr()}, indexValue, elementType,
-                                    emitter);
-    generator().emitBufferStore(elementType, sum.text, resultPointer, emitter);
+    const std::string resultPointer = memory_.emitRawBufferElementPointer(
+        Value{resultElements, Type::rawPtr()}, indexValue, elementType, emitter);
+    memory_.emitBufferStore(elementType, sum.text, resultPointer, emitter);
     const std::string nextIndex = emitter.freshTemp();
     emitter.line(nextIndex + " = add i64 " + index64 + ", 1");
     emitter.line("store i64 " + nextIndex + ", ptr " + indexSlot);
     emitter.emitBranch(conditionLabel);
     emitter.emitLabel(endLabel);
-    generator().emitReleaseIfOwned(left, emitter, context);
-    generator().emitReleaseIfOwned(right, emitter, context);
+    ownership_.emitReleaseIfOwned(left, emitter, context);
+    ownership_.emitReleaseIfOwned(right, emitter, context);
     return Value{result, left.type, true};
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateSequenceAddExpression(
-      const Value& left, const Value& right, IREmitter& emitter,
-      FunctionCodegenContext& context) const {
-    const auto specialization = context.module.structSpecializationTypeArgs.find(left.type.structName());
-    if (left.type != right.type || specialization == context.module.structSpecializationTypeArgs.end() ||
-        specialization->second.size() != 2 || specialization->second[1].kind() != TypeKind::ImplTag) {
+  Value ExpressionEmitter::generateSequenceAddExpression(const Value& left, const Value& right,
+                                                         IREmitter& emitter,
+                                                         FunctionCodegenContext& context) const {
+    const auto specialization =
+        context.module.structSpecializationTypeArgs.find(left.type.structName());
+    if (left.type != right.type ||
+        specialization == context.module.structSpecializationTypeArgs.end() ||
+        specialization->second.size() != 2 ||
+        specialization->second[1].kind() != TypeKind::ImplTag) {
       throw CompileError("codegen: internal error: invalid sequence addition operands");
     }
 
@@ -584,7 +576,8 @@ namespace noria {
     const std::string leftHandle = emitter.freshTemp();
     emitter.line(leftHandle + " = extractvalue " + LLVMType(left.type) + " " + left.text + ", 0");
     const std::string rightHandle = emitter.freshTemp();
-    emitter.line(rightHandle + " = extractvalue " + LLVMType(right.type) + " " + right.text + ", 0");
+    emitter.line(rightHandle + " = extractvalue " + LLVMType(right.type) + " " + right.text +
+                 ", 0");
 
     const std::string leftLengthPointer = emitter.freshTemp();
     const std::string rightLengthPointer = emitter.freshTemp();
@@ -599,8 +592,8 @@ namespace noria {
     emitter.line(rightLength + " = load i32, ptr " + rightLengthPointer);
     const std::string sameLength = emitter.freshTemp();
     emitter.line(sameLength + " = icmp eq i32 " + leftLength + ", " + rightLength);
-    generator().emitTrapUnless(sameLength, "sequence.add.length", emitter, context,
-                   "sequence addition requires equal lengths\n");
+    memory_.emitTrapUnless(sameLength, "sequence.add.length", emitter, context,
+                           "sequence addition requires equal lengths\n");
 
     const int labelId = emitter.freshLabelId();
     const std::string indexSlot = emitter.freshTemp();
@@ -616,7 +609,7 @@ namespace noria {
     std::string leftNodeSlot;
     std::string rightNodeSlot;
     if (tag == ImplementationTag::Arr) {
-      resultHandle = generator().emitCheckedMalloc("16", emitter, context);
+      resultHandle = memory_.emitCheckedMalloc("16", emitter, context);
       const std::string needsMinimumCapacity = emitter.freshTemp();
       emitter.line(needsMinimumCapacity + " = icmp slt i32 " + leftLength + ", 4");
       const std::string capacity = emitter.freshTemp();
@@ -627,7 +620,7 @@ namespace noria {
                    std::to_string(elementSizeInBytes(elementType)));
       const std::string dataBytes64 = emitter.freshTemp();
       emitter.line(dataBytes64 + " = sext i32 " + dataBytes + " to i64");
-      const std::string resultData = generator().emitCheckedMalloc(dataBytes64, emitter, context);
+      const std::string resultData = memory_.emitCheckedMalloc(dataBytes64, emitter, context);
       emitter.line("store i32 " + leftLength + ", ptr " + resultHandle);
       const std::string resultCapacityPointer = emitter.freshTemp();
       emitter.line(resultCapacityPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 4");
@@ -654,23 +647,25 @@ namespace noria {
       emitter.emitCondBranch(inRange, bodyLabel, endLabel);
       emitter.emitLabel(bodyLabel);
       const Value indexValue{index, Type::i32()};
-      const std::string leftPointer =
-          generator().emitRawBufferElementPointer(Value{leftData, Type::rawPtr()}, indexValue, elementType, emitter);
-      const std::string rightPointer = generator().emitRawBufferElementPointer(
+      const std::string leftPointer = memory_.emitRawBufferElementPointer(
+          Value{leftData, Type::rawPtr()}, indexValue, elementType, emitter);
+      const std::string rightPointer = memory_.emitRawBufferElementPointer(
           Value{rightData, Type::rawPtr()}, indexValue, elementType, emitter);
-      const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
-      const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+      const Value leftElement{memory_.emitBufferLoad(elementType, leftPointer, emitter),
+                              elementType};
+      const Value rightElement{memory_.emitBufferLoad(elementType, rightPointer, emitter),
+                               elementType};
       const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
-      const std::string resultPointer = generator().emitRawBufferElementPointer(
+      const std::string resultPointer = memory_.emitRawBufferElementPointer(
           Value{resultData, Type::rawPtr()}, indexValue, elementType, emitter);
-      generator().emitBufferStore(elementType, sum.text, resultPointer, emitter);
+      memory_.emitBufferStore(elementType, sum.text, resultPointer, emitter);
       const std::string nextIndex = emitter.freshTemp();
       emitter.line(nextIndex + " = add i32 " + index + ", 1");
       emitter.line("store i32 " + nextIndex + ", ptr " + indexSlot);
       emitter.emitBranch(conditionLabel);
       emitter.emitLabel(endLabel);
     } else {
-      resultHandle = generator().emitCheckedMalloc("20", emitter, context);
+      resultHandle = memory_.emitCheckedMalloc("20", emitter, context);
       emitter.line("store ptr " + resultHandle + ", ptr " + resultHandle);
       const std::string resultNextPointer = emitter.freshTemp();
       emitter.line(resultNextPointer + " = getelementptr i8, ptr " + resultHandle + ", i32 8");
@@ -707,19 +702,21 @@ namespace noria {
       const std::string rightNode = emitter.freshTemp();
       emitter.line(rightNode + " = load ptr, ptr " + rightNodeSlot);
       const Value valueIndex{std::to_string(16 / elementSizeInBytes(elementType)), Type::i32()};
-      const std::string leftPointer =
-          generator().emitRawBufferElementPointer(Value{leftNode, Type::rawPtr()}, valueIndex, elementType, emitter);
-      const std::string rightPointer =
-          generator().emitRawBufferElementPointer(Value{rightNode, Type::rawPtr()}, valueIndex, elementType, emitter);
-      const Value leftElement{generator().emitBufferLoad(elementType, leftPointer, emitter), elementType};
-      const Value rightElement{generator().emitBufferLoad(elementType, rightPointer, emitter), elementType};
+      const std::string leftPointer = memory_.emitRawBufferElementPointer(
+          Value{leftNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      const std::string rightPointer = memory_.emitRawBufferElementPointer(
+          Value{rightNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      const Value leftElement{memory_.emitBufferLoad(elementType, leftPointer, emitter),
+                              elementType};
+      const Value rightElement{memory_.emitBufferLoad(elementType, rightPointer, emitter),
+                               elementType};
       const Value sum = generateElementAddExpression(leftElement, rightElement, emitter, context);
 
-      const std::string newNode =
-          generator().emitCheckedMalloc(std::to_string(16 + elementSizeInBytes(elementType)), emitter, context);
-      const std::string newValuePointer =
-          generator().emitRawBufferElementPointer(Value{newNode, Type::rawPtr()}, valueIndex, elementType, emitter);
-      generator().emitBufferStore(elementType, sum.text, newValuePointer, emitter);
+      const std::string newNode = memory_.emitCheckedMalloc(
+          std::to_string(16 + elementSizeInBytes(elementType)), emitter, context);
+      const std::string newValuePointer = memory_.emitRawBufferElementPointer(
+          Value{newNode, Type::rawPtr()}, valueIndex, elementType, emitter);
+      memory_.emitBufferStore(elementType, sum.text, newValuePointer, emitter);
       const std::string resultLast = emitter.freshTemp();
       emitter.line(resultLast + " = load ptr, ptr " + resultHandle);
       emitter.line("store ptr " + resultLast + ", ptr " + newNode);
@@ -755,9 +752,9 @@ namespace noria {
     return Value{result, left.type};
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateElementAddExpression(
-      const Value& left, const Value& right, IREmitter& emitter,
-      FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::generateElementAddExpression(const Value& left, const Value& right,
+                                                        IREmitter& emitter,
+                                                        FunctionCodegenContext& context) const {
     if (left.type != right.type) {
       throw CompileError("codegen: internal error: mismatched collection element types");
     }
@@ -779,10 +776,9 @@ namespace noria {
     throw CompileError("codegen: internal error: unsupported collection element addition");
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ExpressionsState::generateComparisonExpression(const ast::BinaryExpression& binary,
-                                              const Value& left, const Value& right,
-                                              IREmitter& emitter) const {
+  Value ExpressionEmitter::generateComparisonExpression(const ast::BinaryExpression& binary,
+                                                        const Value& left, const Value& right,
+                                                        IREmitter& emitter) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
       throw CompileError("codegen: internal error: unknown comparison operator");
@@ -809,9 +805,10 @@ namespace noria {
     return Value{result, Type::boolean()};
   }
 
-  LLVMGenerator::Value LLVMGenerator::ExpressionsState::generateNumericBinaryExpression(
-      const ast::BinaryExpression& binary, const Value& left, const Value& right,
-      IREmitter& emitter, FunctionCodegenContext& context) const {
+  Value ExpressionEmitter::generateNumericBinaryExpression(const ast::BinaryExpression& binary,
+                                                           const Value& left, const Value& right,
+                                                           IREmitter& emitter,
+                                                           FunctionCodegenContext& context) const {
     const BinaryOperatorInfo* info = binaryOperatorInfo(binary.op);
     if (info == nullptr) {
       throw CompileError("codegen: internal error: unknown numeric operator");
@@ -829,8 +826,8 @@ namespace noria {
       const std::string operation = division ? "division" : "remainder";
       const std::string divisorNonZero = emitter.freshTemp();
       emitter.line(divisorNonZero + " = icmp ne i32 " + right.text + ", 0");
-      generator().emitTrapUnless(divisorNonZero, "integer.divisor", emitter, context,
-                     "integer " + operation + " by zero\n");
+      memory_.emitTrapUnless(divisorNonZero, "integer.divisor", emitter, context,
+                             "integer " + operation + " by zero\n");
 
       const std::string leftIsMin = emitter.freshTemp();
       emitter.line(leftIsMin + " = icmp eq i32 " + left.text + ", " +
@@ -841,13 +838,13 @@ namespace noria {
       emitter.line(overflows + " = and i1 " + leftIsMin + ", " + rightIsNegativeOne);
       const std::string noOverflow = emitter.freshTemp();
       emitter.line(noOverflow + " = xor i1 " + overflows + ", true");
-      generator().emitTrapUnless(noOverflow, "integer.overflow", emitter, context,
-                     "integer " + operation + " overflow\n");
+      memory_.emitTrapUnless(noOverflow, "integer.overflow", emitter, context,
+                             "integer " + operation + " overflow\n");
     } else if (info->integerSafetyRule == IntegerSafetyRule::ShiftCount) {
       const std::string countInRange = emitter.freshTemp();
       emitter.line(countInRange + " = icmp ult i32 " + right.text + ", 32");
-      generator().emitTrapUnless(countInRange, "integer.shift", emitter, context,
-                     "integer shift count out of range (expected 0..31)\n");
+      memory_.emitTrapUnless(countInRange, "integer.shift", emitter, context,
+                             "integer shift count out of range (expected 0..31)\n");
     }
 
     emitter.line(result + " = " + std::string(info->LLVMIntegerInstruction) + " i32 " + left.text +
@@ -855,4 +852,4 @@ namespace noria {
     return Value{result, Type::i32()};
   }
 
-} // namespace noria
+} // namespace noria::codegen_detail

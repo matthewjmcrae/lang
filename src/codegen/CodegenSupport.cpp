@@ -1,6 +1,9 @@
 #include "CodegenSupport.hpp"
 
+#include "CodegenInternal.hpp"
+
 #include "noria/Diagnostic.hpp"
+#include "noria/Monomorphize.hpp"
 #include "noria/SemanticTables.hpp"
 #include <array>
 #include <charconv>
@@ -99,6 +102,46 @@ namespace noria {
       }
 
       return *witness;
+    }
+
+    Value emitStandardContainerCall(StandardContainer container, ContainerOperation operation,
+                                    const std::vector<Type>& typeArgs,
+                                    const std::vector<Value>& arguments, IREmitter& emitter,
+                                    FunctionCodegenContext& context) {
+      const std::string callee =
+          mangleSpecialization(containerOperationHiddenName(container, operation), typeArgs);
+      const auto function = context.module.functions.find(callee);
+      if (function == context.module.functions.end()) {
+        throw CompileError("codegen: missing container operation");
+      }
+
+      const bool returnsVoid = function->second.returnType == Type::voidType();
+      const std::string result = returnsVoid ? "" : emitter.freshTemp();
+      std::string call = returnsVoid ? "call void @" + callee + "("
+                                     : result + " = call " + LLVMType(function->second.returnType) +
+                                           " @" + callee + "(";
+      for (std::size_t argument{}; argument < arguments.size(); ++argument) {
+        if (argument != 0) {
+          call += ", ";
+        }
+        call += LLVMType(arguments[argument].type) + " " + arguments[argument].text;
+      }
+      call += ")";
+      emitter.line(call);
+      return Value{result, function->second.returnType};
+    }
+
+    std::vector<Type> specializedStructTypeArgs(const Type& type,
+                                                const FunctionCodegenContext& context) {
+      if (!type.typeArguments().empty()) {
+        return type.typeArguments();
+      }
+      const auto specialization =
+          context.module.structSpecializationTypeArgs.find(type.structName());
+      if (specialization == context.module.structSpecializationTypeArgs.end()) {
+        return {};
+      }
+      return specialization->second;
     }
   } // namespace codegen_detail
 

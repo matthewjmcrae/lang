@@ -18,7 +18,9 @@ set(NORIA_CORE_SOURCES
   src/codegen/Codegen.cpp
   src/codegen/CodegenBuiltins.cpp
   src/codegen/CodegenExpressions.cpp
+  src/codegen/CodegenMemory.cpp
   src/codegen/CodegenModule.cpp
+  src/codegen/CodegenOwnership.cpp
   src/codegen/CodegenPlaces.cpp
   src/codegen/CodegenStatements.cpp
   src/codegen/CodegenStructs.cpp

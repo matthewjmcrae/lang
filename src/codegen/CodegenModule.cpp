@@ -1,29 +1,24 @@
-#include "CodegenState.hpp"
+#include "CodegenInternal.hpp"
 
-#include "noria/Builtins.hpp"
 #include "noria/Diagnostic.hpp"
 #include "noria/Runtime.hpp"
 #include "noria/SemanticTables.hpp"
 
-#include "CodegenSupport.hpp"
-#include <array>
-#include <charconv>
-#include <limits>
 #include <sstream>
+#include <string>
 #include <string_view>
-#include <system_error>
 #include <unordered_map>
 #include <utility>
 
-namespace noria {
+namespace noria::codegen_detail {
 
-  using namespace codegen_detail;
-
-  std::string LLVMGenerator::ModuleState::generateModule(const ast::Module& module) const {
-    ModuleCodegenContext context(generator().functionSpecializationTypeArgs_,
-                                 generator().structSpecializationTypeArgs_);
-    context.functions = generator().collectFunctionBindings(module);
-    context.structs = generator().collectStructLayouts(module);
+  std::string ModuleEmitter::generateModule(
+      const ast::Module& module,
+      const std::unordered_map<std::string, std::vector<Type>>& functionTypeArgs,
+      const std::unordered_map<std::string, std::vector<Type>>& structTypeArgs) const {
+    ModuleCodegenContext context(functionTypeArgs, structTypeArgs);
+    context.functions = collectFunctionBindings(module);
+    context.structs = structs_.collectStructLayouts(module);
 
     std::ostringstream functions;
     for (const auto& function : module.functions) {
@@ -33,12 +28,11 @@ namespace noria {
       functions << generateFunction(function, context) << "\n";
     }
 
-    return modulePreamble() + generator().emitStructTypeDefinitions(module) +
-           context.globals.str() +
+    return modulePreamble() + structs_.emitStructTypeDefinitions(module) + context.globals.str() +
            functions.str();
   }
 
-  std::string LLVMGenerator::ModuleState::modulePreamble() const {
+  std::string ModuleEmitter::modulePreamble() const {
     std::string preamble;
 
     const std::string triple = runtime::targetTriple();
@@ -47,41 +41,47 @@ namespace noria {
       preamble += "target datalayout = \"" + runtime::targetDataLayout() + "\"\n";
     }
 
-    for (const std::string_view declaration : runtime::runtimeDeclarations)
+    for (const std::string_view declaration : runtime::runtimeDeclarations) {
       preamble += declaration;
+    }
 
-    for (const std::string_view global : runtime::runtimeGlobals)
+    for (const std::string_view global : runtime::runtimeGlobals) {
       preamble += global;
+    }
 
     preamble += "\n";
     preamble += runtime::runtimeDefinitions;
     const std::string_view trapDefinition = runtime::runtimeTrapDefinition();
-    if (!trapDefinition.empty())
+    if (!trapDefinition.empty()) {
       preamble += trapDefinition;
+    }
     return preamble;
   }
 
-  std::string LLVMGenerator::ModuleState::defaultIRValue(const Type& type) const {
-    if (type == Type::boolean())
+  std::string ModuleEmitter::defaultIRValue(const Type& type) const {
+    if (type == Type::boolean()) {
       return "false";
-    if (type == Type::f64())
+    }
+    if (type == Type::f64()) {
       return "0.0";
-    if (type.kind() == TypeKind::I32)
+    }
+    if (type.kind() == TypeKind::I32) {
       return "0";
-    if (type.kind() == TypeKind::RawPtr)
+    }
+    if (type.kind() == TypeKind::RawPtr) {
       return "null";
+    }
     throw CompileError("codegen: type '" + type.name() + "' has no constant default IR value");
   }
 
-  LLVMGenerator::Value
-  LLVMGenerator::ModuleState::emitDefaultValue(const Type& type, IREmitter& emitter,
-                                                FunctionCodegenContext& context) const {
+  Value ModuleEmitter::emitDefaultValue(const Type& type, IREmitter& emitter,
+                                        FunctionCodegenContext& context) const {
     if (type.kind() == TypeKind::Str) {
-      return Value{emitCStringPointer("", emitter, context), Type::str(), false};
+      return Value{memory_.emitCStringPointer("", emitter, context), Type::str(), false};
     }
 
     if (type.kind() == TypeKind::Array) {
-      const std::string base = emitCheckedMalloc("8", emitter, context);
+      const std::string base = memory_.emitCheckedMalloc("8", emitter, context);
       emitter.line("store i64 0, ptr " + base);
       return Value{base, type, true};
     }
@@ -118,9 +118,8 @@ namespace noria {
     return Value{defaultIRValue(type), type};
   }
 
-  void LLVMGenerator::ModuleState::emitDefaultStore(const Type& type, const std::string& slot,
-                                                     IREmitter& emitter,
-                                                     FunctionCodegenContext& context) const {
+  void ModuleEmitter::emitDefaultStore(const Type& type, const std::string& slot,
+                                       IREmitter& emitter, FunctionCodegenContext& context) const {
     if (type.kind() == TypeKind::Struct) {
       if (standardContainerKindFromStructName(type.structName())) {
         const Value value = emitDefaultValue(type, emitter, context);
@@ -128,9 +127,10 @@ namespace noria {
         return;
       }
 
-      const StructLayout& layout = lookupStructLayout(context, type);
+      const StructLayout& layout = structs_.lookupStructLayout(context, type);
       for (std::size_t index{}; index < layout.fieldTypes.size(); ++index) {
-        const std::string fieldPointer = emitStructFieldPointer(type, slot, index, emitter);
+        const std::string fieldPointer =
+            structs_.emitStructFieldPointer(type, slot, index, emitter);
         emitDefaultStore(layout.fieldTypes[index], fieldPointer, emitter, context);
       }
       return;
@@ -140,12 +140,35 @@ namespace noria {
     emitter.emitStore(type, value.text, slot);
   }
 
-  std::string LLVMGenerator::ModuleState::generateFunction(
-      const ast::Function& function, ModuleCodegenContext& moduleContext) const {
+  std::unordered_map<std::string, FunctionBinding>
+  ModuleEmitter::collectFunctionBindings(const ast::Module& module) const {
+    std::unordered_map<std::string, FunctionBinding> functions;
+
+    for (const auto& function : module.functions) {
+      if (!function.typeParams.empty()) {
+        continue;
+      }
+
+      FunctionBinding binding;
+      if (!function.returnType) {
+        throw CompileError("codegen: function '" + function.name +
+                           "' has an unresolved return type");
+      }
+      binding.returnType = *function.returnType;
+      for (const auto& parameter : function.parameters) {
+        binding.parameterTypes.push_back(parameter.type);
+      }
+      functions.emplace(function.name, std::move(binding));
+    }
+
+    return functions;
+  }
+
+  std::string ModuleEmitter::generateFunction(const ast::Function& function,
+                                              ModuleCodegenContext& moduleContext) const {
     FunctionCodegenContext context(moduleContext, function.name);
     if (!function.returnType) {
-      throw CompileError("codegen: function '" + function.name +
-                         "' has an unresolved return type");
+      throw CompileError("codegen: function '" + function.name + "' has an unresolved return type");
     }
     const Type returnType = *function.returnType;
 
@@ -156,26 +179,28 @@ namespace noria {
       const auto& parameter = function.parameters[index];
       const Type parameterType = parameter.type;
 
-      if (index != 0)
+      if (index != 0) {
         out << ", ";
+      }
 
       out << LLVMType(parameterType) << " %" << parameter.name << ".param";
     }
     out << ") {\n";
     out << "entry:\n";
 
-    context.scopes.emplace_back(); // scope is an unordered_map, create an empty scope
+    context.scopes.emplace_back();
 
     for (const auto& parameter : function.parameters) {
       const Type parameterType = parameter.type;
-      LocalBinding binding{"%" + parameter.name, parameterType};
-      if (generator().typeNeedsDrop(parameterType, context)) {
+      LocalBinding binding{"%" + parameter.name, parameterType, false, {}};
+      if (ownership_.typeNeedsDrop(parameterType, context)) {
         binding.ownedSlot = "%" + parameter.name + ".owned";
         emitter.emitAlloca(Type::boolean(), binding.ownedSlot);
         emitter.line("store i1 false, ptr " + binding.ownedSlot);
       }
 
-      if (!generator().declareLocal(context.scopes, parameter.name, std::move(binding), context)) {
+      if (!context.declareLocal(parameter.name, std::move(binding),
+                                ownership_.typeContainsManaged(parameterType, context))) {
         throw CompileError("codegen: duplicate parameter '" + parameter.name + "'");
       }
 
@@ -185,8 +210,7 @@ namespace noria {
     }
 
     const bool emittedReturn =
-        generator().generateStatements(function.body, emitter, context, returnType,
-                                       context.scopes);
+        statements_.generateStatements(function.body, emitter, context, returnType);
 
     if (!emittedReturn) {
       throw CompileError("codegen: function '" + function.name +
@@ -197,4 +221,4 @@ namespace noria {
     return out.str();
   }
 
-} // namespace noria
+} // namespace noria::codegen_detail
