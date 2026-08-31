@@ -39,8 +39,11 @@ test-output/
 /qa_programs/
 /.cursor/
 /review order
+/understanding/
 
 # Local planning records
 /*_PLAN.md
 /*_IMPLEMENTATION_LOG.md
 /OWNERSHIP_CI_HANDOFF.md
+/tests/fuzz/
+/examples/future/

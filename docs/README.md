@@ -1,6 +1,6 @@
 # Noria
 
-Noria is a statically typed, ahead-of-time compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or drive LLVM object emission and host linking to produce native executables on macOS and Linux.
+Noria is a statically typed compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or drive LLVM object emission and host linking to produce native executables on macOS and Linux.
 
 This repository is deliberately scoped as a focused language implementation rather than a production ecosystem. Within that scope it tackles the parts that make compiler work interesting: type and return inference, source modules, generic specialization, representation-independent data structures, ownership-aware code generation, deterministic diagnostics, runtime safety checks, and cross-platform validation.
 
@@ -16,23 +16,10 @@ This repository is deliberately scoped as a focused language implementation rath
 - **A complete compiler.** The pipeline owns lexing, parsing, AST design, module resolution, semantic analysis, monomorphization, LLVM IR emission, optimization handoff, object emission, native linking, and diagnostics.
 - **Language features are backed by architecture.** Canonical types, visitor-based AST passes, shared semantic registries, place/rvalue separation, and a compiler facade keep later features from becoming one-off branches.
 - **Generics have real compile-time semantics.** Noria infers type arguments, checks tag-specific constraints, emits only reachable concrete specializations, detects recursive specialization cycles, and gives specializations deterministic names.
-- **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code—without a garbage collector. Default-initialized locals, field and index assignment, collection `+`, and projections of temporaries follow the same unique-ownership rule.
-- **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time—**74.5% less time** or **3.93× faster**—after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
+- **Managed values have defined ownership behavior.** Strings, arrays, structs containing managed fields, and standard-library ADTs are cloned, borrowed, moved, and dropped explicitly by generated code,without a garbage collector. Default-initialized locals, field and index assignment, collection `+`, and projections of temporaries follow the same unique-ownership rule.
+- **Compiler performance work was driven by phase data.** A controlled in-process workload covering **19,600 compilations** improved from **27.69s to 7.05s** of aggregate compiler phase time,**74.5% less time** or **3.93× faster**,after process-local AST caching, selective cache admission, and frontier-only generic work. The [performance case study](PERFORMANCE.md) separates the effects and records the measurement limits.
 - **Failure behavior is part of the contract.** The current regression suite compiles 277 accepted programs, rejects 148 semantic failures and 22 lexer/parser failures, runs native exit/stdout/trap checks, and includes 13 focused C++ test executables.
 - **Memory safety and resilience get dedicated workflows.** Compiler and generated-code sanitizers, portable leak checks, deterministic container reference models
-
-## Current snapshot
-
-| Area | Evidence in the current tree                                                                                                                                                                          |
-| --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Implementation | Approximately 15.5k lines of C++ compiler/header code and 1.6k lines of Noria standard-library code                                                                                                   |
-| Compiler stages | Lexer and parser, module resolution, fixed-point return inference, type checking, reachable monomorphization, ownership-aware LLVM IR generation, optional LLVM optimization, object emission, native linking |
-| Validation corpus | 277 accepted programs, 148 semantic failures, and 22 lexer/parser failures; a guard test fails when these documented counts drift                                                                     |
-| Focused tests | 13 C++ test executables for types, visitors/cloning, semantic registries, constraints, modules, generics, caches, diagnostics, and the compiler facade                                                |
-| End-to-end checks | IR assertions, native exit/stdout/trap behavior, `-O2` regression cases, install/stdlib discovery, sanitizer instrumentation, leak checking, and four checked-in 300-operation container model traces |
-| Automation | macOS and Ubuntu CI for normal, sanitizer, and leak lanes                                                                    |
-
-`examples/basic`, `examples/invalid`, and `examples/invalid_syntax` are the implemented executable contract. Files under `examples/future` are design sketches and are intentionally excluded from current feature claims and regression counts.
 
 ## A taste of Noria
 
@@ -54,7 +41,7 @@ helper sum(values: Sequence<i32>) { // Return type is inferred as i32.
   return total;
 }
 
-fn main() {
+fn main() -> i32{
   let values: Sequence<i32>; // Empty Sequence<i32, arr> by default.
   sequence_push(values, 10);
   sequence_push(values, 32);
@@ -64,7 +51,7 @@ fn main() {
 
 Several choices are intentionally unusual:
 
-- The public abstraction is the **ADT name** (`Sequence`, `Dictionary`, or `Set`), not the backing-container name. `arr`, `list`, `bst`, `hashmap`, and `hashset` are compile-time implementation tags: changing a tag changes representation and complexity, not the API.
+- The public container abstraction is the **ADT name** (`Sequence`, `Dictionary`, or `Set`), not the backing-container name. `arr`, `list`, `bst`, `hashmap`, and `hashset` are compile-time implementation tags: changing a tag changes representation and complexity, not the API.
 - The last implementation argument has an ADT-specific default from the shared container registry: `Sequence<T>` uses `arr`; `Dictionary<K, V>` and `Set<T>` use `hashmap` (`hashset` is an alias used for Set).
 - Typed declarations can put the name or type first: `value: i32` and `i32: value` are equivalent.
 - `fn`, `helper`, `util`, and `recfn` are function declaration keywords used to describe behaviour from the function body in the function header.
@@ -75,14 +62,13 @@ Several choices are intentionally unusual:
 
 Noria currently includes:
 
-- `i32`, `f64`, `bool`, `str`, `void`, heap arrays `[T]`, structs, and generic structs/functions;
-- explicit or inferred local types, type/name order-independent declarations, recursive calls, and inferred return types;
-- arithmetic, comparison, bitwise, short-circuit logical, unary, indexing, field access, and explicit `as` casts;
-- `if` / `else if` / `else`, `while`, lexical scopes, and explicit returns on all completing paths;
-- module-private struct fields and selective `import std::<path>::{...}` declarations;
-- compile-time implementation tags and constraints for generic implementation families;
-- builtins for output, math, and length, plus a private stdlib-only allocation/buffer ABI;
-- checked bounds, allocation, integer division/remainder, shift, and float-to-integer conversion failures.
+- `i32`, `f64`, `bool`, `str`, `void`, heap allocated arrays `[T]`, structs, and generic structs/functions
+- explicit or inferred local types, type/name order-independent declarations, recursive calls, and inferred return types
+- arithmetic, comparison, bitwise, short-circuit logical, unary, indexing, field access, and explicit `as` casts
+- `if` / `else if` / `else`, `while`, lexical scopes, and explicit returns on all completing paths
+- module-private struct fields and selective `import std::<path>::{...}` declarations
+- compile-time implementation tags and constraints for generic implementation families
+- checked bounds, allocation, integer division/remainder, shift, and float-to-integer conversion failures
 
 Identifiers and keywords are case-insensitive; string contents retain their case. Noria does not perform implicit numeric conversions.
 
@@ -101,38 +87,26 @@ The standard library demonstrates one stable ADT interface over multiple compile
 
 For example, `Sequence<i32, arr>` provides amortized O(1) append and O(1) indexed access, while `Sequence<i32, list>` provides O(1) append but O(n) indexed access. Both expose the same source-level operations. Dictionary and Set follow the same model: an unbalanced BST offers O(h) operations. `hashmap` and `hashset` are open addressed implementations which targets O(1) average lookup and resize at 75% load.
 
-The implementation tags are erased by monomorphization—there is no runtime branch or virtual dispatch to select a representation.
+The implementation tags are erased by monomorphization, there is no runtime branch or virtual dispatch to select a representation.
 
 ## Compiler architecture
 
 ```text
 .noria source
     │
-    ├─ Lexer ─────────────── tokens + file/line/column locations
-    ├─ Parser ────────────── owned AST with canonical language types
-    ├─ ModuleResolver ────── selective stdlib imports + symbol origins
-    ├─ ADT defaulting ────── registry expands omitted implementation tags
-    ├─ TypeChecker ───────── declarations, inference, constraints, places
-    ├─ Monomorphizer ─────── reachable, deduplicated specializations
-    ├─ LLVMGenerator ─────── ownership-aware textual LLVM IR
-    ├─ opt (optional) ────── LLVM -O1/-O2/-O3 pipeline
-    ├─ llc (when found) ──── target object file
-    └─ host clang ────────── final link; can consume IR if llc is unavailable
+    ├─ Lexer ──────────────> tokens + file/line/column locations
+    ├─ Parser ─────────────> owned AST with canonical language types
+    ├─ ModuleResolver ─────> selective stdlib imports + symbol origins
+    ├─ ADT defaulting ─────> registry expands omitted implementation tags
+    ├─ TypeChecker ────────> declarations, inference, constraints, places
+    ├─ Monomorphizer ──────> reachable, deduplicated specializations
+    ├─ LLVMGenerator ──────> ownership-aware textual LLVM IR
+    ├─ opt (optional) ─────> LLVM -O1/-O2/-O3 pipeline
+    ├─ llc (when found) ───> target object file
+    └─ host clang ─────────> final link; can consume IR if llc is unavailable
 ```
 
 The public `compileSource()` facade can stop after tokens, AST, typed AST, or LLVM IR. The CLI remains responsible for files, options, optimization, and native linking; compiler stages remain usable directly from C++ tests.
-
-Key directories:
-
-| Path | Responsibility |
-| --- | --- |
-| [`include/noria/`](../include/noria/) | AST, canonical types, public compiler facade, shared semantic metadata, runtime definitions |
-| [`src/typecheck/`](../src/typecheck/) | `TypeChecker` Pimpl facade; context-owned declarations, scopes, sessions, specialization registry, and focused checking components |
-| [`src/monomorphize/`](../src/monomorphize/) | Specialization discovery, cloning, rewriting, caching, cycle and expansion guards |
-| [`src/codegen/`](../src/codegen/) | `LLVMGenerator` Pimpl facade; module/function contexts and focused emitters for expressions, statements, places, builtins, structs, memory, and ownership |
-| [`stdlib/`](../stdlib/) | Public Noria ADTs and private implementation/runtime modules |
-| [`tests/`](../tests/) | Focused C++ tests, the end-to-end compiler/native-execution harness, and corpus seeds |
-| [`examples/`](../examples/) | Passing programs, semantic failures, syntax failures, and clearly separated future sketches |
 
 ## Build and run
 
@@ -214,9 +188,7 @@ Fuzzing is WIP and is not part of the canonical test suite or a benchmark. A sep
 
 See [PERFORMANCE.md](PERFORMANCE.md) for the historical 19,600-run measurement. It is documented separately because the repository does not currently ship a benchmark target or enforce performance thresholds in CI.
 
-## Intentional scope
-
-Noria is an engineering-focused language project, not yet a general-purpose production toolchain. The main current boundaries are:
+## Current Boundaries
 
 - only bundled `std::` modules can be imported;
 - no `for`, `break`, `continue`, globals, user-defined traits, or implicit conversions;
