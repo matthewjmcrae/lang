@@ -283,7 +283,7 @@ The 13 C++ test executables cover canonical types, builtin and semantic registri
 
 ### Language corpus
 
-`tests/run_examples.sh` treats examples as executable specifications:
+The validation corpus includes 277 accepted programs and 170 negative programs (148 semantic failures and 22 lexer/parser failures). `tests/run_examples.sh` treats those examples as executable specifications:
 
 - every `examples/basic/*.noria` program must emit non-empty LLVM IR
 - every `examples/invalid/*.noria` program must fail semantic analysis
