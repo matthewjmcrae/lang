@@ -1,0 +1,7 @@
+import std::sequence::{Sequence, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<i32> = sequence_new(0);
+  sequence_push(s, 1);
+  return s[5];
+}

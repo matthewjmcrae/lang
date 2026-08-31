@@ -1,0 +1,119 @@
+import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_new};
+import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
+import std::set::{Set, set_contains, set_insert, set_new};
+
+fn wrap<T>(value: T) -> T {
+  return value;
+}
+
+fn length(s: str) -> i32 {
+  if true {
+    let s: str = "p" + "q";
+    return len(s);
+  }
+  return len(s);
+}
+
+fn nested_length() -> i32 {
+  let s = "o" + "p";
+  if true {
+    let s = "q" + "r" + "s";
+    return len(s);
+  }
+  return len(s);
+}
+
+fn main() -> i32 {
+  total: i32 = 0;
+
+  if true {
+    let s: str = "a" + "b";
+    total = total + len(s);
+  } else {
+    s: str = "c" + "d";
+    total = total + len(s);
+  }
+
+  if true {
+    let s: str = "e" + "f";
+    total = total + len(s);
+  }
+  while false {
+    s: str = "g" + "h";
+    total = total + len(s);
+  }
+  if true {
+    str: s = "i" + "j";
+    total = total + len(s);
+  }
+
+  if true {
+    let values: [i32] = [1, 2];
+    total = total + len(values);
+  } else {
+    [i32]: values = [3, 4, 5];
+    total = total + len(values);
+  }
+
+  if true {
+    let s: str = wrap("k" + "l");
+    total = total + len(s);
+  } else {
+    str: s = wrap("m" + "n");
+    total = total + len(s);
+  }
+
+  if true {
+    let inferred = "m" + "n";
+    total = total + len(inferred);
+  } else {
+    let inferred = "p" + "q";
+    total = total + len(inferred);
+  }
+
+  if true {
+    let empty: str;
+    total = total + len(empty);
+  } else {
+    str: empty;
+    total = total + len(empty);
+  }
+
+  if true {
+    let state: Sequence<str, arr> = sequence_new("");
+    sequence_push(state, "s" + "q");
+    total = total + len(sequence_get(state, 0));
+  } else {
+    Sequence<str, arr>: state = sequence_new("");
+    sequence_push(state, "r" + "s");
+    total = total + len(sequence_get(state, 0));
+  }
+
+  if true {
+    state: Dictionary<str, str, hashmap> = dictionary_new("", "");
+    dictionary_insert(state, "k" + "", "v" + "v");
+    total = total + len(dictionary_get(state, "k"));
+  } else {
+    Dictionary<str, str, hashmap>: state = dictionary_new("", "");
+    dictionary_insert(state, "x" + "", "y" + "y");
+    total = total + len(dictionary_get(state, "x"));
+  }
+
+  if true {
+    let state: Set<str, hashmap> = set_new("");
+    set_insert(state, "z" + "");
+    if set_contains(state, "z") {
+      total = total + 1;
+    }
+  } else {
+    Set<str, hashmap>: state = set_new("");
+    set_insert(state, "w" + "");
+    if set_contains(state, "w") {
+      total = total + 1;
+    }
+  }
+
+  total = total + length("x");
+  total = total + nested_length();
+  return total - 22;
+}

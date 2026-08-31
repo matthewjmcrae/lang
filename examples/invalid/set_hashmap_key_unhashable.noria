@@ -1,0 +1,6 @@
+import std::set::{Set, set_new};
+
+fn main() -> i32 {
+  let _: Set<f64, hashmap> = set_new(0.0);
+  return 0;
+}

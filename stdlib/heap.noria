@@ -1,0 +1,202 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_pop, sequence_push,
+                       sequence_set};
+
+fn heappush<T, I>(s: Sequence<T, I>, value: T) -> void impl arr {
+  sequence_push(s, value);
+  let i: i32 = sequence_len(s) - 1;
+  let done: bool = false;
+  while !done && i > 0 {
+    let parent: i32 = (i - 1) / 2;
+    if sequence_get(s, i) < sequence_get(s, parent) {
+      let tmp: T = sequence_get(s, i);
+      let pval: T = sequence_get(s, parent);
+      sequence_set(s, i, pval);
+      sequence_set(s, parent, tmp);
+      i = parent;
+    } else {
+      done = true;
+    }
+  }
+  return;
+}
+
+fn heappush<T, I>(s: Sequence<T, I>, value: T) -> void impl list {
+  sequence_push(s, value);
+  let i: i32 = sequence_len(s) - 1;
+  let done: bool = false;
+  while !done && i > 0 {
+    let parent: i32 = (i - 1) / 2;
+    if sequence_get(s, i) < sequence_get(s, parent) {
+      let tmp: T = sequence_get(s, i);
+      let pval: T = sequence_get(s, parent);
+      sequence_set(s, i, pval);
+      sequence_set(s, parent, tmp);
+      i = parent;
+    } else {
+      done = true;
+    }
+  }
+  return;
+}
+
+fn heappop<T, I>(s: Sequence<T, I>) -> T impl arr {
+  let len: i32 = sequence_len(s);
+  if len <= 0 {
+    __rt_trap("heappop: empty heap\n");
+  }
+  let root: T = sequence_get(s, 0);
+  if len == 1 {
+    let _: T = sequence_pop(s);
+    return root;
+  }
+  let last: T = sequence_pop(s);
+  sequence_set(s, 0, last);
+  let size: i32 = len - 1;
+  let i: i32 = 0;
+  let done: bool = false;
+  while !done {
+    let left: i32 = 2 * i + 1;
+    let right: i32 = 2 * i + 2;
+    let smallest: i32 = i;
+    if left < size {
+      if sequence_get(s, left) < sequence_get(s, smallest) {
+        smallest = left;
+      }
+    }
+    if right < size {
+      if sequence_get(s, right) < sequence_get(s, smallest) {
+        smallest = right;
+      }
+    }
+    if smallest == i {
+      done = true;
+    } else {
+      let tmp: T = sequence_get(s, i);
+      let sval: T = sequence_get(s, smallest);
+      sequence_set(s, i, sval);
+      sequence_set(s, smallest, tmp);
+      i = smallest;
+    }
+  }
+  return root;
+}
+
+fn heappop<T, I>(s: Sequence<T, I>) -> T impl list {
+  let len: i32 = sequence_len(s);
+  if len <= 0 {
+    __rt_trap("heappop: empty heap\n");
+  }
+  let root: T = sequence_get(s, 0);
+  if len == 1 {
+    let _: T = sequence_pop(s);
+    return root;
+  }
+  let last: T = sequence_pop(s);
+  sequence_set(s, 0, last);
+  let size: i32 = len - 1;
+  let i: i32 = 0;
+  let done: bool = false;
+  while !done {
+    let left: i32 = 2 * i + 1;
+    let right: i32 = 2 * i + 2;
+    let smallest: i32 = i;
+    if left < size {
+      if sequence_get(s, left) < sequence_get(s, smallest) {
+        smallest = left;
+      }
+    }
+    if right < size {
+      if sequence_get(s, right) < sequence_get(s, smallest) {
+        smallest = right;
+      }
+    }
+    if smallest == i {
+      done = true;
+    } else {
+      let tmp: T = sequence_get(s, i);
+      let sval: T = sequence_get(s, smallest);
+      sequence_set(s, i, sval);
+      sequence_set(s, smallest, tmp);
+      i = smallest;
+    }
+  }
+  return root;
+}
+
+fn heapify<T, I>(s: Sequence<T, I>) -> void impl arr {
+  let len: i32 = sequence_len(s);
+  if len <= 1 {
+    return;
+  }
+  let start: i32 = len / 2 - 1;
+  let idx: i32 = start;
+  while idx >= 0 {
+    let i: i32 = idx;
+    let done: bool = false;
+    while !done {
+      let left: i32 = 2 * i + 1;
+      let right: i32 = 2 * i + 2;
+      let smallest: i32 = i;
+      if left < len {
+        if sequence_get(s, left) < sequence_get(s, smallest) {
+          smallest = left;
+        }
+      }
+      if right < len {
+        if sequence_get(s, right) < sequence_get(s, smallest) {
+          smallest = right;
+        }
+      }
+      if smallest == i {
+        done = true;
+      } else {
+        let tmp: T = sequence_get(s, i);
+        let sval: T = sequence_get(s, smallest);
+        sequence_set(s, i, sval);
+        sequence_set(s, smallest, tmp);
+        i = smallest;
+      }
+    }
+    idx = idx - 1;
+  }
+  return;
+}
+
+fn heapify<T, I>(s: Sequence<T, I>) -> void impl list {
+  let len: i32 = sequence_len(s);
+  if len <= 1 {
+    return;
+  }
+  let start: i32 = len / 2 - 1;
+  let idx: i32 = start;
+  while idx >= 0 {
+    let i: i32 = idx;
+    let done: bool = false;
+    while !done {
+      let left: i32 = 2 * i + 1;
+      let right: i32 = 2 * i + 2;
+      let smallest: i32 = i;
+      if left < len {
+        if sequence_get(s, left) < sequence_get(s, smallest) {
+          smallest = left;
+        }
+      }
+      if right < len {
+        if sequence_get(s, right) < sequence_get(s, smallest) {
+          smallest = right;
+        }
+      }
+      if smallest == i {
+        done = true;
+      } else {
+        let tmp: T = sequence_get(s, i);
+        let sval: T = sequence_get(s, smallest);
+        sequence_set(s, i, sval);
+        sequence_set(s, smallest, tmp);
+        i = smallest;
+      }
+    }
+    idx = idx - 1;
+  }
+  return;
+}

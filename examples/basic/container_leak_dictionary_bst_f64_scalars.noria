@@ -1,0 +1,18 @@
+import std::dictionary::{Dictionary, dictionary_insert, dictionary_new, dictionary_remove};
+
+fn main() -> i32 {
+  let dff: Dictionary<f64, f64, bst> = dictionary_new(0.0, 0.0);
+  dictionary_insert(dff, 1.0, 2.0);
+  dictionary_insert(dff, 0.5, 1.0);
+  let rff: f64 = dictionary_remove(dff, 1.0);
+
+  let dbb: Dictionary<f64, bool, bst> = dictionary_new(0.0, false);
+  dictionary_insert(dbb, 1.0, true);
+  dictionary_insert(dbb, 0.5, false);
+  let rbb: bool = dictionary_remove(dbb, 1.0);
+
+  if rff != 2.0 || !rbb {
+    return 1;
+  }
+  return 0;
+}

@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let dividend: i32 = -2147483648;
+  let divisor: i32 = -1;
+  return dividend / divisor;
+}

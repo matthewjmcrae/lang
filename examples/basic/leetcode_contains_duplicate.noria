@@ -1,0 +1,23 @@
+import std::set::{Set, set_insert, set_len, set_new};
+
+fn contains_duplicate(nums: [i32]) -> bool {
+  let seen: Set<i32, hashmap> = set_new(0);
+  let i: i32 = 0;
+  while i < len(nums) {
+    set_insert(seen, nums[i]);
+    i = i + 1;
+  }
+  return set_len(seen) != len(nums);
+}
+
+fn main() -> i32 {
+  let dup: [i32] = [1, 2, 3, 1];
+  if !contains_duplicate(dup) {
+    return 1;
+  }
+  let unique: [i32] = [1, 2, 3, 4];
+  if contains_duplicate(unique) {
+    return 2;
+  }
+  return 0;
+}

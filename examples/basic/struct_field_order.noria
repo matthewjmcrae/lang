@@ -1,0 +1,27 @@
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+struct Mixed {
+  flag: bool;
+  count: i32;
+  tag: i32;
+}
+
+fn main() -> i32 {
+  let origin: Point = Point { y: 4, x: 3 };
+  print_int(origin.x);
+  println();
+  print_int(origin.y);
+  println();
+
+  let item: Mixed = Mixed { tag: 9, flag: true, count: 2 };
+  print_int(item.flag as i32);
+  println();
+  print_int(item.count);
+  println();
+  print_int(item.tag);
+  println();
+  return 0;
+}

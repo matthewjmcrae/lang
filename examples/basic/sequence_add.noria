@@ -1,0 +1,22 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let left: Sequence<i32> = sequence_new(0);
+  sequence_push(left, 1);
+  sequence_push(left, 2);
+  sequence_push(left, 3);
+
+  let right: Sequence<i32> = sequence_new(0);
+  sequence_push(right, 4);
+  sequence_push(right, 5);
+  sequence_push(right, 6);
+
+  let sum: Sequence<i32> = left + right;
+  if sequence_len(sum) != 3 {
+    return 1;
+  }
+  if sequence_get(sum, 0) != 5 || sequence_get(sum, 1) != 7 || sequence_get(sum, 2) != 9 {
+    return 2;
+  }
+  return 0;
+}

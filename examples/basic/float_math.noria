@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  let result: f64 = 6.0 / 2.0 + 1.0;
+  return result as i32;
+}

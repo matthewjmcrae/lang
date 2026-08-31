@@ -1,0 +1,10 @@
+fn main() -> i32 {
+  let a: [i32] = [10, 20, 30, 40];
+  print_int(a[0]);
+  println();
+  print_int(a[3]);
+  println();
+  print_int(a[len(a) - 1]);
+  println();
+  return 0;
+}

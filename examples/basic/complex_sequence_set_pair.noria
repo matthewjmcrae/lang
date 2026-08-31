@@ -1,0 +1,31 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+import std::set::{Set, set_contains, set_insert, set_new};
+
+fn has_pair(nums: Sequence<i32, arr>, target: i32) -> bool {
+  let seen: Set<i32, hashmap> = set_new(0);
+  let i: i32 = 0;
+  while i < sequence_len(nums) {
+    let need: i32 = target - sequence_get(nums, i);
+    if set_contains(seen, need) {
+      return true;
+    }
+    set_insert(seen, sequence_get(nums, i));
+    i = i + 1;
+  }
+  return false;
+}
+
+fn main() -> i32 {
+  let nums: Sequence<i32, arr> = sequence_new(0);
+  sequence_push(nums, 3);
+  sequence_push(nums, 1);
+  sequence_push(nums, 8);
+  sequence_push(nums, 4);
+  if !has_pair(nums, 12) {
+    return 1;
+  }
+  if has_pair(nums, 2) {
+    return 2;
+  }
+  return 0;
+}

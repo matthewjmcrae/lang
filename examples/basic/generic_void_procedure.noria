@@ -1,0 +1,9 @@
+fn consume<T>(value: T) -> void {
+  println();
+  return;
+}
+
+fn main() -> i32 {
+  consume(7);
+  return 0;
+}

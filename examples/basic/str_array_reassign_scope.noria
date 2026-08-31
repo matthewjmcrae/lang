@@ -1,0 +1,14 @@
+fn main() -> i32 {
+  let tags: [str] = ["a", "b"];
+  tags = ["c"];
+  if true {
+    let extra: [str] = ["x", "y"];
+    if len(extra) != 2 {
+      return 1;
+    }
+  }
+  if len(tags) != 1 {
+    return 2;
+  }
+  return 0;
+}

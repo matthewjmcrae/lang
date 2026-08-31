@@ -1,0 +1,11 @@
+fn consume_f64(value: f64) -> i32 {
+  return 0;
+}
+
+fn consume_str(text: str) -> i32 {
+  return 0;
+}
+
+fn main() -> i32 {
+  return 0;
+}

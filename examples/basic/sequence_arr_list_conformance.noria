@@ -1,0 +1,98 @@
+import std::sequence::{Sequence, sequence_get, sequence_insert, sequence_len, sequence_new,
+                       sequence_pop, sequence_push, sequence_remove, sequence_set};
+
+fn run_arr() -> i32 {
+  let s: Sequence<i32, arr> = sequence_new(0);
+  if sequence_len(s) != 0 {
+    return 1;
+  }
+  sequence_push(s, 10);
+  sequence_push(s, 20);
+  sequence_push(s, 30);
+  if sequence_len(s) != 3 {
+    return 2;
+  }
+  if sequence_get(s, 0) != 10 {
+    return 3;
+  }
+  if sequence_get(s, 2) != 30 {
+    return 4;
+  }
+  sequence_set(s, 1, 99);
+  if sequence_get(s, 1) != 99 {
+    return 5;
+  }
+  let v: i32 = sequence_pop(s);
+  if v != 30 {
+    return 6;
+  }
+  if sequence_len(s) != 2 {
+    return 7;
+  }
+  if sequence_get(s, 0) + sequence_get(s, 1) != 109 {
+    return 8;
+  }
+  sequence_insert(s, 1, 50);
+  if sequence_len(s) != 3 || sequence_get(s, 1) != 50 {
+    return 9;
+  }
+  let removed: i32 = sequence_remove(s, 0);
+  if removed != 10 || sequence_len(s) != 2 {
+    return 10;
+  }
+  return 0;
+}
+
+fn run_list() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  if sequence_len(s) != 0 {
+    return 1;
+  }
+  sequence_push(s, 10);
+  sequence_push(s, 20);
+  sequence_push(s, 30);
+  if sequence_len(s) != 3 {
+    return 2;
+  }
+  if sequence_get(s, 0) != 10 {
+    return 3;
+  }
+  if sequence_get(s, 2) != 30 {
+    return 4;
+  }
+  sequence_set(s, 1, 99);
+  if sequence_get(s, 1) != 99 {
+    return 5;
+  }
+  let v: i32 = sequence_pop(s);
+  if v != 30 {
+    return 6;
+  }
+  if sequence_len(s) != 2 {
+    return 7;
+  }
+  if sequence_get(s, 0) + sequence_get(s, 1) != 109 {
+    return 8;
+  }
+  sequence_insert(s, 1, 50);
+  if sequence_len(s) != 3 || sequence_get(s, 1) != 50 {
+    return 9;
+  }
+  let removed: i32 = sequence_remove(s, 0);
+  if removed != 10 || sequence_len(s) != 2 {
+    return 10;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  let arr_result: i32 = run_arr();
+  if arr_result != 0 {
+    return 100 + arr_result;
+  }
+  let list_result: i32 = run_list();
+  if list_result != 0 {
+    return 200 + list_result;
+  }
+  return 0;
+}

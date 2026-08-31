@@ -1,0 +1,19 @@
+import std::sequence::{Sequence, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  sequence_push(s, 4);
+  sequence_push(s, 5);
+  sequence_push(s, 6);
+  if s[0] != 4 || s[2] != 6 {
+    return 1;
+  }
+  s[0] = 40;
+  if s[0] != 40 {
+    return 2;
+  }
+  if sequence_len(s) != 3 {
+    return 3;
+  }
+  return s[0] + s[1] + s[2];
+}

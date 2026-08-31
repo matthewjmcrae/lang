@@ -1,0 +1,5 @@
+import std::memory::{generic_alloc_probe};
+
+fn main() -> i32 {
+  return generic_alloc_probe();
+}

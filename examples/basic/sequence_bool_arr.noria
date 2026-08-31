@@ -1,0 +1,27 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push,
+                         sequence_set};
+
+fn check(s: Sequence<bool, arr>) -> i32 {
+  if sequence_len(s) != 3 {
+    return 1;
+  }
+  if sequence_get(s, 0) != true {
+    return 2;
+  }
+  if sequence_get(s, 1) != false {
+    return 3;
+  }
+  sequence_set(s, 1, true);
+  if sequence_get(s, 1) != true {
+    return 4;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  let s: Sequence<bool, arr> = sequence_new(false);
+  sequence_push(s, true);
+  sequence_push(s, false);
+  sequence_push(s, true);
+  return check(s);
+}

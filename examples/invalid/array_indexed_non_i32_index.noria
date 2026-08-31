@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let a: [i32] = [1, 2, 3];
+  a[true] = 5;
+  return 0;
+}

@@ -1,0 +1,9 @@
+import std::mathx::{square};
+
+fn main() -> i32 {
+  let square: i32 = 1;
+  if (square < 2) {
+    return 1;
+  }
+  return 0;
+}

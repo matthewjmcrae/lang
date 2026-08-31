@@ -1,0 +1,17 @@
+fn main() -> i32 {
+  let lo: i32 = -2147483648;
+  let hi: i32 = 2147483647;
+  if lo >= 0 {
+    return 1;
+  }
+  if hi <= 0 {
+    return 2;
+  }
+  if lo != -2147483648 {
+    return 3;
+  }
+  if hi + 1 != lo {
+    return 4;
+  }
+  return 0;
+}

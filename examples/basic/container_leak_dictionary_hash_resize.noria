@@ -1,0 +1,27 @@
+import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_len,
+                         dictionary_new, dictionary_remove};
+
+fn heap_n(n: i32) -> str {
+  let s: str = "";
+  let i: i32 = 0;
+  while i < n {
+    s = s + ".";
+    i = i + 1;
+  }
+  return s;
+}
+
+fn main() -> i32 {
+  let d: Dictionary<str, str, hashmap> = dictionary_new("", "");
+  let i: i32 = 1;
+  while i <= 10 {
+    dictionary_insert(d, heap_n(i), heap_n(i + 100));
+    i = i + 1;
+  }
+  let removed: str = dictionary_remove(d, heap_n(3));
+  dictionary_insert(d, heap_n(3), heap_n(303));
+  if len(removed) != 103 || dictionary_len(d) != 10 || len(dictionary_get(d, heap_n(3))) != 303 {
+    return 1;
+  }
+  return 0;
+}

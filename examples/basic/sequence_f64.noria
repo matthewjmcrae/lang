@@ -1,0 +1,17 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<f64, arr> = sequence_new(0.0);
+  sequence_push(s, 1.5);
+  sequence_push(s, 2.5);
+  if sequence_len(s) != 2 {
+    return 1;
+  }
+  if sequence_get(s, 0) != 1.5 {
+    return 2;
+  }
+  if sequence_get(s, 1) != 2.5 {
+    return 3;
+  }
+  return 0;
+}

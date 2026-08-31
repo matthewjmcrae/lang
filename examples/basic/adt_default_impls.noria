@@ -1,0 +1,30 @@
+import std::dictionary::{Dictionary, dictionary_get, dictionary_insert, dictionary_new};
+import std::sequence::{Sequence, sequence_get, sequence_new, sequence_push};
+import std::set::{Set, set_contains, set_insert, set_new};
+
+fn identity_sequence(s: Sequence<i32>) -> Sequence<i32> {
+  return s;
+}
+
+fn main() -> i32 {
+  let s: Sequence<i32> = sequence_new(0);
+  Sequence<i32>: t = identity_sequence(s);
+  sequence_push(t, 42);
+  if sequence_get(t, 0) != 42 {
+    return 1;
+  }
+
+  let seen: Set<i32> = set_new(0);
+  set_insert(seen, 42);
+  if !set_contains(seen, 42) {
+    return 2;
+  }
+
+  let values: Dictionary<i32, i32> = dictionary_new(0, 0);
+  dictionary_insert(values, 42, 7);
+  if dictionary_get(values, 42) != 7 {
+    return 3;
+  }
+
+  return 0;
+}

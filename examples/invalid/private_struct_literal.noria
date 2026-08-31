@@ -1,0 +1,7 @@
+import std::sequence::{Sequence, sequence_new};
+
+fn main() -> i32 {
+  let other: Sequence<i32, arr> = sequence_new(0);
+  let s: Sequence<i32, arr> = Sequence<i32, arr> { handle: other.handle };
+  return 0;
+}

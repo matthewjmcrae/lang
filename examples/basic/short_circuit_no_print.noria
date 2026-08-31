@@ -1,0 +1,14 @@
+fn bump(flag: bool) -> bool {
+  print_int(1);
+  return flag;
+}
+
+fn main() -> i32 {
+  if false && bump(true) {
+    return 1;
+  }
+  if true || bump(false) {
+    return 0;
+  }
+  return 2;
+}

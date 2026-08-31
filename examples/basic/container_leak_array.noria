@@ -1,0 +1,55 @@
+fn heap_n(n: i32) -> str {
+  let s: str = "";
+  let i: i32 = 0;
+  while i < n {
+    s = s + ".";
+    i = i + 1;
+  }
+  return s;
+}
+
+fn check_i32() -> i32 {
+  let a: [i32] = [1, 2, 3];
+  a[1] = 20;
+  let copy: [i32] = a;
+  copy[0] = 9;
+  a = [4, 5];
+  if true {
+    let nested: [i32] = [7, 8, 9];
+    if len(nested) != 3 {
+      return 1;
+    }
+  }
+  if len(a) != 2 || copy[0] != 9 || copy[1] != 20 {
+    return 1;
+  }
+  return 0;
+}
+
+fn check_str() -> i32 {
+  let a: [str] = [heap_n(1), heap_n(2), heap_n(3)];
+  a[1] = heap_n(4);
+  let copy: [str] = a;
+  copy[0] = heap_n(5);
+  a = [heap_n(6), heap_n(7)];
+  if true {
+    let nested: [str] = [heap_n(8), heap_n(9)];
+    if len(nested) != 2 || len(nested[0]) != 8 {
+      return 1;
+    }
+  }
+  if len(a) != 2 || len(copy) != 3 || len(copy[0]) != 5 || len(copy[1]) != 4 {
+    return 1;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  if check_i32() != 0 {
+    return 1;
+  }
+  if check_str() != 0 {
+    return 2;
+  }
+  return 0;
+}

@@ -1,0 +1,8 @@
+fn make() -> [i32] {
+  return [1, 2, 3];
+}
+
+fn main() -> i32 {
+  let a: [i32] = make();
+  return len(a) + a[2];
+}

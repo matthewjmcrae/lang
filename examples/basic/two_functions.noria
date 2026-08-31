@@ -1,4 +1,4 @@
-fn helper() -> i32 {
+helper constant_value() -> i32 {
   return 7;
 }
 

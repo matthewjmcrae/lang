@@ -1,0 +1,18 @@
+fn main() -> i32 {
+  let a: str = "noria";
+  let b: str = "noria";
+  let c: str = "other";
+  if a != b {
+    return 1;
+  }
+  if a == c {
+    return 2;
+  }
+  if "" != "" {
+    return 3;
+  }
+  if "ab" + "c" != "abc" {
+    return 4;
+  }
+  return 0;
+}

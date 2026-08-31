@@ -1,0 +1,9 @@
+fn main() -> i32 {
+  let p: Nope = Point { x: 1, y: 2 };
+  return 0;
+}
+
+struct Point {
+  x: i32;
+  y: i32;
+}

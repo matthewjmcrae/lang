@@ -1,0 +1,30 @@
+fn main() -> i32 {
+  let nan: f64 = 0.0 / 0.0;
+  let also_nan: f64 = sqrt(-1.0);
+
+  if !(nan != nan) {
+    return 1;
+  }
+  if !(nan != 1.0) {
+    return 2;
+  }
+  if !(1.0 != nan) {
+    return 3;
+  }
+  if nan == nan {
+    return 4;
+  }
+  if nan == 1.0 {
+    return 5;
+  }
+  if !(also_nan != also_nan) {
+    return 6;
+  }
+  if 1.0 != 1.0 {
+    return 7;
+  }
+  if !(1.0 != 2.0) {
+    return 8;
+  }
+  return 0;
+}

@@ -1,0 +1,7 @@
+import std::dictionary::{Dictionary, dictionary_insert, dictionary_new, dictionary_remove};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  dictionary_insert(d, 1, 10);
+  return dictionary_remove(d, 2);
+}

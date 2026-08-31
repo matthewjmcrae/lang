@@ -1,0 +1,59 @@
+fn roman_value(ch: i32) -> i32 {
+  if ch == 73 {
+    return 1;
+  }
+  if ch == 86 {
+    return 5;
+  }
+  if ch == 88 {
+    return 10;
+  }
+  if ch == 76 {
+    return 50;
+  }
+  if ch == 67 {
+    return 100;
+  }
+  if ch == 68 {
+    return 500;
+  }
+  if ch == 77 {
+    return 1000;
+  }
+  return 0;
+}
+
+fn roman_to_int(s: str) -> i32 {
+  let total: i32 = 0;
+  let i: i32 = 0;
+  while i < len(s) {
+    let current: i32 = roman_value(s[i]);
+    if i + 1 < len(s) {
+      let next: i32 = roman_value(s[i + 1]);
+      if current < next {
+        total = total + (next - current);
+        i = i + 2;
+      } else {
+        total = total + current;
+        i = i + 1;
+      }
+    } else {
+      total = total + current;
+      i = i + 1;
+    }
+  }
+  return total;
+}
+
+fn main() -> i32 {
+  if roman_to_int("III") != 3 {
+    return 1;
+  }
+  if roman_to_int("LVIII") != 58 {
+    return 2;
+  }
+  if roman_to_int("MCMXCIV") != 1994 {
+    return 3;
+  }
+  return 0;
+}

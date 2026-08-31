@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let value: f64 = pow(2.0, 31.0);
+  print_int(value as i32);
+  return 0;
+}

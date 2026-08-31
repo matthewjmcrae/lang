@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  let flag: bool = true;
+  return flag as f64;
+}

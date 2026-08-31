@@ -1,0 +1,6 @@
+fn main() -> i32 {
+  let names: [str] = ["alice", "bob", "carol"];
+  print(names[1]);
+  println();
+  return 0;
+}

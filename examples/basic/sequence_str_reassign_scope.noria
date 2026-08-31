@@ -1,0 +1,19 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let tags: Sequence<str, arr> = sequence_new("");
+  sequence_push(tags, "a");
+  tags = sequence_new("");
+  if true {
+    let extra: Sequence<str, arr> = sequence_new("");
+    sequence_push(extra, "x");
+    sequence_push(extra, "y");
+    if sequence_len(extra) != 2 {
+      return 1;
+    }
+  }
+  if sequence_len(tags) != 0 {
+    return 2;
+  }
+  return 0;
+}

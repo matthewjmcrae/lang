@@ -2,20 +2,25 @@
 
 #include "noria/Diagnostic.hpp"
 
+#include <array>
 #include <cctype>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace noria {
 
   namespace {
 
-    std::string atLocation(SourceLocation location, std::string_view message);
+    using TwoCharacterTokens = std::unordered_map<char, TokenKind>;
 
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character);
   } // namespace
 
-  Lexer::Lexer(std::string_view source) : source_(source) {}
+  Lexer::Lexer(std::string_view source, std::string file)
+      : source_(source), file_(std::move(file)) {
+    location_.file = file_;
+  }
 
   std::vector<Token> Lexer::lex() {
     std::vector<Token> tokens;
@@ -25,124 +30,124 @@ namespace noria {
       if (isAtEnd())
         break;
 
-      const auto start = location_;
       const char current = peek();
-
-      if (std::isalpha(static_cast<unsigned char>(current)) || current == '_') {
-        tokens.push_back(lexIdentifierOrKeyword());
+      if (current == '/' && peek(1) == '/') {
+        skipLineComment();
         continue;
       }
 
-      if (std::isdigit(static_cast<unsigned char>(current))) {
-        tokens.push_back(lexInteger());
-        continue;
-      }
-
-      switch (current) {
-      case '-':
-        if (peek(1) == '>') { // trailing return type case
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::Arrow, "->", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Minus, std::string(1, advance()), start));
-        break;
-      case '(':
-        tokens.push_back(makeToken(TokenKind::LeftParen, std::string(1, advance()), start));
-        break;
-      case ')':
-        tokens.push_back(makeToken(TokenKind::RightParen, std::string(1, advance()), start));
-        break;
-      case '{':
-        tokens.push_back(makeToken(TokenKind::LeftBrace, std::string(1, advance()), start));
-        break;
-      case '}':
-        tokens.push_back(makeToken(TokenKind::RightBrace, std::string(1, advance()), start));
-        break;
-      case ';':
-        tokens.push_back(makeToken(TokenKind::Semicolon, std::string(1, advance()), start));
-        break;
-      case ',':
-        tokens.push_back(makeToken(TokenKind::Comma, std::string(1, advance()), start));
-        break;
-      case ':':
-        tokens.push_back(makeToken(TokenKind::Colon, std::string(1, advance()), start));
-        break;
-      case '=':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::EqualEqual, "==", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Equal, std::string(1, advance()), start));
-        break;
-      case '+':
-        tokens.push_back(makeToken(TokenKind::Plus, std::string(1, advance()), start));
-        break;
-      case '*':
-        tokens.push_back(makeToken(TokenKind::Star, std::string(1, advance()), start));
-        break;
-      case '/':
-        if (peek(1) == '/') {
-          while (!isAtEnd() && peek() != '\n')
-            advance();
-
-          // skip whole line
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Slash, std::string(1, advance()), start));
-        break;
-      case '<':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::LessEqual, "<=", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Less, std::string(1, advance()), start));
-        break;
-      case '>':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::GreaterEqual, ">=", start));
-          break;
-        }
-        tokens.push_back(makeToken(TokenKind::Greater, std::string(1, advance()), start));
-        break;
-      case '!':
-        if (peek(1) == '=') {
-          advance();
-          advance();
-          tokens.push_back(makeToken(TokenKind::BangEqual, "!=", start));
-          break;
-        }
-        throwUnexpectedCharacter(start, current);
-      default:
-        throwUnexpectedCharacter(start, current);
-      }
+      tokens.push_back(lexToken());
     }
 
     tokens.push_back(makeToken(TokenKind::End, "", location_));
     return tokens;
   }
 
-  Token Lexer::lexIdentifierOrKeyword() {
+  Token Lexer::lexToken() {
     const auto start = location_;
-    const auto startIndex = index_;
+    const char current = peek();
 
-    static const std::unordered_map<std::string_view, TokenKind> keywords = {
-        {"fn", TokenKind::Fn},     {"return", TokenKind::Return}, {"let", TokenKind::Let},
-        {"if", TokenKind::If},     {"else", TokenKind::Else},     {"while", TokenKind::While},
-        {"true", TokenKind::True}, {"false", TokenKind::False},
+    if (std::isalpha(static_cast<unsigned char>(current)) || current == '_') {
+      return lexIdentifierOrKeyword();
+    }
+
+    if (std::isdigit(static_cast<unsigned char>(current)) ||
+        (current == '.' && std::isdigit(static_cast<unsigned char>(peek(1))))) {
+      return lexNumber();
+    }
+
+    if (current == '"') {
+      return lexString();
+    }
+
+    if (auto token = tryLexTwoCharacterToken(start)) {
+      return *token;
+    }
+
+    if (auto token = tryLexSingleCharacterToken(start)) {
+      return *token;
+    }
+
+    throwUnexpectedCharacter(start, current);
+  }
+
+  std::optional<Token> Lexer::tryLexTwoCharacterToken(SourceLocation start) {
+    static const std::unordered_map<char, TwoCharacterTokens> twoCharacterTokens = {
+        {'-', {{'>', TokenKind::Arrow}}},
+        {':', {{':', TokenKind::ColonColon}}},
+        {'=', {{'=', TokenKind::EqualEqual}}},
+        {'<', {{'=', TokenKind::LessEqual}, {'<', TokenKind::Shl}}},
+        {'>', {{'=', TokenKind::GreaterEqual}, {'>', TokenKind::Shr}}},
+        {'!', {{'=', TokenKind::BangEqual}}},
+        {'&', {{'&', TokenKind::AmpAmp}}},
+        {'|', {{'|', TokenKind::PipePipe}}},
     };
 
-    while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')
-      advance();
+    const char current = peek();
+    const auto first = twoCharacterTokens.find(current);
+    if (first == twoCharacterTokens.end()) {
+      return std::nullopt;
+    }
 
-    std::string text(source_.substr(startIndex, index_ - startIndex));
+    const char next = peek(1);
+    const auto second = first->second.find(next);
+    if (second == first->second.end()) {
+      return std::nullopt;
+    }
+
+    advance();
+    advance();
+    return makeToken(second->second, std::string{current, next}, start);
+  }
+
+  std::optional<Token> Lexer::tryLexSingleCharacterToken(SourceLocation start) {
+    static const std::unordered_map<char, TokenKind> singleCharacterTokens = {
+        {'(', TokenKind::LeftParen},    {')', TokenKind::RightParen}, {'[', TokenKind::LeftBracket},
+        {']', TokenKind::RightBracket}, {'{', TokenKind::LeftBrace},  {'}', TokenKind::RightBrace},
+        {'.', TokenKind::Dot},          {';', TokenKind::Semicolon},  {',', TokenKind::Comma},
+        {':', TokenKind::Colon},        {'=', TokenKind::Equal},      {'+', TokenKind::Plus},
+        {'-', TokenKind::Minus},        {'*', TokenKind::Star},       {'/', TokenKind::Slash},
+        {'<', TokenKind::Less},         {'>', TokenKind::Greater},    {'!', TokenKind::Bang},
+        {'&', TokenKind::Amp},          {'|', TokenKind::Pipe},       {'^', TokenKind::Caret},
+        {'~', TokenKind::Tilde},        {'%', TokenKind::Percent},
+    };
+
+    const char current = peek();
+    const auto token = singleCharacterTokens.find(current);
+    if (token == singleCharacterTokens.end()) {
+      return std::nullopt;
+    }
+
+    return makeToken(token->second, std::string(1, advance()), start);
+  }
+
+  Token Lexer::lexIdentifierOrKeyword() {
+    const auto start = location_;
+
+    std::string text{};
+
+    static const std::unordered_map<std::string_view, TokenKind> keywords = {
+        {"fn", TokenKind::Fn},           {"util", TokenKind::Fn},
+        {"helper", TokenKind::Fn},       {"recfn", TokenKind::Fn},
+        {"import", TokenKind::Import},   {"struct", TokenKind::Struct},
+        {"return", TokenKind::Return},
+        {"let", TokenKind::Let},         {"if", TokenKind::If},
+        {"else", TokenKind::Else},       {"while", TokenKind::While},
+        {"as", TokenKind::As},           {"impl", TokenKind::Impl},
+        {"private", TokenKind::Private}, {"public", TokenKind::Public},
+        {"true", TokenKind::True},       {"false", TokenKind::False},
+    };
+
+    while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_') {
+      char curr = peek();
+      if (std::isupper(static_cast<unsigned char>(curr))) {
+        curr = static_cast<char>(std::tolower(static_cast<unsigned char>(curr)));
+      }
+      text.push_back(curr);
+      advance();
+    }
+
+    //std::string text(source_.substr(startIndex, index_ - startIndex)); inefficient
 
     if (auto it = keywords.find(text); it != keywords.end())
       return makeToken(it->second, std::move(text), start);
@@ -150,15 +155,68 @@ namespace noria {
     return makeToken(TokenKind::Identifier, std::move(text), start);
   }
 
-  Token Lexer::lexInteger() {
+  Token Lexer::lexNumber() {
     const auto start = location_;
     const auto startIndex = index_;
 
     while (std::isdigit(static_cast<unsigned char>(peek())))
       advance();
 
+    if (peek() == '.') {
+      advance();
+      while (std::isdigit(static_cast<unsigned char>(peek())))
+        advance();
+
+      const std::string text(source_.substr(startIndex, index_ - startIndex));
+      return makeToken(TokenKind::Float, text, start);
+    }
+
     return makeToken(TokenKind::Integer,
                      std::string(source_.substr(startIndex, index_ - startIndex)), start);
+  }
+
+  Token Lexer::lexString() {
+    const auto start = location_;
+    advance(); // opening "
+
+    std::string value;
+    while (!isAtEnd() && peek() != '"') {
+      if (peek() == '\\') {
+        advance();
+        if (isAtEnd())
+          throw CompileError(
+              formatDiagnostic(location_, DiagnosticStage::Lexer, "unterminated string literal"));
+
+        switch (peek()) {
+        case 'n':
+          value.push_back('\n');
+          break;
+        case 't':
+          value.push_back('\t');
+          break;
+        case '"':
+          value.push_back('"');
+          break;
+        case '\\':
+          value.push_back('\\');
+          break;
+        default:
+          throw CompileError(formatDiagnostic(location_, DiagnosticStage::Lexer,
+                                              "invalid string escape sequence"));
+        }
+        advance();
+        continue;
+      }
+
+      value.push_back(advance());
+    }
+
+    if (isAtEnd())
+      throw CompileError(
+          formatDiagnostic(start, DiagnosticStage::Lexer, "unterminated string literal"));
+
+    advance(); // closing "
+    return makeToken(TokenKind::String, std::move(value), start);
   }
 
   // helper functions
@@ -197,75 +255,49 @@ namespace noria {
     }
   }
 
+  void Lexer::skipLineComment() {
+    while (!isAtEnd() && peek() != '\n')
+      advance();
+  }
+
   Token Lexer::makeToken(TokenKind kind, std::string text, SourceLocation location) const {
     return Token{kind, std::move(text), location};
   }
 
-  // string view is ok on string literals since those live the entire lifetime of the program
   std::string_view tokenKindName(TokenKind kind) {
-    switch (kind) {
-    case TokenKind::End:
-      return "end of file";
-    case TokenKind::Identifier:
-      return "identifier";
-    case TokenKind::Integer:
-      return "integer";
-    case TokenKind::Fn:
-      return "fn";
-    case TokenKind::Return:
-      return "return";
-    case TokenKind::Let:
-      return "let";
-    case TokenKind::If:
-      return "if";
-    case TokenKind::Else:
-      return "else";
-    case TokenKind::While:
-      return "while";
-    case TokenKind::True:
-      return "true";
-    case TokenKind::False:
-      return "false";
-    case TokenKind::Arrow:
-      return "->";
-    case TokenKind::LeftParen:
-      return "(";
-    case TokenKind::RightParen:
-      return ")";
-    case TokenKind::LeftBrace:
-      return "{";
-    case TokenKind::RightBrace:
-      return "}";
-    case TokenKind::Semicolon:
-      return ";";
-    case TokenKind::Colon:
-      return ":";
-    case TokenKind::Comma:
-      return ",";
-    case TokenKind::Equal:
-      return "=";
-    case TokenKind::Plus:
-      return "+";
-    case TokenKind::Minus:
-      return "-";
-    case TokenKind::Star:
-      return "*";
-    case TokenKind::Slash:
-      return "/";
-    case TokenKind::EqualEqual:
-      return "==";
-    case TokenKind::BangEqual:
-      return "!=";
-    case TokenKind::Less:
-      return "<";
-    case TokenKind::LessEqual:
-      return "<=";
-    case TokenKind::Greater:
-      return ">";
-    case TokenKind::GreaterEqual:
-      return ">=";
-    case TokenKind::Unknown:
-      return "unknown";
+    static constexpr std::array<std::pair<TokenKind, std::string_view>, 52> names{{
+        {TokenKind::End, "end of file"}, {TokenKind::Identifier, "identifier"},
+        {TokenKind::Integer, "integer"}, {TokenKind::Float, "float"},
+        {TokenKind::String, "string"},   {TokenKind::Import, "import"},
+        {TokenKind::Fn, "fn"},           {TokenKind::Struct, "struct"},
+        {TokenKind::Return, "return"},   {TokenKind::Arrow, "->"},
+        {TokenKind::LeftParen, "("},     {TokenKind::RightParen, ")"},
+        {TokenKind::LeftBracket, "["},   {TokenKind::RightBracket, "]"},
+        {TokenKind::LeftBrace, "{"},     {TokenKind::RightBrace, "}"},
+        {TokenKind::Semicolon, ";"},     {TokenKind::Dot, "."},
+        {TokenKind::Let, "let"},         {TokenKind::If, "if"},
+        {TokenKind::Else, "else"},       {TokenKind::While, "while"},
+        {TokenKind::True, "true"},       {TokenKind::False, "false"},
+        {TokenKind::Colon, ":"},         {TokenKind::ColonColon, "::"},
+        {TokenKind::Comma, ","},         {TokenKind::Equal, "="},
+        {TokenKind::Plus, "+"},          {TokenKind::Minus, "-"},
+        {TokenKind::Star, "*"},          {TokenKind::Slash, "/"},
+        {TokenKind::EqualEqual, "=="},   {TokenKind::BangEqual, "!="},
+        {TokenKind::Less, "<"},          {TokenKind::LessEqual, "<="},
+        {TokenKind::Greater, ">"},       {TokenKind::GreaterEqual, ">="},
+        {TokenKind::Bang, "!"},          {TokenKind::AmpAmp, "&&"},
+        {TokenKind::PipePipe, "||"},     {TokenKind::Amp, "&"},
+        {TokenKind::Pipe, "|"},          {TokenKind::Caret, "^"},
+        {TokenKind::Tilde, "~"},         {TokenKind::Shl, "<<"},
+        {TokenKind::Shr, ">>"},          {TokenKind::Percent, "%"},
+        {TokenKind::As, "as"},           {TokenKind::Impl, "impl"},
+        {TokenKind::Private, "private"}, {TokenKind::Public, "public"},
+    }};
+
+    for (const auto& [candidate, name] : names) {
+      if (candidate == kind) {
+        return name;
+      }
     }
 
     return "unknown";
@@ -273,18 +305,11 @@ namespace noria {
 
   namespace {
 
-    std::string atLocation(SourceLocation location, std::string_view message) {
-      std::ostringstream out;
-      out << location.line << ":" << location.column << ": " << message;
-      return out.str();
-    }
-
     [[noreturn]] void throwUnexpectedCharacter(SourceLocation location, char character) {
       std::ostringstream message;
-      message << "lexer: unexpected character '" << character << "'";
-      throw CompileError(atLocation(location, message.str()));
+      message << "unexpected character '" << character << "'";
+      throw CompileError(formatDiagnostic(location, DiagnosticStage::Lexer, message.str()));
     }
 
   } // namespace
 } // namespace noria
-

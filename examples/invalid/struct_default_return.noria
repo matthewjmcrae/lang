@@ -1,0 +1,11 @@
+struct Point {
+  x: i32;
+  y: i32;
+}
+
+fn zero() -> Point {
+}
+
+fn main() -> i32 {
+  return zero().y + 1;
+}

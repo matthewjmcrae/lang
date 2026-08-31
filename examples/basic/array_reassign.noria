@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  let a: [i32] = [1, 2];
+  a = [7, 8, 9];
+  return len(a);
+}

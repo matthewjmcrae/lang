@@ -1,0 +1,10 @@
+fn value(flag: bool) {
+  if flag {
+    return;
+  }
+  return 1;
+}
+
+fn main() {
+  return 0;
+}

@@ -1,0 +1,223 @@
+import std::internal::dictionary_bst::{bst_clone_node, bst_contains_node, bst_drop_node,
+                                         bst_find_node, bst_insert_node, bst_load_key,
+                                         bst_load_value, bst_min_node, bst_new_node,
+                                         bst_remove_node, bst_store_key, bst_store_value,
+                                         key_offset, node_bytes, type_size, value_offset};
+import std::internal::dictionary_hashmap::{hashmap_contains, hashmap_drop_table,
+                                            hashmap_find_insert_slot, hashmap_find_slot,
+                                            hashmap_get_slot, hashmap_get_value,
+                                            hashmap_init_table, hashmap_insert_slot,
+                                            hashmap_maybe_grow, hashmap_rehash, hashmap_remove,
+                                            probe_index, set_slot_key, set_slot_status,
+                                            set_slot_value, slot_at, slot_bytes, slot_empty,
+                                            slot_key, slot_key_offset, slot_occupied, slot_status,
+                                            slot_tombstone, slot_value, slot_value_offset};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, field_alignment, load_at, load_i32_at,
+                           load_ptr_at, null_ptr, ptr_eq, release_bytes, store_at, store_i32_at,
+                           store_ptr_at};
+
+struct Dictionary<K, V, I> {
+  private:
+  handle: __rt_ptr;
+}
+
+fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I> impl bst {
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let k_size: i32 = type_size(kSample);
+  let v_size: i32 = type_size(vSample);
+  let init_key_size: i32 = store_i32_at(header, 1, k_size);
+  let init_val_size: i32 = store_i32_at(header, 2, v_size);
+  let init_root: i32 = store_ptr_at(header, 2, null_ptr());
+  return Dictionary<K, V, I> { handle: header };
+}
+
+fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32 impl bst {
+  return load_i32_at(d.handle, 0);
+}
+
+fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> void impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let had_key: bool = bst_contains_node(root, key, key_size);
+  let new_root: __rt_ptr = bst_insert_node(root, key, value, key_size, val_size);
+  let patch: i32 = store_ptr_at(d.handle, 2, new_root);
+  if !had_key {
+    let len: i32 = load_i32_at(d.handle, 0);
+    let inc: i32 = store_i32_at(d.handle, 0, len + 1);
+  }
+  return;
+}
+
+fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  return bst_contains_node(root, key, key_size);
+}
+
+fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    __rt_trap("dictionary_get: key not found\n");
+  }
+  return bst_load_value(node, key_size, val_size);
+}
+
+fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    return default;
+  }
+  return bst_load_value(node, key_size, val_size);
+}
+
+fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let node: __rt_ptr = bst_find_node(root, key, key_size);
+  if ptr_eq(node, null_ptr()) {
+    __rt_trap("dictionary_remove: key not found\n");
+  }
+  let value: V = bst_load_value(node, key_size, val_size);
+  let new_root: __rt_ptr = bst_remove_node(root, key, key_size, val_size);
+  let patch: i32 = store_ptr_at(d.handle, 2, new_root);
+  let len: i32 = load_i32_at(d.handle, 0);
+  let dec: i32 = store_i32_at(d.handle, 0, len - 1);
+  return value;
+}
+
+fn dictionary_new<K, V, I>(kSample: K, vSample: V) -> Dictionary<K, V, I> impl hashmap {
+  let header: __rt_ptr = alloc_bytes(32);
+  let k_size: i32 = type_size(kSample);
+  let v_size: i32 = type_size(vSample);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let init_key_size: i32 = store_i32_at(header, 1, k_size);
+  let init_val_size: i32 = store_i32_at(header, 2, v_size);
+  let init_cap: i32 = 8;
+  let init_cap_store: i32 = store_i32_at(header, 3, init_cap);
+  let stride: i32 = slot_bytes(k_size, v_size);
+  let table_bytes: i32 = init_cap * stride;
+  let table: __rt_ptr = alloc_bytes(table_bytes);
+  let init_table: i32 = hashmap_init_table(table, init_cap, stride);
+  let init_table_ptr: i32 = store_ptr_at(header, 2, table);
+  return Dictionary<K, V, I> { handle: header };
+}
+
+fn dictionary_len<K, V, I>(d: Dictionary<K, V, I>) -> i32 impl hashmap {
+  return load_i32_at(d.handle, 0);
+}
+
+fn dictionary_insert<K, V, I>(d: Dictionary<K, V, I>, key: K, value: V) -> void impl hashmap {
+  let had_key: bool = hashmap_insert_slot(d.handle, key, value);
+  if !had_key {
+    let len: i32 = load_i32_at(d.handle, 0);
+    let inc: i32 = store_i32_at(d.handle, 0, len + 1);
+  }
+  return;
+}
+
+fn dictionary_contains<K, V, I>(d: Dictionary<K, V, I>, key: K) -> bool impl hashmap {
+  return hashmap_contains(d.handle, key);
+}
+
+fn dictionary_get<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl hashmap {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let slot: __rt_ptr = hashmap_get_slot(d.handle, key);
+  if ptr_eq(slot, null_ptr()) {
+    __rt_trap("dictionary_get: key not found\n");
+  }
+  return hashmap_get_value(slot, key_size, val_size);
+}
+
+fn dictionary_get_or<K, V, I>(d: Dictionary<K, V, I>, key: K, default: V) -> V impl hashmap {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let slot: __rt_ptr = hashmap_get_slot(d.handle, key);
+  if ptr_eq(slot, null_ptr()) {
+    return default;
+  }
+  return hashmap_get_value(slot, key_size, val_size);
+}
+
+fn dictionary_remove<K, V, I>(d: Dictionary<K, V, I>, key: K) -> V impl hashmap {
+  return hashmap_remove(d.handle, key);
+}
+
+fn dictionary_drop<K, V, I>(d: Dictionary<K, V, I>) -> void impl bst {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let drop_tree: i32 = bst_drop_node(root, key_size, val_size);
+  let free_header: i32 = release_bytes(d.handle);
+  return;
+}
+
+fn dictionary_drop<K, V, I>(d: Dictionary<K, V, I>) -> void impl hashmap {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let cap: i32 = load_i32_at(d.handle, 3);
+  let table: __rt_ptr = load_ptr_at(d.handle, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let drop_table: i32 = hashmap_drop_table(table, cap, key_size, val_size, stride);
+  let free_header: i32 = release_bytes(d.handle);
+  return;
+}
+
+fn dictionary_clone<K, V, I>(d: Dictionary<K, V, I>) -> Dictionary<K, V, I> impl bst {
+  let len: i32 = load_i32_at(d.handle, 0);
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let root: __rt_ptr = load_ptr_at(d.handle, 2);
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let init_key_size: i32 = store_i32_at(header, 1, key_size);
+  let init_val_size: i32 = store_i32_at(header, 2, val_size);
+  let init_root: i32 = store_ptr_at(header, 2, null_ptr());
+  let new_root: __rt_ptr = bst_clone_node(root, key_size, val_size);
+  let patch_root: i32 = store_ptr_at(header, 2, new_root);
+  let patch_len: i32 = store_i32_at(header, 0, len);
+  return Dictionary<K, V, I> { handle: header };
+}
+
+fn dictionary_clone<K, V, I>(d: Dictionary<K, V, I>) -> Dictionary<K, V, I> impl hashmap {
+  let key_size: i32 = load_i32_at(d.handle, 1);
+  let val_size: i32 = load_i32_at(d.handle, 2);
+  let cap: i32 = load_i32_at(d.handle, 3);
+  let table: __rt_ptr = load_ptr_at(d.handle, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let header: __rt_ptr = alloc_bytes(32);
+  let init_len: i32 = store_i32_at(header, 0, 0);
+  let init_key_size: i32 = store_i32_at(header, 1, key_size);
+  let init_val_size: i32 = store_i32_at(header, 2, val_size);
+  let init_cap: i32 = 8;
+  let init_cap_store: i32 = store_i32_at(header, 3, init_cap);
+  let table_bytes: i32 = init_cap * stride;
+  let new_table: __rt_ptr = alloc_bytes(table_bytes);
+  let init_table: i32 = hashmap_init_table(new_table, init_cap, stride);
+  let init_table_ptr: i32 = store_ptr_at(header, 2, new_table);
+  let result: Dictionary<K, V, I> = Dictionary<K, V, I> { handle: header };
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    if slot_status(slot) == slot_occupied() {
+      let key: K = slot_key(slot, key_size);
+      let value: V = slot_value(slot, key_size, val_size);
+      let had_key: bool = hashmap_insert_slot(result.handle, key, value);
+      if !had_key {
+        let cur_len: i32 = load_i32_at(result.handle, 0);
+        let inc: i32 = store_i32_at(result.handle, 0, cur_len + 1);
+      }
+    }
+    i = i + 1;
+  }
+  return result;
+}

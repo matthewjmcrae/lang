@@ -1,0 +1,6 @@
+import std::id_use_a::{use_a};
+import std::id_use_b::{use_b};
+
+fn main() -> i32 {
+  return use_a(1) + use_b(2);
+}

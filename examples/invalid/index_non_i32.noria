@@ -1,0 +1,6 @@
+fn main() -> i32 {
+  let s: str = "hi";
+  let b: bool = true;
+  print_int(s[b]);
+  return 0;
+}

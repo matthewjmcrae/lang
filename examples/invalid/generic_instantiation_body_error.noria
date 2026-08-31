@@ -1,0 +1,7 @@
+fn bad<T>(x: T) -> i32 {
+  return x + 1;
+}
+
+fn main() -> i32 {
+  return bad(true);
+}

@@ -1,0 +1,9 @@
+struct Box<T> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let a: Box<i32> = Box<i32> { value: 1 };
+  let b: Box<i32> = Box<i32> { value: 2 };
+  return a.value + b.value;
+}

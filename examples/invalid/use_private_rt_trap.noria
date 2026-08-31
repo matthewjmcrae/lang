@@ -1,0 +1,4 @@
+fn main() -> i32 {
+  __rt_trap("oops\n");
+  return 0;
+}

@@ -1,0 +1,11 @@
+import std::impl_family::{kind};
+
+struct Box<T, I> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let a: Box<i32, arr> = Box<i32, arr> { value: 1 };
+  let b: Box<i32, list> = Box<i32, list> { value: 2 };
+  return kind(a) + kind(b);
+}

@@ -1,0 +1,8 @@
+import std::set::{Set, set_insert, set_new, set_remove};
+
+fn main() -> i32 {
+  let s: Set<i32, hashset> = set_new(0);
+  set_insert(s, 1);
+  set_remove(s, 2);
+  return 0;
+}

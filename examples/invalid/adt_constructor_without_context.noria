@@ -1,0 +1,6 @@
+import std::sequence::{Sequence, sequence_new};
+
+fn main() -> i32 {
+  let s = sequence_new(0);
+  return 0;
+}

@@ -2,34 +2,66 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
-    name: Build and test
-    runs-on: macos-latest
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Install LLVM
-        run: brew install llvm
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install just llvm
 
-      - name: Configure LLVM tools
-        run: echo "LLVM_BIN=$(brew --prefix llvm)/bin" >> "$GITHUB_ENV"
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang just llvm valgrind
 
-      - name: Configure CMake
-        run: cmake -S . -B build
+      - name: Configure LLVM tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          llvm_bin="$(brew --prefix llvm)/bin"
+          echo "LLVM_BIN=${llvm_bin}" >> "$GITHUB_ENV"
+          echo "${llvm_bin}" >> "$GITHUB_PATH"
 
-      - name: Build compiler
-        run: cmake --build build
+      - name: Configure LLVM tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          llvm_bin="$(llvm-config --bindir)"
+          echo "LLVM_BIN=${llvm_bin}" >> "$GITHUB_ENV"
+          echo "${llvm_bin}" >> "$GITHUB_PATH"
+
+      - name: Verify LLVM tools
+        run: |
+          clang --version
+          opt --version
+          just --version
 
       - name: Run compiler test suite
-        run: BUILD_DIR=build ./tests/run_examples.sh
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just test
+
+      - name: Run sanitizer test suite
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just sanitize
+
+      - name: Run Noria program leak tests
+        run: NORIA_REQUIRE_LLVM_TOOLS=1 just leak

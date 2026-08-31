@@ -1,0 +1,14 @@
+struct Box<T> {
+  value: T;
+}
+
+struct Pair<A, B> {
+  first: A;
+  second: B;
+}
+
+fn main() -> i32 {
+  let inner: Box<i32> = Box<i32> { value: 10 };
+  let outer: Pair<Box<i32>, i32> = Pair<Box<i32>, i32> { first: inner, second: 5 };
+  return outer.first.value + outer.second;
+}

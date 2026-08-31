@@ -1,0 +1,7 @@
+fn main() -> i32 {
+  let zero: i32 = 0;
+  if false && 1 / zero == 1 {
+    return 99;
+  }
+  return 0;
+}

@@ -1,0 +1,35 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_len, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashmap> = dictionary_new(0, 0);
+  if dictionary_len(d) != 0 {
+    return 1;
+  }
+  dictionary_insert(d, 10, 100);
+  dictionary_insert(d, 5, 50);
+  dictionary_insert(d, 20, 200);
+  if dictionary_len(d) != 3 {
+    return 2;
+  }
+  if !dictionary_contains(d, 10) {
+    return 3;
+  }
+  if dictionary_contains(d, 99) {
+    return 4;
+  }
+  if dictionary_get(d, 5) != 50 {
+    return 5;
+  }
+  if dictionary_get(d, 20) != 200 {
+    return 6;
+  }
+  dictionary_insert(d, 10, 999);
+  if dictionary_len(d) != 3 {
+    return 7;
+  }
+  if dictionary_get(d, 10) != 999 {
+    return 8;
+  }
+  return 0;
+}

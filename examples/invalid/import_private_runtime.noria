@@ -1,0 +1,5 @@
+import std::internal::rt::{alloc_bytes};
+
+fn main() -> i32 {
+  return 0;
+}

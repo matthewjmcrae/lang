@@ -1,0 +1,7 @@
+fn values() {
+  return [];
+}
+
+fn main() {
+  return 0;
+}

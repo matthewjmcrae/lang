@@ -1,0 +1,8 @@
+fn main() -> i32 {
+  let root: f64 = sqrt(2.0);
+  let power: f64 = pow(2.0, 10.0);
+  if root > 1.4 && power == 1024.0 {
+    return 1;
+  }
+  return 0;
+}

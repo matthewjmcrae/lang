@@ -1,0 +1,21 @@
+fn single_number(nums: [i32]) -> i32 {
+  let acc: i32 = 0;
+  let i: i32 = 0;
+  while i < len(nums) {
+    acc = acc ^ nums[i];
+    i = i + 1;
+  }
+  return acc;
+}
+
+fn main() -> i32 {
+  let nums: [i32] = [4, 1, 2, 1, 2];
+  if single_number(nums) != 4 {
+    return 1;
+  }
+  let one: [i32] = [7];
+  if single_number(one) != 7 {
+    return 2;
+  }
+  return 0;
+}

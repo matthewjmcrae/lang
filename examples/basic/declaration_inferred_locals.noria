@@ -1,0 +1,9 @@
+fn main() -> i32 {
+  let x: i32 = 11;
+  let a = x + 4;
+  let ok = true;
+  if ok {
+    return a;
+  }
+  return 0;
+}

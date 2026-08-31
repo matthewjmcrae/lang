@@ -1,0 +1,5 @@
+import std::dupexport::{dup};
+
+fn main() -> i32 {
+  return dup();
+}

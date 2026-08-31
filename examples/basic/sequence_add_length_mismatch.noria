@@ -1,0 +1,11 @@
+import std::sequence::{Sequence, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let left: Sequence<i32> = sequence_new(0);
+  sequence_push(left, 1);
+  let right: Sequence<i32> = sequence_new(0);
+  sequence_push(right, 1);
+  sequence_push(right, 2);
+  let sum: Sequence<i32> = left + right;
+  return 0;
+}

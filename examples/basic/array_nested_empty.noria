@@ -1,0 +1,22 @@
+struct Holder {
+  nested: [[i32]];
+}
+
+fn empty_grid() -> [[i32]] {
+  return [[]];
+}
+
+fn row_count(grid: [[i32]]) -> i32 {
+  return len(grid);
+}
+
+fn main() -> i32 {
+  let grid: [[i32]] = [[]];
+  let mixed: [[i32]] = [[1], []];
+  let leading: [[i32]] = [[], [2]];
+  let holder: Holder = Holder { nested: [[]] };
+
+  return len(grid) + len(grid[0]) + len(mixed) + len(mixed[0]) + len(mixed[1]) +
+         len(leading) + len(leading[0]) + len(leading[1]) + len(empty_grid()) +
+         row_count([[]]) + len(holder.nested) + len(holder.nested[0]);
+}

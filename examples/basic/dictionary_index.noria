@@ -1,0 +1,28 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_len, dictionary_new};
+
+fn main() -> i32 {
+  let values: Dictionary<i32, i32> = dictionary_new(0, 0);
+  values[10] = 100;
+  if values[10] != 100 {
+    return 1;
+  }
+  if dictionary_len(values) != 1 {
+    return 2;
+  }
+
+  if values[99] != 0 {
+    return 3;
+  }
+  if !dictionary_contains(values, 99) {
+    return 4;
+  }
+  if dictionary_len(values) != 2 {
+    return 5;
+  }
+
+  values[99] = 7;
+  if values[99] != 7 {
+    return 6;
+  }
+  return 0;
+}

@@ -1,0 +1,24 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_pop,
+                       sequence_push, sequence_set};
+
+fn main() -> i32 {
+  let s: Sequence<i32, list> = sequence_new(0);
+  sequence_push(s, 10);
+  sequence_push(s, 20);
+  sequence_push(s, 30);
+  sequence_set(s, 1, 99);
+  let v: i32 = sequence_pop(s);
+  if v != 30 {
+    return 1;
+  }
+  if sequence_len(s) != 2 {
+    return 2;
+  }
+  if sequence_get(s, 0) != 10 {
+    return 3;
+  }
+  if sequence_get(s, 1) != 99 {
+    return 4;
+  }
+  return 0;
+}

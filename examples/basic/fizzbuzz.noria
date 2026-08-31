@@ -1,0 +1,24 @@
+fn main() -> i32 {
+  let i: i32 = 1;
+  while i <= 100 {
+    if i % 15 == 0 {
+      print("FizzBuzz");
+      println();
+    } else {
+      if i % 3 == 0 {
+        print("Fizz");
+        println();
+      } else {
+        if i % 5 == 0 {
+          print("Buzz");
+          println();
+        } else {
+          print_int(i);
+          println();
+        }
+      }
+    }
+    i = i + 1;
+  }
+  return 0;
+}

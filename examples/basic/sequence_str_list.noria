@@ -1,0 +1,17 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+fn main() -> i32 {
+  let s: Sequence<str, list> = sequence_new("");
+  sequence_push(s, "alpha");
+  sequence_push(s, "beta");
+  if sequence_len(s) != 2 {
+    return 1;
+  }
+  if sequence_get(s, 0) != "alpha" {
+    return 2;
+  }
+  if sequence_get(s, 1) != "beta" {
+    return 3;
+  }
+  return 0;
+}

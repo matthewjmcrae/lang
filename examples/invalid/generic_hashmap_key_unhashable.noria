@@ -1,0 +1,8 @@
+struct Box<T, I> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let _: Box<f64, hashmap> = Box<f64, hashmap> { value: 1.0 };
+  return 0;
+}

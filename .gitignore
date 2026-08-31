@@ -32,3 +32,18 @@ test-output/
 # Sanitizers / profiling
 *.profraw
 *.profdata
+
+# Local planning, QA fixtures, and editor workspace state
+/tickets/
+/truth/
+/qa_programs/
+/.cursor/
+/review order
+/understanding/
+
+# Local planning records
+/*_PLAN.md
+/*_IMPLEMENTATION_LOG.md
+/OWNERSHIP_CI_HANDOFF.md
+/tests/fuzz/
+/examples/future/

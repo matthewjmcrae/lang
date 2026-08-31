@@ -1,0 +1,277 @@
+import std::internal::dictionary_bst::{type_size};
+import std::internal::rt::{align_up, alloc_bytes, byte_offset, drop_at, drop_witness, field_alignment, hash_of,
+                           load_at, load_i32_at, load_ptr_at, null_ptr, ptr_eq, release_bytes,
+                           store_at, store_i32_at, store_ptr_at};
+
+fn slot_key_offset() -> i32 {
+  return 8;
+}
+
+fn slot_value_offset(key_size: i32, val_size: i32) -> i32 {
+  return align_up(slot_key_offset() + key_size, field_alignment(val_size));
+}
+
+fn slot_bytes(key_size: i32, val_size: i32) -> i32 {
+  return align_up(slot_value_offset(key_size, val_size) + val_size, 8);
+}
+
+fn slot_empty() -> i32 {
+  return 0;
+}
+
+fn slot_occupied() -> i32 {
+  return 1;
+}
+
+fn slot_tombstone() -> i32 {
+  return 2;
+}
+
+fn slot_at(table: __rt_ptr, slot_index: i32, stride: i32) -> __rt_ptr {
+  let bytes: i32 = slot_index * stride;
+  return byte_offset(table, bytes);
+}
+
+fn slot_status(slot: __rt_ptr) -> i32 {
+  return load_i32_at(slot, 0);
+}
+
+fn set_slot_status(slot: __rt_ptr, status: i32) -> i32 {
+  return store_i32_at(slot, 0, status);
+}
+
+fn slot_key<K>(slot: __rt_ptr, key_size: i32) -> K {
+  return load_at(byte_offset(slot, slot_key_offset()), 0);
+}
+
+fn set_slot_key<K>(slot: __rt_ptr, key_size: i32, key: K) -> i32 {
+  return store_at(byte_offset(slot, slot_key_offset()), 0, key);
+}
+
+fn slot_value<V>(slot: __rt_ptr, key_size: i32, val_size: i32) -> V {
+  return load_at(byte_offset(slot, slot_value_offset(key_size, val_size)), 0);
+}
+
+fn set_slot_value<V>(slot: __rt_ptr, key_size: i32, val_size: i32, value: V) -> i32 {
+  return store_at(byte_offset(slot, slot_value_offset(key_size, val_size)), 0, value);
+}
+
+fn probe_index<K>(key: K, cap: i32) -> i32 {
+  let h: i32 = hash_of(key);
+  if h < 0 {
+    h = 0 - h;
+  }
+  return h % cap;
+}
+
+fn hashmap_init_table(table: __rt_ptr, cap: i32, stride: i32) -> i32 {
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    let init: i32 = set_slot_status(slot, slot_empty());
+    i = i + 1;
+  }
+  return 0;
+}
+
+fn hashmap_find_slot<K>(table: __rt_ptr, cap: i32, key: K, key_size: i32, stride: i32) -> __rt_ptr {
+  let start: i32 = probe_index(key, cap);
+  let i: i32 = 0;
+  while i < cap {
+    let idx: i32 = (start + i) % cap;
+    let slot: __rt_ptr = slot_at(table, idx, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_empty() {
+      return null_ptr();
+    }
+    if st == slot_occupied() {
+      let sk: K = slot_key(slot, key_size);
+      if sk == key {
+        return slot;
+      }
+    }
+    i = i + 1;
+  }
+  return null_ptr();
+}
+
+fn hashmap_find_insert_slot<K>(table: __rt_ptr, cap: i32, key: K, key_size: i32,
+                               stride: i32) -> __rt_ptr {
+  let start: i32 = probe_index(key, cap);
+  let i: i32 = 0;
+  let tomb: __rt_ptr = null_ptr();
+  while i < cap {
+    let idx: i32 = (start + i) % cap;
+    let slot: __rt_ptr = slot_at(table, idx, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_empty() {
+      if !ptr_eq(tomb, null_ptr()) {
+        return tomb;
+      }
+      return slot;
+    }
+    if st == slot_tombstone() {
+      if ptr_eq(tomb, null_ptr()) {
+        tomb = slot;
+      }
+    }
+    if st == slot_occupied() {
+      let sk: K = slot_key(slot, key_size);
+      if sk == key {
+        return slot;
+      }
+    }
+    i = i + 1;
+  }
+  if !ptr_eq(tomb, null_ptr()) {
+    return tomb;
+  }
+  return null_ptr();
+}
+
+fn hashmap_rehash<K, V>(header: __rt_ptr, new_cap: i32) -> i32 {
+  let key_size: i32 = load_i32_at(header, 1);
+  let val_size: i32 = load_i32_at(header, 2);
+  let old_cap: i32 = load_i32_at(header, 3);
+  let old_table: __rt_ptr = load_ptr_at(header, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let new_bytes: i32 = new_cap * stride;
+  let new_table: __rt_ptr = alloc_bytes(new_bytes);
+  let init0: i32 = hashmap_init_table(new_table, new_cap, stride);
+  let i: i32 = 0;
+  while i < old_cap {
+    let old_slot: __rt_ptr = slot_at(old_table, i, stride);
+    let st: i32 = slot_status(old_slot);
+    if st == slot_occupied() {
+      let key: K = slot_key(old_slot, key_size);
+      let value: V = slot_value(old_slot, key_size, val_size);
+      let target: __rt_ptr =
+          hashmap_find_insert_slot(new_table, new_cap, key, key_size, stride);
+      if ptr_eq(target, null_ptr()) {
+        __rt_trap("dictionary_insert: hashmap full\n");
+      }
+      let mark: i32 = set_slot_status(target, slot_occupied());
+      let sk: i32 = set_slot_key(target, key_size, key);
+      let sv: i32 = set_slot_value(target, key_size, val_size, value);
+    }
+    i = i + 1;
+  }
+  let free0: i32 = hashmap_drop_table(old_table, old_cap, key_size, val_size, stride);
+  let patch_table: i32 = store_ptr_at(header, 2, new_table);
+  let patch_cap: i32 = store_i32_at(header, 3, new_cap);
+  return 0;
+}
+
+fn hashmap_maybe_grow<K, V>(header: __rt_ptr) -> i32 {
+  let len: i32 = load_i32_at(header, 0);
+  let cap: i32 = load_i32_at(header, 3);
+  let threshold: i32 = (cap * 3) / 4;
+  if len >= threshold {
+    let new_cap: i32 = cap * 2;
+    let grow: i32 = hashmap_rehash(header, new_cap);
+  }
+  return 0;
+}
+
+fn hashmap_insert_slot<K, V>(header: __rt_ptr, key: K, value: V) -> bool {
+  let key_size: i32 = load_i32_at(header, 1);
+  let val_size: i32 = load_i32_at(header, 2);
+  let stride: i32 = slot_bytes(key_size, val_size);
+  let pregrow: i32 = hashmap_maybe_grow(header);
+  let cap2: i32 = load_i32_at(header, 3);
+  let table2: __rt_ptr = load_ptr_at(header, 2);
+  let slot: __rt_ptr = hashmap_find_insert_slot(table2, cap2, key, key_size, stride);
+  if ptr_eq(slot, null_ptr()) {
+    __rt_trap("dictionary_insert: hashmap full\n");
+  }
+  let st: i32 = slot_status(slot);
+  let had_key: bool = st == slot_occupied();
+  if had_key {
+    let old_key: K = slot_key(slot, key_size);
+    let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+    let drop_key: i32 = drop_witness(key_ptr, 0, old_key);
+    let old_value: V = slot_value(slot, key_size, val_size);
+    let val_ptr: __rt_ptr = byte_offset(slot, slot_value_offset(key_size, val_size));
+    let drop_val: i32 = drop_witness(val_ptr, 0, old_value);
+  }
+  let mark: i32 = set_slot_status(slot, slot_occupied());
+  let sk: i32 = set_slot_key(slot, key_size, key);
+  let sv: i32 = set_slot_value(slot, key_size, val_size, value);
+  return had_key;
+}
+
+fn hashmap_contains<K>(header: __rt_ptr, key: K) -> bool {
+  let key_size: i32 = load_i32_at(header, 1);
+  let cap: i32 = load_i32_at(header, 3);
+  let table: __rt_ptr = load_ptr_at(header, 2);
+  let stride: i32 = slot_bytes(key_size, load_i32_at(header, 2));
+  let slot: __rt_ptr = hashmap_find_slot(table, cap, key, key_size, stride);
+  return !ptr_eq(slot, null_ptr());
+}
+
+fn hashmap_get_value<V>(slot: __rt_ptr, key_size: i32, val_size: i32) -> V {
+  return slot_value(slot, key_size, val_size);
+}
+
+fn hashmap_get_slot<K>(header: __rt_ptr, key: K) -> __rt_ptr {
+  let key_size: i32 = load_i32_at(header, 1);
+  let cap: i32 = load_i32_at(header, 3);
+  let table: __rt_ptr = load_ptr_at(header, 2);
+  let stride: i32 = slot_bytes(key_size, load_i32_at(header, 2));
+  return hashmap_find_slot(table, cap, key, key_size, stride);
+}
+
+fn hashmap_remove<K, V>(header: __rt_ptr, key: K) -> V {
+  let key_size: i32 = load_i32_at(header, 1);
+  let val_size: i32 = load_i32_at(header, 2);
+  let slot: __rt_ptr = hashmap_get_slot(header, key);
+  if ptr_eq(slot, null_ptr()) {
+    __rt_trap("dictionary_remove: key not found\n");
+  }
+  let value: V = slot_value(slot, key_size, val_size);
+  let old_key: K = slot_key(slot, key_size);
+  let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+  let drop_key: i32 = drop_witness(key_ptr, 0, old_key);
+  let val_ptr: __rt_ptr = byte_offset(slot, slot_value_offset(key_size, val_size));
+  let drop_val: i32 = drop_witness(val_ptr, 0, value);
+  let mark: i32 = set_slot_status(slot, slot_tombstone());
+  let len: i32 = load_i32_at(header, 0);
+  let dec: i32 = store_i32_at(header, 0, len - 1);
+  return value;
+}
+
+fn hashmap_drop_keys<K>(table: __rt_ptr, cap: i32, key_size: i32, stride: i32) -> i32 {
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_occupied() {
+      let key: K = slot_key(slot, key_size);
+      let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+      let drop_key: i32 = drop_witness(key_ptr, 0, key);
+    }
+    i = i + 1;
+  }
+  let free0: i32 = release_bytes(table);
+  return 0;
+}
+
+fn hashmap_drop_table<K, V>(table: __rt_ptr, cap: i32, key_size: i32, val_size: i32,
+                            stride: i32) -> i32 {
+  let i: i32 = 0;
+  while i < cap {
+    let slot: __rt_ptr = slot_at(table, i, stride);
+    let st: i32 = slot_status(slot);
+    if st == slot_occupied() {
+      let key: K = slot_key(slot, key_size);
+      let key_ptr: __rt_ptr = byte_offset(slot, slot_key_offset());
+      let drop_key: i32 = drop_witness(key_ptr, 0, key);
+      let value: V = slot_value(slot, key_size, val_size);
+      let val_ptr: __rt_ptr = byte_offset(slot, slot_value_offset(key_size, val_size));
+      let drop_val: i32 = drop_witness(val_ptr, 0, value);
+    }
+    i = i + 1;
+  }
+  let free0: i32 = release_bytes(table);
+  return 0;
+}

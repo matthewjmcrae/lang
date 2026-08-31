@@ -1,17 +1,15 @@
 #pragma once
 
-#include "noria/Ast.hpp"
+#include "noria/Monomorphize.hpp"
+#include "noria/ModuleResolver.hpp"
+#include "noria/Types.hpp"
 
+#include <cstddef>
+#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace noria {
-
-  enum class Type {
-    I32,
-    Bool,
-  };
 
   struct FunctionSignature {
     Type returnType;
@@ -20,29 +18,29 @@ namespace noria {
 
   class TypeChecker {
   public:
-    void check(const ast::Module& module);
+    TypeChecker();
+    ~TypeChecker();
+    TypeChecker(const TypeChecker&) = delete;
+    TypeChecker& operator=(const TypeChecker&) = delete;
+    TypeChecker(TypeChecker&&) noexcept;
+    TypeChecker& operator=(TypeChecker&&) noexcept;
+
+    void check(ast::Module& module, const SymbolOrigins& symbolOrigins = {});
+    void checkSpecializationFrontier(const ast::Module& module, std::size_t firstNewStruct,
+                                     std::size_t firstNewFunction,
+                                     const SymbolOrigins& symbolOrigins = {});
+    void registerFunctionSpecialization(std::string mangledName, std::vector<Type> typeArgs);
+    void registerStructSpecialization(std::string mangledName, std::vector<Type> typeArgs);
+    const std::vector<SpecializationRequest>& specializationRequests() const;
+    const std::vector<StructSpecializationRequest>& structSpecializationRequests() const;
+    void clearSpecializationRequests();
+    void clearStructSpecializationRequests();
+    std::vector<SpecializationRequest> takeSpecializationRequests();
+    std::vector<StructSpecializationRequest> takeStructSpecializationRequests() const;
 
   private:
-    Type parseTypeName(const std::string& typeName, SourceLocation location) const;
-    std::string typeName(Type type) const;
-    bool isAssignable(Type expected, Type actual) const;
-
-    void collectFunctionSignatures(const ast::Module& module);
-    void checkFunction(const ast::Function& function);
-    bool checkStatements(const std::vector<std::unique_ptr<ast::Statement>>& statements,
-                         Type expectedReturnType);
-    bool checkStatement(const ast::Statement& statement, Type expectedReturnType);
-    Type checkExpression(const ast::Expression& expression);
-    using Scope = std::unordered_map<std::string, Type>;
-    void pushScope();
-    void popScope();
-    bool declareLocal(const std::string& name, Type type);
-    Type lookupLocal(const std::string& name, SourceLocation location) const;
-
-    std::unordered_map<std::string, FunctionSignature> functions_;
-    // stack of scopes
-    std::vector<Scope> scopes_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
   };
 
 } // namespace noria
-

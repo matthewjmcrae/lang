@@ -1,0 +1,11 @@
+fn grow<T>(x: T) -> i32 {
+  return shrink(x);
+}
+
+fn shrink<T>(x: T) -> i32 {
+  return grow([x]);
+}
+
+fn main() -> i32 {
+  return grow(1);
+}

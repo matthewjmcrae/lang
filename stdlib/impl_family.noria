@@ -1,0 +1,7 @@
+fn kind<T, I>(b: Box<T, I>) -> i32 impl arr {
+  return 1;
+}
+
+fn kind<T, I>(b: Box<T, I>) -> i32 impl list {
+  return 2;
+}

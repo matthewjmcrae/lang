@@ -1,0 +1,7 @@
+fn loop() {
+  return loop();
+}
+
+fn main() {
+  return 0;
+}

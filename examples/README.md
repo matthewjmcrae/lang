@@ -26,10 +26,15 @@ They cover:
 - `if` / `else`
 - `while` loops
 - Functions and function calls
+- Void procedures and explicit returns
 - Recursion and mutual recursion
 - Lexical scoping and shadowing
 - Direct native executable generation
 - Optimized LLVM IR / native builds through `-O1`, `-O2`, or `-O3`
+- Arrays: `[T]` types, literals, `len`, index read, and empty/default-init contexts
+- Strings: literals, concatenation, indexing, and owned temporaries
+- Structs: literals, field assignment, and default-initialized managed fields
+- Standard ADTs: Sequence, Dictionary, Set, and heap over Sequence
 
 Good starter examples:
 
@@ -75,8 +80,10 @@ They cover:
 - Unknown variables and functions
 - Out-of-scope variables
 - Duplicate functions, parameters, and locals
+- Functions named after builtins
 - Assignment type mismatches
 - Return type mismatches
+- Missing return paths and invalid void returns
 - Non-boolean `if` / `while` conditions
 - Wrong function argument counts
 - Wrong function argument types

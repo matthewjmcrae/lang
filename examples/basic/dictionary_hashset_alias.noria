@@ -1,0 +1,18 @@
+import std::dictionary::{Dictionary, dictionary_contains, dictionary_get, dictionary_insert,
+                         dictionary_len, dictionary_new};
+
+fn main() -> i32 {
+  let d: Dictionary<i32, i32, hashset> = dictionary_new(0, 0);
+  dictionary_insert(d, 10, 100);
+  dictionary_insert(d, 20, 200);
+  if dictionary_len(d) != 2 {
+    return 1;
+  }
+  if !dictionary_contains(d, 10) {
+    return 2;
+  }
+  if dictionary_get(d, 20) != 200 {
+    return 3;
+  }
+  return 0;
+}

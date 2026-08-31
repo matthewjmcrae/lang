@@ -1,0 +1,29 @@
+fn max_subarray(nums: [i32]) -> i32 {
+  let best: i32 = nums[0];
+  let current: i32 = nums[0];
+  let i: i32 = 1;
+  while i < len(nums) {
+    if current + nums[i] > nums[i] {
+      current = current + nums[i];
+    } else {
+      current = nums[i];
+    }
+    if current > best {
+      best = current;
+    }
+    i = i + 1;
+  }
+  return best;
+}
+
+fn main() -> i32 {
+  let nums: [i32] = [-2, 1, -3, 4, -1, 2, 1, -5, 4];
+  if max_subarray(nums) != 6 {
+    return 1;
+  }
+  let single: [i32] = [-3];
+  if max_subarray(single) != -3 {
+    return 2;
+  }
+  return 0;
+}

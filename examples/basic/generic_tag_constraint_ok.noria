@@ -1,0 +1,9 @@
+struct Box<T, I> {
+  value: T;
+}
+
+fn main() -> i32 {
+  let bst_box: Box<i32, bst> = Box<i32, bst> { value: 42 };
+  let map_box: Box<i32, hashmap> = Box<i32, hashmap> { value: 1 };
+  return bst_box.value + map_box.value;
+}

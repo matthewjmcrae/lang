@@ -1,0 +1,66 @@
+struct Payload {
+  ready: bool;
+  score: f64;
+  name: str;
+  values: [i32];
+}
+
+struct Wrapper {
+  inner: Payload;
+}
+
+struct Box<T> {
+  value: T;
+}
+
+fn main() -> i32 {
+  values: [i32];
+  nested: [[i32]];
+  s: str;
+  payload: Payload;
+  wrapper: Wrapper;
+  boxed: Box<str>;
+
+  if len(values) != 0 {
+    return 1;
+  }
+  if len(nested) != 0 {
+    return 2;
+  }
+  if len(s) != 0 {
+    return 3;
+  }
+  if s != "" {
+    return 4;
+  }
+  if s + "x" != "x" {
+    return 5;
+  }
+  if payload.ready {
+    return 6;
+  }
+  if payload.score != 0.0 {
+    return 7;
+  }
+  if len(payload.name) != 0 {
+    return 8;
+  }
+  if len(payload.values) != 0 {
+    return 9;
+  }
+  if len(wrapper.inner.name) != 0 {
+    return 10;
+  }
+  if len(wrapper.inner.values) != 0 {
+    return 11;
+  }
+  if boxed.value != "" {
+    return 12;
+  }
+
+  values = [7, 8];
+  if values[0] + values[1] != 15 {
+    return 13;
+  }
+  return 0;
+}

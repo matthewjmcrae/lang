@@ -1,0 +1,7 @@
+fn len<T>(value: T) -> i32 {
+  return 0;
+}
+
+fn main() -> i32 {
+  return 0;
+}

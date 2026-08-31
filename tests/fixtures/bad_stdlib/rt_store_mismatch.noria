@@ -1,0 +1,5 @@
+fn probe<T>(seed: T) -> i32 {
+  let p: __rt_ptr = __rt_alloc(8);
+  __rt_store(p, 0, false);
+  return 0;
+}

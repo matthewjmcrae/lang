@@ -1,0 +1,11 @@
+fn kind<T>(x: T) -> i32 impl arr {
+  return 1;
+}
+
+fn kind<T>(x: T) -> i32 impl list {
+  return 2;
+}
+
+fn main() -> i32 {
+  return kind(1);
+}

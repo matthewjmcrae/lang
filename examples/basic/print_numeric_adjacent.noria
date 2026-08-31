@@ -1,0 +1,15 @@
+fn main() -> i32 {
+  print_int(7);
+  print(" items");
+  println();
+  print_float(3.14);
+  print(" units");
+  println();
+  print_int(0);
+  print("!");
+  println();
+  print_int(1);
+  print_int(23);
+  println();
+  return 0;
+}

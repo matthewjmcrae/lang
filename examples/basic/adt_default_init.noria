@@ -1,0 +1,33 @@
+import std::dictionary::{Dictionary, dictionary_len};
+import std::sequence::{Sequence, sequence_len, sequence_push};
+import std::set::{Set, set_contains, set_insert, set_len};
+
+fn main() -> i32 {
+  let numbers: Sequence<i32>;
+  if sequence_len(numbers) != 0 {
+    return 1;
+  }
+  sequence_push(numbers, 42);
+  if numbers[0] != 42 {
+    return 2;
+  }
+
+  let seen: Set<i32>;
+  if set_len(seen) != 0 {
+    return 3;
+  }
+  set_insert(seen, 7);
+  if !seen[7] || !set_contains(seen, 7) {
+    return 4;
+  }
+
+  let values: Dictionary<i32, i32>;
+  if dictionary_len(values) != 0 {
+    return 5;
+  }
+  values[3] = 9;
+  if values[3] != 9 {
+    return 6;
+  }
+  return 0;
+}

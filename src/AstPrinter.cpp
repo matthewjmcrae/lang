@@ -1,50 +1,242 @@
 #include "noria/AstPrinter.hpp"
 
+#include "noria/AstVisitor.hpp"
+#include "noria/SemanticTables.hpp"
+
 #include <memory>
+#include <sstream>
 #include <string_view>
 
 namespace noria {
   namespace {
 
-    // helper function
     std::string_view binaryOperatorName(ast::BinaryOperator op);
-
-    // private printing functions
+    std::string_view unaryOperatorName(ast::UnaryOperator op);
     void printIndent(std::ostream& out, int indent);
-
-    // print AST()->Function()->Block()->Statement()--> if/else or while -->Block() -> ...
-    //                                              ->Expression() -> ...
-
     void printFunction(const ast::Function& function, std::ostream& out, int indent);
     void printBlock(std::string_view blockType,
                     const std::vector<std::unique_ptr<ast::Statement>>& statements,
                     std::ostream& out, int indent);
-    void printStatement(const ast::Statement& statement, std::ostream& out, int indent);
-    void printExpression(const ast::Expression& expression, std::ostream& out, int indent);
+    std::string formatImportPath(const std::vector<std::string>& path);
+
+    class AstPrintVisitor final : public ast::AstVisitor {
+    public:
+      AstPrintVisitor(std::ostream& out, int indent) : out_(out), indent_(indent) {}
+
+      void visit(const ast::ReturnStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "Return\n";
+        if (node.expression) {
+          AstPrintVisitor child(out_, indent_ + 1);
+          node.expression->accept(child);
+        }
+      }
+
+      void visit(const ast::LetStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "Let " << node.name << ": ";
+        if (node.declaredType) {
+          out_ << node.declaredType->name();
+        } else {
+          out_ << "<inferred>";
+        }
+        out_ << "\n";
+        if (node.initializer) {
+          AstPrintVisitor child(out_, indent_ + 1);
+          node.initializer->accept(child);
+        }
+      }
+
+      void visit(const ast::AssignmentStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "Assign\n";
+        AstPrintVisitor lhsVisitor(out_, indent_ + 1);
+        node.lhs->accept(lhsVisitor);
+        AstPrintVisitor rhsVisitor(out_, indent_ + 1);
+        node.rhs->accept(rhsVisitor);
+      }
+
+      void visit(const ast::ExpressionStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "ExprStmt\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.expression->accept(child);
+      }
+
+      void visit(const ast::IfStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "If\n";
+
+        printIndent(out_, indent_ + 1);
+        out_ << "Condition\n";
+        AstPrintVisitor conditionVisitor(out_, indent_ + 2);
+        node.condition->accept(conditionVisitor);
+
+        printBlock("Then", node.thenBranch, out_, indent_ + 1);
+        if (!node.elseBranch.empty())
+          printBlock("Else", node.elseBranch, out_, indent_ + 1);
+      }
+
+      void visit(const ast::WhileStatement& node) override {
+        printIndent(out_, indent_);
+        out_ << "While\n";
+
+        printIndent(out_, indent_ + 1);
+        out_ << "Condition\n";
+        AstPrintVisitor conditionVisitor(out_, indent_ + 2);
+        node.condition->accept(conditionVisitor);
+
+        printBlock("Body", node.body, out_, indent_ + 1);
+      }
+
+      void visit(const ast::IntegerLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "Integer " << node.value << "\n";
+      }
+
+      void visit(const ast::FloatLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "Float " << node.value << "\n";
+      }
+
+      void visit(const ast::StringLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "String \"" << node.value << "\"\n";
+      }
+
+      void visit(const ast::BoolLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "Bool " << (node.value ? "true" : "false") << "\n";
+      }
+
+      void visit(const ast::IdentifierExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Identifier " << node.name << "\n";
+      }
+
+      void visit(const ast::BinaryExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Binary " << binaryOperatorName(node.op) << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.left->accept(child);
+        node.right->accept(child);
+      }
+
+      void visit(const ast::UnaryExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Unary " << unaryOperatorName(node.op) << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.operand->accept(child);
+      }
+
+      void visit(const ast::CastExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Cast " << node.targetType.name() << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.expression->accept(child);
+      }
+
+      void visit(const ast::CallExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Call " << node.callee << "\n";
+
+        AstPrintVisitor child(out_, indent_ + 1);
+        for (const auto& argument : node.arguments) {
+          argument->accept(child);
+        }
+      }
+
+      void visit(const ast::ArrayLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "Array\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        for (const auto& element : node.elements) {
+          element->accept(child);
+        }
+      }
+
+      void visit(const ast::IndexExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "Index\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.base->accept(child);
+        node.index->accept(child);
+      }
+
+      void visit(const ast::StructLiteral& node) override {
+        printIndent(out_, indent_);
+        out_ << "StructLiteral " << node.structName;
+        if (!node.typeArgs.empty()) {
+          out_ << "<";
+          for (std::size_t index{}; index < node.typeArgs.size(); ++index) {
+            if (index != 0) {
+              out_ << ", ";
+            }
+            out_ << node.typeArgs[index].name();
+          }
+          out_ << ">";
+        }
+        out_ << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        for (const auto& field : node.fields) {
+          printIndent(out_, indent_ + 1);
+          out_ << "Field " << field.name << "\n";
+          field.value->accept(child);
+        }
+      }
+
+      void visit(const ast::FieldAccessExpression& node) override {
+        printIndent(out_, indent_);
+        out_ << "FieldAccess " << node.fieldName << "\n";
+        AstPrintVisitor child(out_, indent_ + 1);
+        node.base->accept(child);
+      }
+
+    private:
+      std::ostream& out_;
+      int indent_;
+    };
 
   } // namespace
 
-  // all print calls follow pre-order traversal
-  /*
-   OUTPUT STRUCTURE:
-
-  Module
-  Function add(a: i32, b: i32) -> i32
-    Block
-      Return
-        Binary +
-          Identifier a
-          Identifier b
-  Function main() -> i32
-    Block
-      Return
-        Call add
-          Integer 3
-          Integer 4
-
-   */
   void printAst(const ast::Module& module, std::ostream& out) {
     out << "Module\n";
+
+    for (const auto& importDecl : module.imports) {
+      printIndent(out, 1);
+      out << "Import " << formatImportPath(importDecl.path) << " {";
+      for (std::size_t index{}; index < importDecl.names.size(); ++index) {
+        if (index != 0) {
+          out << ", ";
+        }
+        out << importDecl.names[index].name;
+      }
+      out << "}\n";
+    }
+
+    for (const auto& structDecl : module.structs) {
+      printIndent(out, 1);
+      out << "Struct " << structDecl.name;
+      if (!structDecl.typeParams.empty()) {
+        out << "<";
+        for (std::size_t index{}; index < structDecl.typeParams.size(); ++index) {
+          if (index != 0) {
+            out << ", ";
+          }
+          out << structDecl.typeParams[index].name;
+        }
+        out << ">";
+      }
+      out << "\n";
+      for (const auto& field : structDecl.fields) {
+        printIndent(out, 2);
+        out << "Field " << field.name << ": " << field.type.name();
+        if (field.visibility == ast::FieldVisibility::Private) {
+          out << " (private)";
+        }
+        out << "\n";
+      }
+    }
 
     for (const auto& function : module.functions) {
       printFunction(function, out, 1);
@@ -52,31 +244,18 @@ namespace noria {
   }
 
   namespace {
-    // string view is fine for returning string literals
-    std::string_view binaryOperatorName(ast::BinaryOperator op) {
-      switch (op) {
-      case ast::BinaryOperator::Add:
-        return "+";
-      case ast::BinaryOperator::Subtract:
-        return "-";
-      case ast::BinaryOperator::Multiply:
-        return "*";
-      case ast::BinaryOperator::Divide:
-        return "/";
-      case ast::BinaryOperator::Less:
-        return "<";
-      case ast::BinaryOperator::LessEqual:
-        return "<=";
-      case ast::BinaryOperator::Greater:
-        return ">";
-      case ast::BinaryOperator::GreaterEqual:
-        return ">=";
-      case ast::BinaryOperator::Equal:
-        return "==";
-      case ast::BinaryOperator::NotEqual:
-        return "!=";
-      }
 
+    std::string_view binaryOperatorName(ast::BinaryOperator op) {
+      if (const BinaryOperatorInfo* info = binaryOperatorInfo(op)) {
+        return info->symbol;
+      }
+      return "<unknown>";
+    }
+
+    std::string_view unaryOperatorName(ast::UnaryOperator op) {
+      if (const UnaryOperatorInfo* info = unaryOperatorInfo(op)) {
+        return info->symbol;
+      }
       return "<unknown>";
     }
 
@@ -88,20 +267,39 @@ namespace noria {
 
     void printFunction(const ast::Function& function, std::ostream& out, int indent) {
       printIndent(out, indent);
-      out << "Function " << function.name << "(";
+      out << "Function " << function.name;
+      if (!function.typeParams.empty()) {
+        out << "<";
+        for (std::size_t index{}; index < function.typeParams.size(); ++index) {
+          if (index != 0) {
+            out << ", ";
+          }
+          out << function.typeParams[index].name;
+        }
+        out << ">";
+      }
+      out << "(";
 
       for (std::size_t index{}; index < function.parameters.size(); ++index) {
         if (index != 0)
           out << ", ";
 
-        out << function.parameters[index].name << ": " << function.parameters[index].typeName;
+        out << function.parameters[index].name << ": " << function.parameters[index].type.name();
       }
 
-      out << ") -> " << function.returnType << "\n";
+      out << ") -> ";
+      if (function.returnType) {
+        out << function.returnType->name();
+      } else {
+        out << "<inferred>";
+      }
+      if (function.implTag) {
+        out << " impl " << implementationTagName(*function.implTag);
+      }
+      out << "\n";
       printBlock("Block", function.body, out, indent + 1);
     }
 
-    // print block type name then block contents
     void printBlock(std::string_view blockType,
                     const std::vector<std::unique_ptr<ast::Statement>>& statements,
                     std::ostream& out, int indent) {
@@ -110,104 +308,22 @@ namespace noria {
       out << blockType << "\n";
 
       for (const auto& statement : statements) {
-        printStatement(*statement, out, indent + 1);
+        AstPrintVisitor visitor(out, indent + 1);
+        statement->accept(visitor);
       }
     }
 
-    void printStatement(const ast::Statement& statement, std::ostream& out, int indent) {
-      if (const auto* returnStatement = dynamic_cast<const ast::ReturnStatement*>(&statement)) {
-        printIndent(out, indent);
-        out << "Return\n";
-        printExpression(*returnStatement->expression, out, indent + 1);
-        return;
-      }
-
-      if (const auto* let = dynamic_cast<const ast::LetStatement*>(&statement)) {
-        printIndent(out, indent);
-        out << "Let " << let->name << ": " << let->typeName << "\n";
-        printExpression(*let->initializer, out, indent + 1);
-        return;
-      }
-
-      if (const auto* assignment = dynamic_cast<const ast::AssignmentStatement*>(&statement)) {
-        printIndent(out, indent);
-        out << "Assign " << assignment->lhs << "\n";
-        printExpression(*assignment->rhs, out, indent + 1);
-        return;
-      }
-
-      if (const auto* ifStatement = dynamic_cast<const ast::IfStatement*>(&statement)) {
-        printIndent(out, indent);
-        out << "If\n";
-
-        printIndent(out, indent + 1);
-        out << "Condition\n";
-        printExpression(*ifStatement->condition, out, indent + 2);
-
-        printBlock("Then", ifStatement->thenBranch, out, indent + 1);
-        printBlock("Else", ifStatement->elseBranch, out, indent + 1);
-        return;
-      }
-
-      if (const auto* whileStatement = dynamic_cast<const ast::WhileStatement*>(&statement)) {
-        printIndent(out, indent);
-        out << "While\n";
-
-        printIndent(out, indent + 1);
-        out << "Condition\n";
-        printExpression(*whileStatement->condition, out, indent + 2);
-
-        printBlock("Body", whileStatement->body, out, indent + 1);
-        return;
-      }
-
-      printIndent(out, indent);
-      out << "<unknown statement>\n";
-    }
-
-    void printExpression(const ast::Expression& expression, std::ostream& out, int indent) {
-      if (const auto* integer = dynamic_cast<const ast::IntegerLiteral*>(&expression)) {
-        printIndent(out, indent);
-        out << "Integer " << integer->value << "\n";
-        return;
-      }
-
-      if (const auto* boolean = dynamic_cast<const ast::BoolLiteral*>(&expression)) {
-        printIndent(out, indent);
-        out << "Bool " << (boolean->value ? "true" : "false") << "\n";
-        return;
-      }
-
-      if (const auto* identifier = dynamic_cast<const ast::IdentifierExpression*>(&expression)) {
-        printIndent(out, indent);
-        out << "Identifier " << identifier->name << "\n";
-        return;
-      }
-
-      if (const auto* binary = dynamic_cast<const ast::BinaryExpression*>(&expression)) {
-        printIndent(out, indent);
-        out << "Binary " << binaryOperatorName(binary->op) << "\n";
-        printExpression(*binary->left, out, indent + 1);
-        printExpression(*binary->right, out, indent + 1);
-        return;
-      }
-
-      if (const auto* call = dynamic_cast<const ast::CallExpression*>(&expression)) {
-        printIndent(out, indent);
-        out << "Call " << call->callee << "\n";
-
-        for (const auto& argument : call->arguments) {
-          printExpression(*argument, out, indent + 1);
+    std::string formatImportPath(const std::vector<std::string>& path) {
+      std::ostringstream formatted;
+      for (std::size_t index{}; index < path.size(); ++index) {
+        if (index != 0) {
+          formatted << "::";
         }
-
-        return;
+        formatted << path[index];
       }
-
-      printIndent(out, indent);
-      out << "<unknown expression>\n";
+      return formatted.str();
     }
 
   } // namespace
 
 } // namespace noria
-

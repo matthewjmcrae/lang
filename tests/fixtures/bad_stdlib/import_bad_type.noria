@@ -1,0 +1,5 @@
+import std::badmath::{broken};
+
+fn main() -> i32 {
+  return broken();
+}

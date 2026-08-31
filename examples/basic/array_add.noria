@@ -1,0 +1,20 @@
+fn main() -> i32 {
+  let left: [i32] = [1, 2, 3];
+  let right: [i32] = [4, 5, 6];
+  let sum: [i32] = left + right;
+  if len(sum) != 3 {
+    return 1;
+  }
+  if sum[0] != 5 || sum[1] != 7 || sum[2] != 9 {
+    return 2;
+  }
+
+  let nested: [[i32]] = [[1, 2], [3, 4]] + [[10, 20], [30, 40]];
+  if nested[0][0] != 11 || nested[0][1] != 22 {
+    return 3;
+  }
+  if nested[1][0] != 33 || nested[1][1] != 44 {
+    return 4;
+  }
+  return 0;
+}

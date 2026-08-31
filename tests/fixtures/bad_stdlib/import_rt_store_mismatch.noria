@@ -1,0 +1,5 @@
+import std::rt_store_mismatch::{probe};
+
+fn main() -> i32 {
+  return probe(0);
+}

@@ -1,0 +1,7 @@
+fn consume(values: [void]) -> i32 {
+  return 0;
+}
+
+fn main() -> i32 {
+  return 0;
+}

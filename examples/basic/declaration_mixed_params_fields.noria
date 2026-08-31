@@ -1,0 +1,13 @@
+struct Pair {
+  i32: left;
+  right: i32;
+}
+
+fn sum(i32: a, b: i32) -> i32 {
+  return a + b;
+}
+
+fn main() -> i32 {
+  Pair: p = Pair{left: 2, right: 5};
+  return sum(p.left, p.right);
+}

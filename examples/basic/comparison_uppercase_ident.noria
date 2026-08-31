@@ -1,0 +1,7 @@
+FN Main() -> I32 {
+  LET Answer: I32 = 1;
+  IF (aNsWeR < 2) {
+    RETURN ANSWER;
+  }
+  RETURN 0;
+}

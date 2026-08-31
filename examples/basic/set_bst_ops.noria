@@ -1,0 +1,32 @@
+import std::set::{Set, set_contains, set_insert, set_len, set_new, set_remove};
+
+fn main() -> i32 {
+  let s: Set<i32, bst> = set_new(0);
+  set_insert(s, 30);
+  set_insert(s, 10);
+  set_insert(s, 20);
+  if set_len(s) != 3 {
+    return 1;
+  }
+  set_insert(s, 20);
+  if set_len(s) != 3 {
+    return 2;
+  }
+  if !set_contains(s, 20) {
+    return 3;
+  }
+  if set_contains(s, 99) {
+    return 4;
+  }
+  set_remove(s, 10);
+  if set_len(s) != 2 {
+    return 5;
+  }
+  if set_contains(s, 10) {
+    return 6;
+  }
+  if !set_contains(s, 30) {
+    return 7;
+  }
+  return 0;
+}

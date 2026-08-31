@@ -1,0 +1,19 @@
+struct Bag {
+  name: str;
+  nums: [i32];
+}
+
+fn sum_nums(b: Bag) -> i32 {
+  let total: i32 = 0;
+  let index: i32 = 0;
+  while index < len(b.nums) {
+    total = total + b.nums[index];
+    index = index + 1;
+  }
+  return total;
+}
+
+fn main() -> i32 {
+  let bag: Bag = Bag { name: "probe", nums: [10, 13] };
+  return sum_nums(bag);
+}

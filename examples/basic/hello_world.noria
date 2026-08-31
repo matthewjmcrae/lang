@@ -1,0 +1,5 @@
+fn main() -> i32 {
+  print("Hello, world!");
+  println();
+  return 0;
+}

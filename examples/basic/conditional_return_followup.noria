@@ -1,0 +1,10 @@
+fn status(enabled: bool) -> i32 {
+  if enabled {
+    return 7;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  return status(false);
+}

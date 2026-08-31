@@ -1,0 +1,8 @@
+import std::heap::{heappush};
+import std::sequence::{Sequence, sequence_new};
+
+fn main() -> i32 {
+  let s: Sequence<str, arr> = sequence_new("key");
+  heappush(s, "other");
+  return 0;
+}
