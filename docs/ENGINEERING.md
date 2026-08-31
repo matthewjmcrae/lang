@@ -2,25 +2,11 @@
 
 This document explains how Noria is built: the compiler architecture, the invariants carried between stages, the design patterns used to keep features coherent, the performance model, the difficult implementation problems, and the tradeoffs that define the current scope.
 
-It is intentionally about decisions visible in the code. Start with the [project overview](README.md) for build and usage instructions, use the [language reference](SYNTAX.md) for source semantics, and see the [performance case study](PERFORMANCE.md) for measurement details.
 
 ## Engineering profile
 
-Noria is an ahead-of-time compiler written in C++20. It owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, lowers IR to an object with `llc` when available, and delegates the final native link to the host Clang driver. The standard data-structure library is implemented in Noria source over a deliberately small private runtime ABI; the compiler invokes LLVM tools as subprocesses rather than linking against LLVM libraries.
+Noria is a statically typed language with a compiler written in C++20. The compiler owns the language front end and semantic pipeline, emits LLVM IR as text, optionally runs LLVM's optimizer, lowers IR to an object with `llc` when available, and delegates the final native link to the host Clang driver. The compiler invokes LLVM tools as subprocesses rather than linking against LLVM libraries.
 
-The current tree contains approximately 15,500 lines of compiler/header code and 1,600 lines of Noria standard-library code. Its validation corpus includes 277 accepted programs and 170 negative programs split between 148 semantic and 22 syntax failures. CTest registers 16 checks: one end-to-end language harness, 13 focused C++ test executables, and two shell contract tests. Those numbers matter less than the coverage shape: compiler stages, generated IR, native behavior, optimizer behavior, diagnostics, traps, ownership, generics, ADT conformance, install layout, and documented corpus counts are all exercised.
-
-### Engineering Highlights
-
-| Engineering concern | Primary implementation | Contract/evidence |
-| --- | --- | --- |
-| Pipeline composition | [`Compiler.cpp`](../src/Compiler.cpp), [`Compiler.hpp`](../include/noria/Compiler.hpp) | [`compiler_facade_test.cpp`](../tests/compiler_facade_test.cpp) |
-| Type rules and inference | [`src/typecheck/`](../src/typecheck/), [`Types.hpp`](../include/noria/Types.hpp), [`SemanticTables.hpp`](../include/noria/SemanticTables.hpp) | Negative corpus plus type, constraint, semantic-table, and generic tests |
-| Generic specialization | [`src/monomorphize/`](../src/monomorphize/) | [`generics_test.cpp`](../tests/generics_test.cpp) and IR/dedup assertions in the end-to-end harness |
-| Ownership and lowering | [`src/codegen/`](../src/codegen/) | Native copy/move/drop cases, leak fixtures, generated-code ASan (Ubuntu LSan), and optimized regression cases |
-| Source-written ADTs | [`stdlib/`](../stdlib/) and the private ABI in [`Builtins.hpp`](../include/noria/Builtins.hpp) | Cross-tag conformance cases and deterministic container model traces |
-| Compiler throughput | [`CompilerCache.cpp`](../src/CompilerCache.cpp), [`LfuCache.hpp`](../include/noria/LfuCache.hpp), frontier monomorphization | Focused cache tests and the documented historical [performance experiment](PERFORMANCE.md) |
-| Robustness | [`run_examples.sh`](../tests/run_examples.sh), [`compile_fuzzer.cpp`](../tests/fuzz/compile_fuzzer.cpp) | Cross-platform CI, sanitizers, leak tools, and WIP weekly fuzzing with crash artifact upload |
 
 ## End-to-end architecture
 
@@ -76,11 +62,11 @@ The compiler facade in `include/noria/Compiler.hpp` exposes `StopAfter::Tokens`,
 
 `Type` in `include/noria/Types.hpp` is the shared representation used by the AST, type checker, monomorphizer, and code generator. It is a private `std::variant` whose active alternative defines its `TypeKind`; callers cannot create a type with a mismatched kind and payload.
 
-- scalar kinds carry no payload;
-- arrays own one recursive element type through `std::unique_ptr`;
-- structs carry a name and concrete type arguments;
-- type parameters carry their source name;
-- implementation tags carry a closed `ImplementationTag` value.
+- scalar kinds carry no payload
+- arrays own one recursive element type through `std::unique_ptr`
+- structs carry a name and concrete type arguments
+- type parameters carry their source name
+- implementation tags carry a closed `ImplementationTag` value
 
 `Type` remains copyable even though arrays are recursively owned: its explicit copy operations clone nested array elements, so AST and cache clones can normalize their types independently. Typed accessors expose only the payload that matches the active alternative and reject mismatched access.
 
@@ -90,24 +76,25 @@ The compiler facade in `include/noria/Compiler.hpp` exposes `StopAfter::Tokens`,
 
 AST child nodes use `std::unique_ptr`, making tree ownership explicit and allowing whole modules/functions to be moved through the pipeline. `AstVisitor` and `AstMutator` provide shared dispatch for printing, cloning, semantic passes, code generation, specialization rewriting, and cache sizing.
 
-The important choice is not “visitor everywhere”; it is one exhaustively checked node vocabulary. Pass-local adapters such as expression-only and statement-only visitors keep invalid node categories obvious, while targeted structural algorithms—return-flow inspection, for example—can still use direct traversal when that is clearer.
+The important choice is not “visitor everywhere”; it is one exhaustively checked node vocabulary. Pass-local adapters such as expression-only and statement-only visitors keep invalid node categories obvious, while targeted structural algorithms, return-flow inspection, for example, can still use direct traversal when that is clearer.
 
 Deep clone support is a first-class operation rather than incidental copy construction. The module resolver and compiler cache need isolated AST copies because later phases mutate return annotations and rewrite generic applications.
 
-### Thin facades and focused compiler services
+### Facades and focused compiler services
 
 The public compiler surface is a single `compileSource()` facade. `TypeChecker` and `LLVMGenerator` follow the same boundary at the stage level: each public header contains the stable stage API plus one `std::unique_ptr<Impl>`. `Impl` is a composition root of direct, non-polymorphic collaborators, not a second stage API. Move construction and assignment move that pointer, so no internal collaborator needs rebinding.
 
-Pimpl is the right boundary here for three reasons. It keeps the include surface small and stable, so clients do not pull visitors, emitter headers, or per-function lowering types. It lets the internal file split grow without changing the public header. And it makes moves a pointer steal instead of rewriting parent back-pointers after relocating heap proxies.
+Pimpl is the right boundary here for two main reasons:
+1. It keeps the include surface small and stable, so clients do not pull visitors, emitter headers, or per-function lowering types. 
+2. It lets the internal file split grow without changing the public header. 
 
-These stages are not a GoF State machine. Checkers and emitters all exist at once and call each other during one check or one `generate()`. Naming those objects “state” produced heap proxies and a service locator, not exclusive modes that transition.
 
 `TypeChecker::Impl` constructs collaborators around a shared `TypeCheckContext`:
 
-- `TypeEnvironment` owns active-module declaration metadata, callable signatures, generic families, struct metadata, and symbol origins;
-- `TypeCheckSession` owns per-check transient data such as the current function name;
-- `ScopeStack` owns lexical declarations and lookup, and exposes an RAII frame to keep scope exit balanced;
-- `SpecializationRegistry` owns registered type arguments and requested function/struct specializations.
+- `TypeEnvironment` owns active-module declaration metadata, callable signatures, generic families, struct metadata, and symbol origins
+- `TypeCheckSession` owns per-check transient data such as the current function name
+- `ScopeStack` owns lexical declarations and lookup, and exposes an RAII frame to keep scope exit balanced
+- `SpecializationRegistry` owns registered type arguments and requested function/struct specializations
 
 Semantic work remains in the component that owns it. `TypeCheckDriver` sequences complete and frontier checks plus return inference; `DeclarationChecker`, `TypeRelations`, `CallChecker`, `ExpressionChecker`, `PlaceChecker`, `StatementChecker`, and `StructChecker` own their respective rules. Recursive expression work is passed explicitly to call and struct operations, rather than routed through a broad parent interface.
 
@@ -119,11 +106,11 @@ The implementation is correspondingly split across `src/typecheck/TypeCheckerDri
 
 `Builtins.hpp` and `SemanticTables.hpp` centralize metadata shared across phases:
 
-- builtin name, visibility, arity, parameter kinds, return kind, and mismatch style;
-- binary/unary operator type rules and LLVM lowering metadata;
-- type display/LLVM/mangling data;
-- implementation-tag constraints;
-- standard ADT identity, full type-argument arity, default implementation tags, and hidden ownership operations.
+- builtin name, visibility, arity, parameter kinds, return kind, and mismatch style
+- binary/unary operator type rules and LLVM lowering metadata
+- type display/LLVM/mangling data
+- implementation-tag constraints
+- standard ADT identity, full type-argument arity, default implementation tags, and hidden ownership operations
 
 The module resolver uses the same container metadata with imported symbol origins to expand an omitted final implementation tag, so a same-named user type is not defaulted as a standard ADT. The type checker consumes this metadata for validation, and codegen consumes the same identities for lowering. Adding a builtin or operator still requires implementation work, but its semantic identity is not duplicated as unrelated string chains.
 
@@ -141,13 +128,13 @@ Noria does not make source order determine whether a function can be called. The
 
 Optional return annotations make this more involved than a single pass. Unannotated functions are resolved as a fixed point:
 
-1. explicitly typed function families are registered first;
-2. the checker attempts each pending unannotated family;
-3. a family becomes callable when all of its bodies infer consistently;
-4. newly available signatures may unblock forward callers;
-5. no-progress recursion produces a located request for an explicit `-> Type`.
+1. explicitly typed function families are registered first
+2. the checker attempts each pending unannotated family
+3. a family becomes callable when all of its bodies infer consistently
+4. newly available signatures may unblock forward callers
+5. no-progress recursion produces a located request for an explicit `-> Type`
 
-All value returns must converge on the same type, bare and value returns cannot mix, and every control-flow path that can complete must contain an explicit return. Loops are treated conservatively as able to terminate—even `while true`—which favors sound, predictable checking over clever reachability proofs.
+All value returns must converge on the same type, bare and value returns cannot mix, and every control-flow path that can complete must contain an explicit return. Loops are treated conservatively as able to terminate, even `while true`, which favors sound, predictable checking over clever reachability proofs.
 
 ### Reachable monomorphization as a checked worklist
 
@@ -155,13 +142,13 @@ Generic functions and structs are specialized rather than type-erased. A call un
 
 Monomorphization then runs a frontier loop:
 
-1. sort requests by deterministic mangled name and source location;
-2. deduplicate and clone the requested templates;
-3. substitute canonical type arguments and propagate symbol origins;
-4. type-check only the newly emitted frontier;
-5. enqueue generic calls discovered inside those specializations;
-6. rewrite call sites and type applications after the worklist closes;
-7. strip generic templates before codegen.
+1. sort requests by deterministic mangled name and source location
+2. deduplicate and clone the requested templates
+3. substitute canonical type arguments and propagate symbol origins
+4. type-check only the newly emitted frontier
+5. enqueue generic calls discovered inside those specializations
+6. rewrite call sites and type applications after the worklist closes
+7. strip generic templates before codegen
 
 Specialization links detect recursive generic expansion, and hard limits of 64 rounds/total specializations prevent pathological growth from hanging the compiler. Deterministic names such as `id$s.i32` make emitted IR testable and make specializations reusable across different import paths.
 
@@ -171,12 +158,12 @@ Implementation tags participate in the same specialization key as ordinary types
 
 The current module system intentionally supports only bundled `std::` modules, but it still enforces meaningful boundaries:
 
-- imports are selective;
-- import cycles and missing modules/exports are rejected;
-- `std::internal::*` cannot be imported by user code;
-- duplicate or conflicting exports are diagnosed;
-- every function and struct retains a module origin;
-- private fields and private runtime builtins are checked against that origin.
+- imports are selective
+- import cycles and missing modules/exports are rejected
+- `std::internal::*` cannot be imported by user code
+- duplicate or conflicting exports are diagnosed
+- every function and struct retains a module origin
+- private fields and private runtime builtins are checked against that origin
 
 Resolved declarations are flattened into one module for the later single-module pipeline. `SymbolOrigins` preserves the information that flattening would otherwise erase, including through generated specializations.
 
@@ -195,7 +182,7 @@ The ADT name defines behavior. The implementation tag chooses representation. Co
 
 ## Ownership and memory model
 
-Noria is AOT and has no garbage collector. Managed values use value semantics at bindings and explicit ownership behavior at calls/returns.
+Noria has no garbage collector. Managed values use value semantics at bindings and explicit ownership behavior at calls/returns.
 
 | Operation | Managed-value behavior |
 | --- | --- |
@@ -215,10 +202,10 @@ Codegen tracks this with an `owned` bit on generated values and an ownership slo
 
 The same model covers:
 
-- heap allocated strings, with immortal literals/default empty strings distinguished by a header tag;
-- length-prefixed arrays, including nested arrays and string elements;
-- ordinary structs containing managed fields;
-- standard ADTs through compiler-requested hidden `clone` and `drop` specializations.
+- heap allocated strings, with immortal literals/default empty strings distinguished by a header tag
+- length-prefixed arrays, including nested arrays and string elements
+- ordinary structs containing managed fields
+- standard ADTs through compiler-requested hidden `clone` and `drop` specializations
 
 Deep copy is intentionally favored over reference counting. It gives simple, deterministic value semantics and avoids aliasing/double-free hazards at the cost of O(n) copies for managed aggregates. Function borrowing prevents every call from paying that cost.
 
@@ -249,12 +236,12 @@ Structs lower to named LLVM aggregate types. Fields retain source declaration or
 
 ### Standard ADTs
 
-- Array-backed Sequence uses geometric capacity growth and contiguous indexed storage.
-- List-backed Sequence uses a circular sentinel doubly linked list.
-- Hashmap uses open addressing, tombstones, and resize at 75% load; expected lookup is O(1).
-- BST is intentionally unbalanced; operations are O(h).
-- Set reuses Dictionary storage/search logic with a dummy value.
-- Heap is expressed over the Sequence interface, making the list implementation's random-access penalty visible rather than special-casing it.
+- Array-backed Sequence uses geometric capacity growth and contiguous indexed storage
+- List-backed Sequence uses a circular sentinel doubly linked list
+- Hashmap uses open addressing, tombstones, and resize at 75% load; expected lookup is O(1)
+- BST is intentionally unbalanced; operations are O(h)
+- Set reuses Dictionary storage/search logic with a dummy value
+- Heap is expressed over the Sequence interface, making the list implementation's random-access penalty visible rather than special-casing it
 
 Mixed-size dictionary key/value slots use aligned byte offsets. This avoids the classic error of applying `sizeof(T)`-scaled indexing to a heterogeneous packed layout.
 
@@ -262,11 +249,11 @@ Mixed-size dictionary key/value slots use aligned byte offsets. This avoids the 
 
 The compiler rejects invalid constant operations where possible and emits runtime guards when operands are dynamic. Checked cases include:
 
-- integer divide/remainder by zero and `INT_MIN / -1` overflow;
-- shift counts outside `0..31`;
-- array, string, Sequence, Dictionary, and Set bounds/missing-value misuse;
-- allocation/reallocation failure;
-- NaN, infinity, or out-of-range `f64 as i32` conversion.
+- integer divide/remainder by zero and `INT_MIN / -1` overflow
+- shift counts outside `0..31`
+- array, string, Sequence, Dictionary, and Set bounds/missing-value misuse
+- allocation/reallocation failure
+- NaN, infinity, or out-of-range `f64 as i32` conversion
 
 Runtime failures use a stable trap path with exit status 70 and diagnostic text. Platform-specific trap definitions cover macOS and Linux on x86-64 and ARM64.
 
@@ -276,23 +263,15 @@ A historical in-process macrobenchmark ran 196 Noria inputs for 100 rounds and t
 
 ### Compile-time work
 
-- **Only reachable generics are emitted.** Unused templates never reach LLVM IR.
-- **Specializations are deduplicated.** Canonical mangling makes repeated calls and cross-import requests converge on one emitted body.
-- **Requests are sorted.** Deterministic output improves reproducibility and makes IR assertions stable.
-- **Stdlib parsing/specialization is cached.** A LFU cache retains up to 64 parsed modules and 256 specializations.
-- **Cache boundaries clone ASTs.** Reuse does not leak mutations from type inference or rewrite phases into later compilations.
-- **Admission is selective.** Function specializations below a computed 1 KiB AST weight and structs below eight fields are regenerated rather than retained.
-- **The cache uses custom data structures.** `LFUCache` uses frequency buckets plus direct key/frequency indexes; those indexes use the repository's contiguous open-addressed `HashTable` with double hashing and tombstones.
+- **Only reachable generics are emitted.** Unused templates never reach LLVM IR
+- **Specializations are deduplicated.** Canonical mangling makes repeated calls and cross-import requests converge on one emitted body
+- **Requests are sorted.** Deterministic output improves reproducibility and makes IR assertions stable
+- **Stdlib parsing/specialization is cached.** A LFU cache retains up to 64 parsed modules and 256 specializations
+- **Cache boundaries clone ASTs.** Reuse does not leak mutations from type inference or rewrite phases into later compilations
+- **Admission is selective.** Function specializations below a computed 1 KiB AST weight and structs below eight fields are regenerated rather than retained
+- **The cache uses custom data structures.** `LFUCache` uses frequency buckets plus direct key/frequency indexes; those indexes use the repository's contiguous open-addressed `HashTable` with double hashing and tombstones
 
 The process cache assumes stdlib contents under a given canonical root stay stable during the process lifetime; `clear()` is available for explicit invalidation. That is reasonable for the one-shot CLI and in-process tests, but a long-running language server would need content- or metadata-aware keys.
-
-### Generated-code work
-
-- Implementation tags disappear during specialization, so ADT selection adds no runtime dispatch.
-- Array Sequence append is amortized O(1); hashmap operations target O(1) average time.
-- Scope metadata records whether a scope contains managed pointers, avoiding drop traversal work for scalar-only scopes.
-- LLVM optimization is optional. The simple alloca/load/store lowering is readable at `-O0`, while LLVM can promote stack slots and simplify control flow at higher levels.
-- Native builds prefer `llc` from the same LLVM installation used for `opt`, then use the host Clang driver only for final linking. This avoids optimized-IR dialect mismatches without giving up the host SDK and system-library search path; direct Clang consumption of textual IR remains the fallback.
 
 ## Testing and quality strategy
 
@@ -306,34 +285,22 @@ The 13 C++ test executables cover canonical types, builtin and semantic registri
 
 `tests/run_examples.sh` treats examples as executable specifications:
 
-- every `examples/basic/*.noria` program must emit non-empty LLVM IR;
-- every `examples/invalid/*.noria` program must fail semantic analysis;
-- every `examples/invalid_syntax/*.noria` program must fail lexing/parsing;
-- selected cases are linked and checked for exact exit status or stdout;
-- runtime-failure cases assert status 70 and diagnostic text;
-- emitted IR is inspected for bounds checks, drops, layouts, mangled specializations, and deduplication;
-- safety-sensitive programs are rerun through optimized native builds;
-- ADT operations are exercised across every supported implementation tag;
-- container leak programs cover every supported Sequence/Dictionary/Set backing tag plus representative scalar layouts, mixed key/value widths, heap-over-Sequence, `[T]`, and heap-allocated strings created by concatenation;
-- checked-in reference-model fixtures (`container_model_*.noria`) replay 300 deterministic operations against Python oracles for Sequence, Dictionary, Set, and heap;
-- a named high-risk `-O2` manifest re-runs ownership and container programs after optimization;
-- `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`.
+- every `examples/basic/*.noria` program must emit non-empty LLVM IR
+- every `examples/invalid/*.noria` program must fail semantic analysis
+- every `examples/invalid_syntax/*.noria` program must fail lexing/parsing
+- selected cases are linked and checked for exact exit status or stdout
+- runtime-failure cases assert status 70 and diagnostic text
+- emitted IR is inspected for bounds checks, drops, layouts, mangled specializations, and deduplication
+- safety-sensitive programs are rerun through optimized native builds
+- ADT operations are exercised across every supported implementation tag
+- container leak programs cover every supported Sequence/Dictionary/Set backing tag plus representative scalar layouts, mixed key/value widths, heap-over-Sequence, `[T]`, and heap-allocated strings created by concatenation
+- checked-in reference-model fixtures (`container_model_*.noria`) replay 300 deterministic operations against Python oracles for Sequence, Dictionary, Set, and heap
+- a named high-risk `-O2` manifest re-runs ownership and container programs after optimization
+- `noria --help` and stdlib discovery are checked when the compiler is invoked through `PATH` and after `cmake --install`
 
 ASan/UBSan run through `just sanitize`, which also sets `NORIA_NATIVE_ASAN=1`. Linux instruments generated IR with LLVM ASan passes, clang-links that IR, and runs generated natives with `detect_leaks=1`. Darwin one-step compiles the original IR with Apple clang `-fsanitize=address -c` (Homebrew `opt` IR that Apple clang cannot parse falls back to `llc` without ASan hooks) and sets `detect_leaks=0` because Apple's ASan has no usable LSan. Portable leak checks (`run_leak_check`) run only when `NORIA_RUN_LEAK_CHECKS=1` (via `just leak`, which also sets `NORIA_REQUIRE_LEAK_CHECKS=1`) with Valgrind when present, otherwise Linux ASan/LSan or macOS `/usr/bin/leaks`. Ordinary `just test` and `just sanitize` skip leak checkers so the expensive leak corpus has one explicit lane. `just valgrind` can also wrap all compiler invocations under Valgrind. Ubuntu LSan on generated natives is therefore the leak gate for forgotten drops; Darwin generated-code ASan is for use-after-free and overflow.
 
-### Fuzzing (WIP)
-
-`noria_compile_fuzzer` sends arbitrary byte strings through `compileSource(..., StopAfter::Ir)` and clears the process cache between inputs. Located `CompileError` failures are expected for invalid programs; unexpected standard or non-standard exceptions cause a fuzzer finding. The target is built with Clang libFuzzer and ASan and has a small seed corpus spanning valid, generic, container, ownership, lexer-invalid, and parser-invalid inputs.
-
-Fuzzing is WIP, not part of the canonical test suite, and not a benchmark. It is currently exercised only by a separate scheduled Ubuntu workflow, which runs the compile fuzzer weekly for 120 seconds and uploads crash artifacts when the job fails.
-
-The main CI matrix builds and tests on macOS and Ubuntu with both `opt` and `llc` required. Both jobs run the normal, sanitizer, and required leak lanes; Ubuntu installs Valgrind and macOS falls back to `/usr/bin/leaks`. Jobs have read-only repository permissions, a 45-minute timeout, and cancellation for superseded runs.
-
 ## Notable engineering challenges
-
-### Keeping inference independent of declaration order
-
-Forward calls, recursion, optional return annotations, generic families, and expected-type inference interact. A single left-to-right checker either rejects valid programs or creates implicit order dependencies. The fixed-point inference pass makes progress explicit and gives underconstrained recursive cycles a deterministic escape hatch: add a return annotation.
 
 ### Specializing source-written generic ADTs
 
@@ -341,15 +308,7 @@ The standard library creates nested generic calls: a heap specialization calls S
 
 ### Reconciling mutation with value ownership
 
-Container parameters need borrowed handles so `sequence_push(s, x)` mutates caller-visible storage, while `let copy = s` must produce an independently droppable value. The solution separates binding copy semantics from call semantics and generates hidden container clone/drop operations as ordinary monomorphized stdlib requests. Making every independent heap value actually get dropped is a separate, later problem; see [Closing forgotten drops on independent heap values](#closing-forgotten-drops-on-independent-heap-values).
-
-### Making nested assignment composable
-
-Adding arrays and structs changes assignment from “look up a local slot” into recursive address computation. The Place abstraction prevents each feature from inventing its own lvalue path and lets type checking and codegen enforce the same assignability boundary.
-
-### Preserving abstraction across representation choices
-
-The ADT API must behave the same for array/list and BST/hashmap implementations while retaining honest complexity differences. Conformance examples run the same operations across tags; heap intentionally demonstrates how an abstraction can preserve correctness while still exposing representation-dependent performance.
+Container parameters need borrowed handles so `sequence_push(s, x)` mutates caller-visible storage, while `let copy = s` must produce an independently droppable value. The solution separates binding copy semantics from call semantics and generates hidden container clone/drop operations as ordinary monomorphized stdlib requests. 
 
 ### Managing raw layout without exposing raw pointers
 
@@ -357,7 +316,7 @@ Source-written containers need allocation and typed access, but a public pointer
 
 ### Closing forgotten drops on independent heap values
 
-Noria has no GC. Every independent heap object the compiler creates—empty or nonempty `[T]`, a heap `str` from concat or `clone_str`, a Sequence/Dictionary/Set handle, or a struct that owns any of those—must be dropped exactly once. The language rule is simple; the lowering is not. Allocation is scattered across default values, literals, concat, collection `+`, clones, stdlib `New`/`Get`, and struct/array construction. Consumption is equally scattered: named locals, field and element places, projections (`.field`, `[i]`), builtins (`len`, `print`), user calls, comparisons, and scope exit. A path that mallocs and then leaves `Value.owned == false` is invisible to `emitReleaseIfOwned` and to `emitDropLocal` (which also no-ops when a place has no `ownedSlot`). Ubuntu ASan runs generated natives with `detect_leaks=1`; Darwin sets `detect_leaks=0` because Apple's ASan has no usable LSan. Ordinary `just test` does not set `NORIA_NATIVE_ASAN`. So a missing drop is a real bug on every OS and a red CI job only on Linux sanitize, and only after earlier leaks in the same harness phase are gone.
+Noria has no garbage collector. Every independent heap object the compiler creates, empty or nonempty `[T]`, a heap `str` from concat or `clone_str`, a Sequence/Dictionary/Set handle, or a struct that owns any of those, must be dropped exactly once. The language rule is simple; the lowering is not. Allocation is scattered across default values, literals, concat, collection `+`, clones, stdlib `New`/`Get`, and struct/array construction. Consumption is equally scattered: named locals, field and element places, projections (`.field`, `[i]`), builtins (`len`, `print`), user calls, comparisons, and scope exit. A path that mallocs and then leaves `Value.owned == false` is invisible to `emitReleaseIfOwned` and to `emitDropLocal` (which also no-ops when a place has no `ownedSlot`). Ubuntu ASan runs generated natives with `detect_leaks=1`; Darwin sets `detect_leaks=0` because Apple's ASan has no usable LSan. Ordinary `just test` does not set `NORIA_NATIVE_ASAN`. So a missing drop is a real bug on every OS and a red CI job only on Linux sanitize, and only after earlier leaks in the same harness phase are gone.
 
 The architecture that has to hold together is the one in [Ownership and memory model](#ownership-and-memory-model):
 
@@ -367,7 +326,7 @@ The architecture that has to hold together is the one in [Ownership and memory m
 - Borrow-mode rvalues avoid cloning a local just to read it. Own mode, or a projection out of an owned temporary, must clone a managed result before the aggregate is dropped.
 - `__rt_load` clones only `str`. Index `Get` of `str` is therefore an independent heap value; index `Get` of `[T]` is a borrow into the container.
 
-The failures that showed up—and the ones the same rule predicted—were one class: **independent heap, then forgotten drop**.
+The failures that showed up, and the ones the same rule predicted, were one class: **independent heap, then forgotten drop**.
 
 | Hole | What allocated | Why it leaked |
 | --- | --- | --- |
@@ -386,21 +345,4 @@ The overarching fix is one rule, centralized rather than another per-site `if`:
 2. **A managed place owns its occupant.** `emitAssignPlace` is the only assignment store: drop the current value (`ownedSlot` gated, otherwise load-and-drop), clone an unowned rvalue, then store. No raw `emitStore` fallback for managed types.
 3. **A projection out of an owned aggregate drops the aggregate after the result is independently owned.** Index and field reads clone a managed result when the mode is Own or the base is owned, then `emitReleaseIfOwned(base)`. Identifier bases stay unowned, so `len(holder.nested)` does not drop the local.
 
-That is not a proof of ownership soundness. Left closed only if a later sanitizer names them: `New` samples that are themselves `[T]`; `sequence_get` of `[T]` as a `Call` (marked owned even though `__rt_load` does not clone arrays—use-after-free, the opposite flavour); index-assign of `[T]` where `store_at` does not clone and then `emitReleaseIfOwned` frees the buffer still in the container; `__rt_alloc` raw pointers. The leak gate remains Ubuntu LSan on generated natives, plus IR assertions that owned slots are `true` and that overwritten or temporary headers are `free`d.
-
-## Tradeoffs and alternatives considered
-
-| Decision | Benefit | Cost / accepted limitation |
-| --- | --- | --- |
-| Textual LLVM IR instead of LLVM C++ API | Small build surface, readable output, easy IR assertions | String construction is less structurally safe; target/tool integration is manual |
-| Recursive-descent precedence functions instead of Pratt parsing | Grammar and diagnostics remain explicit for a modest operator set | Adding operators touches the precedence ladder |
-| Checked AST directly to LLVM instead of a semantic IR | Fewer layers in a compact compiler | Some type/layout knowledge is revisited in codegen; advanced optimization belongs to LLVM |
-| Stack-slot lowering instead of early SSA construction | Simple locals, places, and control-flow joins | Verbose `-O0` IR; relies on LLVM optimization for promotion |
-| Monomorphization instead of erasure/boxing | Concrete layouts, no generic dispatch, straightforward constraints | Code-size growth; defensive specialization limits are required |
-| Closed implementation tags instead of traits | Predictable selection and finite constraint rules | Users cannot define new tags or overload operations |
-| Source stdlib over private primitives | Exercises the language and keeps algorithms inspectable | Compiler/runtime and stdlib still share a trusted ABI contract |
-| Deep-copy values + borrowed parameters | Deterministic ownership without GC/reference counting | Copying large aggregates is O(n); aliasing semantics require explanation |
-| Flatten imported declarations + preserve origins | Keeps later phases single-module and simple | No separately compiled user modules or package graph yet |
-| C strings | Direct libc interoperability and compact runtime | O(n) length, byte indexing, no embedded-null/Unicode model |
-| Unbalanced BST and list-backed heap | Keeps alternate representations inspectable and validates abstraction | Worst-case BST O(n); list heap is intentionally inefficient |
-| Explicit shell corpus rather than generated test manifests | Test intent and expected diagnostics remain visible | Harness is long and requires manual registration for detailed native assertions |
+That is not a proof of ownership soundness. Left closed only if a later sanitizer names them: `New` samples that are themselves `[T]`; `sequence_get` of `[T]` as a `Call` (marked owned even though `__rt_load` does not clone arrays, use-after-free, the opposite flavour); index-assign of `[T]` where `store_at` does not clone and then `emitReleaseIfOwned` frees the buffer still in the container; `__rt_alloc` raw pointers. The leak gate remains Ubuntu LSan on generated natives, plus IR assertions that owned slots are `true` and that overwritten or temporary headers are `free`d.
