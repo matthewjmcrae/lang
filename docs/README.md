@@ -184,8 +184,6 @@ The end-to-end harness validates more than successful compilation. It checks loc
 
 The harness also exercises `noria --help`, stdlib discovery through `PATH` from another directory, the `cmake --install` layout, and the same-LLVM `llc` object path used before host linking. GitHub Actions requires both `opt` and `llc` and runs normal, sanitizer, and required leak lanes on macOS and Ubuntu.
 
-Fuzzing is WIP and is not part of the canonical test suite or a benchmark. A separate scheduled workflow currently runs the Clang/libFuzzer target weekly and uploads crash artifacts on failure.
-
 See [PERFORMANCE.md](PERFORMANCE.md) for the historical 19,600-run measurement. It is documented separately because the repository does not currently ship a benchmark target or enforce performance thresholds in CI.
 
 ## Current Boundaries
