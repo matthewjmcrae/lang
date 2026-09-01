@@ -1,4 +1,4 @@
-**# Noria
+# Noria
 
 Noria is a statically typed compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or drive LLVM object emission and host linking to produce native executables on macOS and Linux.
 
