@@ -1,4 +1,4 @@
-# Noria
+**# Noria
 
 Noria is a statically typed compiled language created by Matthew McRae. Its C++20 compiler owns the pipeline from source text to LLVM IR, and its standard library is written largely in Noria itself. The CLI can emit inspectable textual LLVM IR or drive LLVM object emission and host linking to produce native executables on macOS and Linux.
 
@@ -195,3 +195,16 @@ See [PERFORMANCE.md](PERFORMANCE.md) for the historical 19,600-run measurement. 
 - containers support scalar elements/keys/values, not arbitrary nested ADTs or struct elements;
 - the BST is currently not self-balancing, and the list-backed heap exposes the cost of poor random access;
 - the compiler emits textual LLVM IR instead of using LLVM's C++ API.
+
+
+## AI Workflow
+
+Since this project was deeper in scope than what an AI agent could handle by itself, I viewed this project as an opportunity to learn about how to *work with* AI and effectively integrate AI into my workflow.
+
+I found AI most effective when the problem had already been decomposed into small steps and the architecture was very clear. For prototyping new features, I generally preferred cheaper models (e.g., Composer 2.5) since they are good enough to handle the task when given a clear plan without excessive cost.
+
+AI was especially useful for test-driven development. Before implementing a new feature, I could generate large sets of positive and negative Noria programs describing the intended behaviour, then develop against those tests.
+
+Using AI as an advanced search engine helped me pick up new concepts that I was unfamiliar with. For example, while deciding on a memory model for Noria, I used it to quickly explore garbage collection in the context of Noria development to aid me in weighing the tradeoffs between garbage collection and a more C++ style ownership model.
+
+AI had many limitations as AI implementations were often correct at a high level, but had problems at the systems level. AI implementations were inefficient and leaked memory. This is where my architectural decisions were important for designing the memory model for Noria and optimizing performance to cut compile times by almost 4x.
