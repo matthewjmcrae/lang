@@ -205,6 +205,6 @@ I found AI most effective when the problem had already been decomposed into smal
 
 AI was especially useful for test-driven development. Before implementing a new feature, I could generate large sets of positive and negative Noria programs describing the intended behaviour, then develop against those tests.
 
-I also used AI as an advanced search engine to help me pick up new concepts that I was unfamiliar with. For example, while deciding on a memory model for Noria, I used it to quickly explore garbage collection in the context of Noria development to aid me in weighing the tradeoffs between garbage collection and a C++ style ownership model.
+I also used AI to quickly explore unfamiliar technical concepts. While designing Noria’s memory model, for example, I used it to compare garbage collection and C++ style ownership approaches, helping me map out the tradeoffs before choosing a direction.
 
 AI had many limitations as AI implementations were often correct at a high level, but had problems at the systems level. Many AI implementations were inefficient and leaked memory. This is where my architectural decisions became especially important, both in shaping Noria’s memory model and in the performance work that ultimately reduced compile times by almost 4x.
