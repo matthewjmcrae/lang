@@ -195,3 +195,16 @@ See [PERFORMANCE.md](PERFORMANCE.md) for the historical 19,600-run measurement. 
 - containers support scalar elements/keys/values, not arbitrary nested ADTs or struct elements;
 - the BST is currently not self-balancing, and the list-backed heap exposes the cost of poor random access;
 - the compiler emits textual LLVM IR instead of using LLVM's C++ API.
+
+
+## AI Workflow
+
+Since this project was deeper in scope than what an AI agent could handle by itself, I viewed this project as an opportunity to learn about how to *work with* AI and effectively integrate AI into my workflow.
+
+I found AI most effective when the problem had already been decomposed into small steps and the architecture was very clear. For prototyping new features, I generally preferred cheaper models (e.g., Composer 2.5) since they are good enough to handle the task when given a clear plan.
+
+AI was especially useful for test-driven development. Before implementing a new feature, I could generate large sets of positive and negative Noria programs describing the intended behaviour, then develop against those tests.
+
+I also used AI to quickly explore unfamiliar technical concepts. While designing Noria’s memory model, for example, I used it to compare garbage collection and C++ style ownership approaches, helping me map out the tradeoffs before choosing a direction.
+
+AI had many limitations as AI implementations were often correct at a high level, but had problems at the systems level. Many AI implementations were inefficient and leaked memory. This is where my architectural decisions became especially important, both in shaping Noria’s memory model and in the performance work that ultimately reduced compile times by almost 4x.
