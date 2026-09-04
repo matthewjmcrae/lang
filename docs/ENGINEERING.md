@@ -187,9 +187,10 @@ Noria has no garbage collector. Managed values use value semantics at bindings a
 | Operation | Managed-value behavior |
 | --- | --- |
 | `let b = a` | Deep clone; `a` and `b` can be dropped independently |
-| Function argument | Borrow the caller's value; in-place container/array mutation remains visible |
+| Ordinary struct argument | Copy the aggregate and recursively clone managed fields; the callee owns an independent parameter value |
+| Direct `str`, `[T]`, or standard-ADT argument | Borrow the caller's storage; in-place container/array mutation remains visible |
 | Return owned local/temporary | Move ownership to the caller |
-| Return borrowed parameter | Clone before returning |
+| Return borrowed direct managed parameter | Clone before returning |
 | Reassignment of a local, field, or index | Drop the previous occupant, then store/move or clone the replacement |
 | Scope exit / early return | Drop every still-owned local in exited scopes |
 | Default-initialized managed local | Construct the default; mark owned when `typeNeedsDrop` |
@@ -198,7 +199,7 @@ Noria has no garbage collector. Managed values use value semantics at bindings a
 | Container index `Get` of `str` | Independent clone (`__rt_load`); owned |
 | Container index `Get` of `[T]` | Borrow into the container; not owned |
 
-Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. `OwnershipEmitter` is the single place that decides whether a type needs a drop (`str`, `[T]`, standard ADTs, and structs that contain those), clones, drops a value, assigns into a place, or releases a temporary. `emitDefaultValue` sets `owned` from `typeNeedsDrop` on every path. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Parameters begin borrowed. Returns clear a moved local's ownership flag or clone borrowed storage. Borrow-mode expression lowering avoids cloning a managed local merely to pass it, while still marking a newly allocated temporary as owned; after the callee or consuming builtin returns, that temporary is released. `emitAssignPlace` is the only assignment store for managed types: it drops the occupant (an `ownedSlot` when present, otherwise load-and-drop) before storing. Index and field reads clone a managed result when the mode is Own or the base is owned, then release the base. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields. The language-facing table is in [SYNTAX.md](SYNTAX.md#ownership); residuals and the leak class are in [Closing forgotten drops on independent heap values](#closing-forgotten-drops-on-independent-heap-values).
+Codegen tracks this with an `owned` bit on generated values and an ownership slot for managed locals/parameters. `OwnershipEmitter` is the single place that decides whether a type needs a drop (`str`, `[T]`, standard ADTs, and structs that contain those), clones, drops a value, assigns into a place, or releases a temporary. `emitDefaultValue` sets `owned` from `typeNeedsDrop` on every path. Managed locals get unique LLVM names for both the value slot (`%name.slotN`) and the owned flag (`%name.ownedN`), independent of source names reused across sibling scopes. Direct `str`, array, and standard-ADT parameters begin borrowed. Ordinary struct parameters are aggregate copies; when they contain managed data, the callee recursively clones their fields and owns the resulting parameter value. Returns clear a moved local's ownership flag or clone borrowed storage. Borrow-mode expression lowering avoids cloning a direct managed local merely to pass it, while still marking a newly allocated temporary as owned; the ordinary-struct callee prologue establishes the independent copy required by the language contract. After the callee or consuming builtin returns, an owned temporary argument is released. `emitAssignPlace` is the only assignment store for managed types: it drops the occupant (an `ownedSlot` when present, otherwise load-and-drop) before storing. Index and field reads clone a managed result when the mode is Own or the base is owned, then release the base. Drop emission walks scopes in reverse and recursively handles managed array elements and struct fields. The language-facing table is in [SYNTAX.md](SYNTAX.md#ownership); residuals and the leak class are in [Closing forgotten drops on independent heap values](#closing-forgotten-drops-on-independent-heap-values).
 
 The same model covers:
 
@@ -207,7 +208,7 @@ The same model covers:
 - ordinary structs containing managed fields
 - standard ADTs through compiler-requested hidden `clone` and `drop` specializations
 
-Deep copy is intentionally favored over reference counting. It gives simple, deterministic value semantics and avoids aliasing/double-free hazards at the cost of O(n) copies for managed aggregates. Function borrowing prevents every call from paying that cost.
+Deep copy is intentionally favored over reference counting. It gives simple, deterministic value semantics and avoids aliasing/double-free hazards at the cost of O(n) copies for managed aggregates. Direct strings, arrays, and standard ADTs are borrowed at calls to preserve their established call semantics; ordinary struct calls pay the recursive copy cost needed to isolate the callee from the caller.
 
 ## Runtime representation and safety
 
@@ -232,7 +233,7 @@ Element stride comes from shared type metadata; `[bool]` deliberately uses byte 
 
 ### Structs
 
-Structs lower to named LLVM aggregate types. Fields retain source declaration order even when a literal supplies them in another order. Locals and parameters use stack slots, field access lowers through GEP, and structs are passed/returned by value. Default-initialized structs with managed fields are marked owned. Field assignment goes through `emitAssignPlace`. Field reads of an owned temporary clone a managed result and then drop the aggregate. Managed fields add recursive clone/drop work.
+Structs lower to named LLVM aggregate types. Fields retain source declaration order even when a literal supplies them in another order. Locals and parameters use stack slots, field access lowers through GEP, and ordinary structs are passed/returned by value. An ordinary struct parameter containing managed data is recursively cloned into callee-owned storage before its body executes; nested structs, arrays and their managed elements, strings, and standard-ADT fields participate in that clone. Callee field assignment therefore drops only the callee's occupant. Default-initialized structs with managed fields are marked owned. Field assignment goes through `emitAssignPlace`. Field reads of an owned temporary clone a managed result and then drop the aggregate. `Sequence`, `Dictionary`, and `Set` are represented as structs but retain borrowed semantics when passed directly to their operations.
 
 ### Standard ADTs
 
@@ -323,6 +324,7 @@ The architecture that has to hold together is the one in [Ownership and memory m
 - `typeNeedsDrop` is the recursive predicate: `str`, `[T]`, standard containers, and any struct containing those.
 - A generated `Value` is either a borrow (`owned=false`) or an independent heap object (`owned=true`). Immortal string literals use a negative header tag; `drop_str` is a no-op on them, so marking a default `""` owned is safe.
 - Named managed locals have an `ownedSlot`. Field and array-element places do not; the aggregate owns the occupant.
+- Direct `str`, array, and standard-ADT parameters are borrowed. Ordinary struct parameters are independent aggregate copies and own recursive clones of their managed fields.
 - Borrow-mode rvalues avoid cloning a local just to read it. Own mode, or a projection out of an owned temporary, must clone a managed result before the aggregate is dropped.
 - `__rt_load` clones only `str`. Index `Get` of `str` is therefore an independent heap value; index `Get` of `[T]` is a borrow into the container.
 

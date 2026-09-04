@@ -842,6 +842,18 @@ for source in "${ROOT_DIR}"/examples/basic/*.noria; do
   compile_example "${source}"
 done
 
+MANAGED_STRUCT_PARAMETER_CASES=(
+  "${ROOT_DIR}/tests/fixtures/managed_struct_parameters/string_field.noria"
+  "${ROOT_DIR}/tests/fixtures/managed_struct_parameters/array_field.noria"
+  "${ROOT_DIR}/tests/fixtures/managed_struct_parameters/nested_struct_field.noria"
+  "${ROOT_DIR}/tests/fixtures/managed_struct_parameters/sequence_field.noria"
+)
+
+phase "compile managed struct parameter regressions"
+for source in "${MANAGED_STRUCT_PARAMETER_CASES[@]}"; do
+  compile_example "${source}"
+done
+
 phase "emit tokens examples/basic/lexer_smoke.noria"
 set_case "examples/basic/lexer_smoke.noria"
 run_noria --emit-tokens "${ROOT_DIR}/examples/basic/lexer_smoke.noria" \
@@ -1440,6 +1452,12 @@ run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_assign_str.noria
   "${ROOT_DIR}/examples/basic/struct_field_assign_str.expected"
 run_native_stdout_test "${ROOT_DIR}/examples/basic/struct_field_order.noria" \
   "${ROOT_DIR}/examples/basic/struct_field_order.expected"
+
+phase "managed struct parameters are independent deep copies"
+for source in "${MANAGED_STRUCT_PARAMETER_CASES[@]}"; do
+  run_native_exit_test "${source}" 0
+done
+
 grep -q "%point = type { i32, i32 }" "${TEST_OUT_DIR}/struct_point.ll"
 grep -q "getelementptr inbounds %point, ptr %t[0-9]*, i32 0, i32 1" \
   "${TEST_OUT_DIR}/struct_field_order.ll"
@@ -1950,6 +1968,9 @@ if [[ -n "${CLANG}" ]]; then
       local_name="${entry%%:*}"
       expected_exit="${entry##*:}"
       run_optimized_native_exit_test "${ROOT_DIR}/examples/basic/${local_name}" "${expected_exit}"
+    done
+    for source in "${MANAGED_STRUCT_PARAMETER_CASES[@]}"; do
+      run_optimized_native_exit_test "${source}" 0
     done
   else
     echo "[noria-tests] skip optimizer checks: opt not found; set LLVM_BIN or add opt to PATH" >&2

@@ -1,0 +1,21 @@
+struct Value {
+  text: str;
+}
+
+struct Holder {
+  value: Value;
+}
+
+fn replace(h: Holder) -> void {
+  h.value.text = "new";
+  return;
+}
+
+fn main() -> i32 {
+  let h: Holder = Holder { value: Value { text: "old" + " value" } };
+  replace(h);
+  if h.value.text == "old value" {
+    return 0;
+  }
+  return 1;
+}
