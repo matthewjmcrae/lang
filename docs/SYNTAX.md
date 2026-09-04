@@ -402,9 +402,10 @@ Noria has no garbage collector. `str`, `[T]`, `Sequence`/`Dictionary`/`Set`, and
 | Operation | Managed-value behavior |
 | --- | --- |
 | `let b = a` | Deep clone; `a` and `b` drop independently |
-| Function argument | Borrow the caller's value; in-place mutation remains visible |
+| Ordinary struct argument | Copy the aggregate and recursively clone managed fields; callee mutation is isolated from the caller |
+| Direct `str`, `[T]`, or `Sequence`/`Dictionary`/`Set` argument | Borrow the caller's storage; array and ADT in-place mutation remains visible |
 | Return owned local/temporary | Move ownership to the caller |
-| Return borrowed parameter | Clone before returning |
+| Return borrowed direct managed parameter | Clone before returning |
 | Reassignment of a local, field, or index | Drop the previous occupant, then store |
 | Scope exit / `main` return | Drop every still-owned local |
 | Default-initialized managed local | Owns the constructed default (empty `[T]`, empty ADT, field-wise struct defaults) |
@@ -811,7 +812,7 @@ Read a field as an rvalue with postfix `.ident`:
 origin.x + origin.y
 ```
 
-Struct values are first-class aggregates stored in local slots. A typed struct local without an initializer default-initializes each field; managed fields are owned by that local. Copying a struct (`let b: Point = a;`) copies the aggregate value and deep-clones managed fields. Passing a struct to a function or returning one from a function also copies the aggregate; callee mutations to parameter fields do not affect the caller's local. Mutate a field through a local with postfix assignment; a managed occupant is dropped before the store:
+Struct values are first-class aggregates stored in local slots. A typed struct local without an initializer default-initializes each field; managed fields are owned by that local. Copying an ordinary struct (`let b: Point = a;`) copies the aggregate value and recursively deep-clones managed fields, including fields inside nested structs, managed array elements, and standard-library ADTs. Passing an ordinary struct to a function creates the same independent copy, so assigning a parameter field or mutating storage reached through that field does not affect the caller's local. Returning an ordinary struct transfers an independent aggregate value to the caller. `Sequence`, `Dictionary`, and `Set` are standard-library ADTs with explicit borrowed call behavior when passed directly; their representation as structs does not give direct ADT parameters ordinary-struct argument semantics. Mutate a field through a local with postfix assignment; a managed occupant is dropped before the store:
 
 ```noria
 p.x = 10;

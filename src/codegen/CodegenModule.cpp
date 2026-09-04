@@ -190,31 +190,51 @@ namespace noria::codegen_detail {
 
     context.scopes.emplace_back();
 
+
     for (const auto& parameter : function.parameters) {
       const Type parameterType = parameter.type;
-      LocalBinding binding{"%" + parameter.name, parameterType, false, {}};
-      if (ownership_.typeNeedsDrop(parameterType, context)) {
+      const bool needsDrop = ownership_.typeNeedsDrop(parameterType, context);
+
+      const std::string slot = "%" + parameter.name;
+      LocalBinding binding{slot, parameterType, false, {}};
+
+      if (needsDrop) {
         binding.ownedSlot = "%" + parameter.name + ".owned";
         emitter.emitAlloca(Type::boolean(), binding.ownedSlot);
-        emitter.line("store i1 false, ptr " + binding.ownedSlot);
       }
 
-      if (!context.declareLocal(parameter.name, std::move(binding),
-                                ownership_.typeContainsManaged(parameterType, context))) {
+      emitter.emitAlloca(parameterType, slot);
+
+      if (!context.declareLocal(
+            parameter.name,
+            std::move(binding),
+            ownership_.typeContainsManaged(parameterType, context))) {
         throw CompileError("codegen: duplicate parameter '" + parameter.name + "'");
       }
 
-      const std::string slot = "%" + parameter.name;
-      emitter.emitAlloca(parameterType, slot);
-      emitter.emitStore(parameterType, "%" + parameter.name + ".param", slot);
+      Value parameterValue{
+        "%" + parameter.name + ".param",
+        parameterType,
+        false,
+      };
+
+      const bool copyManagedStruct = needsDrop && parameterType.kind() == TypeKind::Struct && !standardContainerKindFromStructName(parameterType.structName());
+
+      if (copyManagedStruct) {
+        parameterValue = ownership_.emitCloneValue(parameterValue, emitter, context);
+      }
+
+      const LocalBinding& local = context.lookupLocal(parameter.name);
+      ownership_.emitStoreManagedLocal(local, parameterValue, emitter, context);
     }
 
     const bool emittedReturn =
-        statements_.generateStatements(function.body, emitter, context, returnType);
+    statements_.generateStatements(function.body, emitter, context, returnType);
 
     if (!emittedReturn) {
-      throw CompileError("codegen: function '" + function.name +
-                         "' reached code generation without an explicit return");
+      throw CompileError(
+          "codegen: function '" + function.name +
+          "' reached code generation without an explicit return");
     }
 
     out << "}\n";

@@ -1,0 +1,23 @@
+struct Holder {
+  values: [str];
+}
+
+fn replace(h: Holder) -> void {
+  h.values = ["new"];
+  return;
+}
+
+fn main() -> i32 {
+  let h: Holder = Holder { values: ["old" + " value", "kept"] };
+  replace(h);
+  if len(h.values) != 2 {
+    return 1;
+  }
+  if h.values[0] != "old value" {
+    return 2;
+  }
+  if h.values[1] != "kept" {
+    return 3;
+  }
+  return 0;
+}

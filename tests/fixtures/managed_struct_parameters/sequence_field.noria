@@ -1,0 +1,28 @@
+import std::sequence::{Sequence, sequence_get, sequence_len, sequence_new, sequence_push};
+
+struct Holder {
+  values: Sequence<i32, arr>;
+}
+
+fn replace(h: Holder) -> void {
+  h.values = sequence_new(9);
+  return;
+}
+
+fn main() -> i32 {
+  let values: Sequence<i32, arr> = sequence_new(0);
+  sequence_push(values, 1);
+  sequence_push(values, 2);
+  let h: Holder = Holder { values: values };
+  replace(h);
+  if sequence_len(h.values) != 2 {
+    return 1;
+  }
+  if sequence_get(h.values, 0) != 1 {
+    return 2;
+  }
+  if sequence_get(h.values, 1) != 2 {
+    return 3;
+  }
+  return 0;
+}
